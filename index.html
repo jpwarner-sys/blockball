@@ -626,7 +626,9 @@
     var p = store.profiles[activeProfile] || store.profiles[0];
     return {
       x: 120, y: 270, r: 21,
-      spd: 205, walk: 0, vx: 0, vy: 0,
+      /* CHIEF BB-V6.3 — 158 px/s is the number from Joe's v3 build, the one LP
+         played to floor 20 and then said "I like the controls, keep them". */
+      spd: 158, walk: 0, vx: 0, vy: 0,
       hp: 5, maxHp: 5,
       frag: 0,
       dmgLv: 0, spdLv: 0, blkLv: 0, hpBought: 0, fireLv: 0,
@@ -1107,8 +1109,8 @@
     if (!ball.live) {
       /* CHIEF BB-V5.3 — the ball at rest used to be drawn over the hero's face.
          It now sits in the throwing hand, out to the side and low. */
-      ball.x = player.x + player.facing * 34;
-      ball.y = player.y + 6;
+      ball.x = player.x + player.facing * 30;
+      ball.y = player.y - 8;
       return;
     }
     if (ball.ret) {
@@ -1626,6 +1628,17 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     return "#" + ((1 << 24) + (r << 16) + (g2 << 8) + b).toString(16).slice(1);
   }
 
+  /* the old game's ball skins: a highlight, a body and a seam per skin */
+  function ballCols() {
+    var id = player && player.cos ? player.cos.ball : "classic";
+    if (id === "rose") return { hi: "#ffc8d8", lo: "#c04868", seam: "#fff0f4" };
+    if (id === "midnight") return { hi: "#8098d8", lo: "#1c2848", seam: "#c8d8ff" };
+    if (id === "rune") return { hi: "#90e0d0", lo: "#186858", seam: "#0a3028" };
+    if (id === "ivy") return { hi: "#90d878", lo: "#205828", seam: "#0c2810" };
+    if (id === "cracked") return { hi: "#e8a070", lo: "#8c3810", seam: "#2a1008" };
+    return { hi: "#f0a050", lo: "#c45a12", seam: "#1a120c" };
+  }
+
   function ballColour() {
     var skin = player && player.cos ? player.cos.ball : "classic";
     if (skin === "rose") return "#d07090";
@@ -1633,7 +1646,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     if (skin === "rune") return "#40a090";
     if (skin === "ivy") return "#3a8848";
     if (skin === "cracked") return "#b05020";
-    return "#d06018";
+    return ballCols().lo;
   }
 
   function drawWorld(g) {
@@ -1732,103 +1745,119 @@ g.beginPath(); g.arc(S.splits[sp].x, S.splits[sp].y, S.splits[sp].r, 0, 6.3); g.
      Everything is derived from HS so one number changes his whole scale. */
   var HS = 2.15;
 
+  /* CHIEF BB-V6.1 — lifted verbatim in behaviour from Joe's own v3 build
+     (artifact 9c0196b1, `function cube`). This one function is why the old game
+     looked like Minecraft Dungeons and the new one looked like coloured squares:
+     every solid is a lit top face, a darker front face dropped by its depth, a
+     seam line where the two meet, and a dark outline. Nothing else about the art
+     mattered as much as this. */
+  function cube(g, x, y, w, h, z, col, outline) {
+    g.fillStyle = shade(col, 0.72);
+    g.fillRect(x, y + h, w, z);
+    g.fillStyle = shade(col, 1.22);
+    g.fillRect(x, y, w, h);
+    g.fillStyle = shade(col, 0.9);
+    g.fillRect(x, y + h - 2, w, 2);
+    if (outline !== false) {
+      g.strokeStyle = shade(col, 0.38);
+      g.lineWidth = 1;
+      g.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
+    }
+  }
+
   function px(g, x, y, w, h, col) {
     g.fillStyle = col;
     g.fillRect(Math.round(x), Math.round(y), Math.round(w), Math.round(h));
   }
 
+  /* CHIEF BB-V6.1 — the hero rebuilt on Joe's own `drawKid`: legs, body, head and
+     hat each their own cube, and the idle bob (`sin(t*7)`) that made him feel alive
+     standing still. Sized off HS so he keeps the scale Joe asked for, and coloured
+     from the profile palette so EMBER, QUILL, NOVA and RIFT stay different people. */
   function drawPlayer(g) {
     var cos = player.cos;
     var pal = PALETTES[cos.pal] || PALETTES.ember;
     if (player.inv > 0 && Math.floor(player.inv * 12) % 2 === 0) g.globalAlpha = 0.45;
 
-    var bw = (cos.body === "tall" ? 12 : cos.body === "round" ? 18 : cos.body === "swift" ? 12 : 14) * HS;
-    var bh = (cos.body === "tall" ? 26 : cos.body === "round" ? 16 : cos.body === "swift" ? 20 : 22) * HS;
-    var hw = 14 * HS, hh = 12 * HS;
-    var x = player.x, y = player.y;
-    var top = y - bh / 2;
-    var f = player.facing;
-
+    /* Joe's own offsets, unchanged: head at 0, body at 0.55, legs at 1.15, all
+       measured down from py = y - s*1.55. Only `sc` is ours, so he is the size
+       Joe asked for while standing in exactly the proportions that worked. */
+    var sc = 22 * HS;
     var moving = Math.hypot(player.vx || 0, player.vy || 0) > 12;
+    var bob = Math.sin(S.t * 7) * (moving ? 1.4 : 0.45);
     var step = moving ? Math.sin(player.walk) : 0;
-    var lift = Math.abs(step) * 3 * HS;
+    var lift = Math.abs(step) * sc * 0.09;
 
-    var dark = "#1a120c";
-    var legW = 6 * HS, legH = 10 * HS;
-    var legY = y + bh / 2 - 1;
+    var bw = cos.body === "tall" ? 0.72 : cos.body === "round" ? 0.98 : cos.body === "swift" ? 0.7 : 0.84;
+    var bh = cos.body === "tall" ? 0.86 : cos.body === "round" ? 0.56 : cos.body === "swift" ? 0.64 : 0.7;
 
-    // shadow — grounds him on the flagstones
-    g.globalAlpha *= 1;
-    g.fillStyle = "rgba(10,8,6,0.35)";
-    g.beginPath(); g.ellipse(x, legY + legH + 2, bw * 0.62, 4 * HS, 0, 0, 6.3); g.fill();
+    var x = player.x, f = player.facing;
+    var pxl = x - sc * 0.5, pyt = player.y - sc * 1.55 + bob;
 
-    // legs, alternating
-    px(g, x - bw / 2 - 1, legY - (step > 0 ? lift : 0), legW, legH, pal.b);
-    px(g, x + bw / 2 - legW + 1, legY - (step < 0 ? lift : 0), legW, legH, pal.b);
-    px(g, x - bw / 2 - 1, legY + legH - 3 * HS - (step > 0 ? lift : 0), legW, 3 * HS, dark);
-    px(g, x + bw / 2 - legW + 1, legY + legH - 3 * HS - (step < 0 ? lift : 0), legW, 3 * HS, dark);
+    g.fillStyle = "rgba(10,8,6,0.34)";
+    g.beginPath(); g.ellipse(x, player.y + sc * 0.3, sc * 0.44, sc * 0.15, 0, 0, 6.3); g.fill();
 
-    // back arm
-    px(g, x - f * (bw / 2 + 4 * HS), top + 4 * HS + lift * 0.4, 5 * HS, 14 * HS, pal.b);
+    cube(g, pxl + sc * 0.12, pyt + sc * 1.15 - (step > 0 ? lift : 0), sc * 0.28, sc * 0.28, sc * 0.18, pal.b);
+    cube(g, pxl + sc * 0.58, pyt + sc * 1.15 - (step < 0 ? lift : 0), sc * 0.28, sc * 0.28, sc * 0.18, pal.b);
 
-    /* CHIEF BB-V5.4 — the same lit-top / shaded-bottom treatment the enemies get, or
-       the hero reads as one flat orange slab against a dark floor. */
-    px(g, x - bw / 2 - 1, top - 1, bw + 2, bh + 2, dark);
-    px(g, x - bw / 2, top, bw, bh, pal.a);
-    px(g, x - bw / 2, top, bw, bh * 0.22, shade(pal.a, 1.25));
-    px(g, x - bw / 2, top + bh * 0.74, bw, bh * 0.26, shade(pal.a, 0.66));
-    px(g, x - bw / 2, top + bh * 0.52, bw, 2.4 * HS, pal.b);
-    px(g, x - bw / 2, top + bh * 0.52, bw, 1 * HS, shade(pal.b, 1.3));
+    cube(g, pxl + sc * (0.5 - bw / 2), pyt + sc * (1.25 - bh), sc * bw, sc * bh, sc * 0.22, pal.a);
 
-    // throwing arm and gauntlet, swung toward the aim when there is one
-    var armA = S.aim ? S.aim.ang : (f > 0 ? -0.35 : Math.PI + 0.35);
-    var ax = x + Math.cos(armA) * (bw / 2 + 3 * HS);
-    var ay = top + bh * 0.35 + Math.sin(armA) * 5 * HS;
-    px(g, ax - 3 * HS, ay - 2 * HS, 6 * HS, 12 * HS, pal.a);
-    px(g, ax - 4 * HS, ay + 8 * HS, 8 * HS, 7 * HS, "#4a80c8");
-    px(g, ax - 3 * HS, ay + 9.5 * HS, 6 * HS, 4 * HS, "#8ac0f0");
+    var armA = S.aim ? S.aim.ang : (f > 0 ? -0.15 : Math.PI + 0.15);
+    var ax = x + Math.cos(armA) * sc * (bw * 0.5 + 0.14);
+    var ay = pyt + sc * 0.7 + Math.sin(armA) * sc * 0.2;
+    cube(g, ax - sc * 0.12, ay, sc * 0.24, sc * 0.3, sc * 0.1, pal.a);
+    cube(g, ax - sc * 0.16, ay + sc * 0.26, sc * 0.32, sc * 0.2, sc * 0.09, "#4a80c8");
 
-    // head — hair, a lit brow, white eyes with pupils that look where he faces
-    px(g, x - hw / 2 - 1, top - hh - 1, hw + 2, hh + 2, dark);
-    px(g, x - hw / 2, top - hh, hw, hh, pal.skin);
-    px(g, x - hw / 2, top - hh + hh * 0.78, hw, hh * 0.22, shade(pal.skin, 0.72));
-    px(g, x - hw / 2 - 1, top - hh - 2.5 * HS, hw + 2, 5 * HS, "#3a2a1c");
-    px(g, x - hw / 2 - 1, top - hh - 2.5 * HS, hw + 2, 1.6 * HS, "#54402c");
-    var ey = top - hh + 4.4 * HS, ew = 3.2 * HS, eh2 = 3.6 * HS, sep2 = 1.3 * HS;
-    px(g, x - sep2 - ew, ey, ew, eh2, "#f4f0e4");
-    px(g, x + sep2, ey, ew, eh2, "#f4f0e4");
-    var pw2 = 1.7 * HS, po = f > 0 ? ew - pw2 : 0;
-    px(g, x - sep2 - ew + po, ey + 0.9 * HS, pw2, pw2, dark);
-    px(g, x + sep2 + po, ey + 0.9 * HS, pw2, pw2, dark);
+    cube(g, pxl + sc * 0.18, pyt, sc * 0.64, sc * 0.58, sc * 0.2, pal.skin);
+    g.fillStyle = "#1a1a1a";
+    var e = Math.max(3, sc * 0.08), ex = f >= 0 ? e * 0.5 : -e * 0.5;
+    g.fillRect(pxl + sc * 0.32 + ex, pyt + sc * 0.2, e, e);
+    g.fillRect(pxl + sc * 0.52 + ex, pyt + sc * 0.2, e, e);
 
-    drawHat(g, x, top - hh, cos.hat, pal);
+    drawHat(g, x, pyt, cos.hat, pal, sc);
     g.globalAlpha = 1;
   }
 
-  function drawHat(g, x, y, hat, pal) {
+  /* CHIEF BB-V6.1 — hats as cubes on top of the head cube, Joe's own placement. */
+  function drawHat(g, x, y, hat, pal, sc) {
     if (hat === "none") return;
-    /* CHIEF BB-V5.2 — the hat was cut for a 14px head and is now worn on a 22px one. */
-    g.save(); g.translate(x, y); g.scale(HS, HS); g.translate(-x, -y);
-    drawHatArt(g, x, y, hat, pal);
-    g.restore();
-  }
-
-  function drawHatArt(g, x, y, hat, pal) {
+    var pxl = x - sc * 0.5;
     if (hat === "cap") {
-      g.fillStyle = pal.c; g.fillRect(x - 10, y - 2, 20, 5); g.fillRect(x - 2, y - 2, 14, 4);
+      cube(g, pxl + sc * 0.12, y - sc * 0.26, sc * 0.76, sc * 0.3, sc * 0.12, pal.c);
+      cube(g, pxl + sc * 0.5, y - sc * 0.02, sc * 0.5, sc * 0.12, sc * 0.05, shade(pal.c, 0.85));
     } else if (hat === "bow") {
-      g.fillStyle = pal.c; g.fillRect(x - 10, y, 8, 6); g.fillRect(x + 2, y, 8, 6); g.fillRect(x - 2, y + 1, 4, 4);
+      cube(g, pxl + sc * 0.1, y - sc * 0.18, sc * 0.26, sc * 0.24, sc * 0.08, pal.c);
+      cube(g, pxl + sc * 0.64, y - sc * 0.18, sc * 0.26, sc * 0.24, sc * 0.08, pal.c);
+      cube(g, pxl + sc * 0.42, y - sc * 0.12, sc * 0.16, sc * 0.16, sc * 0.06, shade(pal.c, 1.1));
     } else if (hat === "crown") {
-      g.fillStyle = "#e0c050"; g.fillRect(x - 9, y, 18, 5); g.fillRect(x - 9, y - 5, 4, 6); g.fillRect(x - 2, y - 6, 4, 7); g.fillRect(x + 5, y - 5, 4, 6);
+      cube(g, pxl + sc * 0.16, y - sc * 0.2, sc * 0.68, sc * 0.18, sc * 0.08, "#e0c050");
+      g.fillStyle = "#f0d870";
+      g.fillRect(pxl + sc * 0.2, y - sc * 0.38, sc * 0.1, sc * 0.2);
+      g.fillRect(pxl + sc * 0.45, y - sc * 0.44, sc * 0.12, sc * 0.26);
+      g.fillRect(pxl + sc * 0.7, y - sc * 0.38, sc * 0.1, sc * 0.2);
     } else if (hat === "helm") {
-      g.fillStyle = "#8a9088"; g.fillRect(x - 9, y - 2, 18, 10); g.fillStyle = "#222"; g.fillRect(x - 7, y + 2, 14, 3);
+      cube(g, pxl + sc * 0.1, y - sc * 0.22, sc * 0.8, sc * 0.36, sc * 0.16, "#8a9098");
+      g.fillStyle = "#1b1f24";
+      g.fillRect(pxl + sc * 0.2, y + sc * 0.08, sc * 0.6, sc * 0.09);
     } else if (hat === "flower") {
-      g.fillStyle = pal.c; g.beginPath(); g.arc(x - 6, y + 1, 4, 0, 6.3); g.arc(x + 6, y + 1, 4, 0, 6.3); g.arc(x, y - 3, 4, 0, 6.3); g.fill();
-      g.fillStyle = "#f0e060"; g.beginPath(); g.arc(x, y + 1, 2.5, 0, 6.3); g.fill();
+      cube(g, pxl + sc * 0.14, y - sc * 0.14, sc * 0.72, sc * 0.14, sc * 0.05, shade(pal.c, 0.8));
+      g.fillStyle = pal.c;
+      g.beginPath();
+      g.arc(pxl + sc * 0.3, y - sc * 0.2, sc * 0.12, 0, 6.3);
+      g.arc(pxl + sc * 0.7, y - sc * 0.2, sc * 0.12, 0, 6.3);
+      g.arc(pxl + sc * 0.5, y - sc * 0.32, sc * 0.12, 0, 6.3);
+      g.fill();
+      g.fillStyle = "#f0e060";
+      g.beginPath(); g.arc(pxl + sc * 0.5, y - sc * 0.2, sc * 0.08, 0, 6.3); g.fill();
     } else if (hat === "ribbon") {
-      g.fillStyle = pal.c; g.fillRect(x - 8, y + 8, 4, 16); g.fillRect(x + 4, y + 8, 4, 14); g.fillRect(x - 9, y, 18, 4);
+      cube(g, pxl + sc * 0.14, y - sc * 0.1, sc * 0.72, sc * 0.12, sc * 0.05, pal.c);
+      g.fillStyle = shade(pal.c, 0.85);
+      g.fillRect(pxl + sc * 0.2, y + sc * 0.02, sc * 0.11, sc * 0.5);
+      g.fillRect(pxl + sc * 0.68, y + sc * 0.02, sc * 0.11, sc * 0.42);
     } else if (hat === "beret") {
-      g.fillStyle = pal.c; g.beginPath(); g.ellipse(x, y + 2, 11, 5, 0, 0, 6.3); g.fill(); g.fillRect(x + 6, y - 2, 5, 3);
+      cube(g, pxl + sc * 0.14, y - sc * 0.2, sc * 0.72, sc * 0.26, sc * 0.09, pal.c);
+      g.fillStyle = shade(pal.c, 1.15);
+      g.fillRect(pxl + sc * 0.72, y - sc * 0.28, sc * 0.12, sc * 0.1);
     }
   }
 
@@ -1849,20 +1878,27 @@ g.beginPath(); g.arc(S.splits[sp].x, S.splits[sp].y, S.splits[sp].r, 0, 6.3); g.
       }
       g.globalAlpha = 1;
     }
-    var col = "#d06018";
-    if (skin === "rose") col = "#d07090";
-    else if (skin === "midnight") col = "#304878";
-    else if (skin === "rune") col = "#40a090";
-    else if (skin === "ivy") col = "#3a8848";
-    else if (skin === "cracked") col = "#b05020";
-    g.fillStyle = col;
+    /* CHIEF BB-V6.2 — Joe's `drawBallOn`: a radial-lit sphere with a shadow under it
+       and four seam arcs that rotate with travel, instead of a flat disc with a cross
+       drawn on top. This is what gives the ball weight. */
+    var cols = ballCols();
+    b.rot = (b.rot || 0) + (b.live ? Math.hypot(b.vx, b.vy) * 0.0006 : 0.004);
+    g.fillStyle = "rgba(0,0,0,0.35)";
+    g.beginPath(); g.ellipse(b.x, b.y + b.r * 0.78, b.r * 0.78, b.r * 0.28, 0, 0, 6.3); g.fill();
+    var grd = g.createRadialGradient(b.x - b.r * 0.35, b.y - b.r * 0.38, b.r * 0.08, b.x, b.y, b.r);
+    grd.addColorStop(0, cols.hi);
+    grd.addColorStop(1, cols.lo);
+    g.fillStyle = grd;
     g.beginPath(); g.arc(b.x, b.y, b.r, 0, 6.3); g.fill();
-    g.strokeStyle = skin === "rose" ? "#fff0f4" : "#1a120c";
-    g.lineWidth = 2;
-    g.beginPath(); g.arc(b.x, b.y, b.r, 0, 6.3);
-    g.moveTo(b.x, b.y - b.r); g.lineTo(b.x, b.y + b.r);
-    g.moveTo(b.x - b.r, b.y); g.lineTo(b.x + b.r, b.y);
-    g.stroke();
+    g.strokeStyle = cols.seam;
+    g.lineWidth = Math.max(1.5, b.r * 0.1);
+    g.save();
+    g.translate(b.x, b.y); g.rotate(b.rot);
+    g.beginPath(); g.arc(0, 0, b.r * 0.92, 0, 6.3); g.stroke();
+    g.beginPath(); g.moveTo(0, -b.r * 0.92); g.lineTo(0, b.r * 0.92); g.stroke();
+    g.beginPath(); g.arc(b.r * 0.95, 0, b.r * 0.85, Math.PI * 0.65, Math.PI * 1.35); g.stroke();
+    g.beginPath(); g.arc(-b.r * 0.95, 0, b.r * 0.85, -Math.PI * 0.35, Math.PI * 0.35); g.stroke();
+    g.restore();
     if (player && player.permaFire) {
       g.fillStyle = "rgba(240,80,20,0.45)";
       g.beginPath(); g.arc(b.x, b.y, b.r + 3, 0, 6.3); g.fill();
@@ -1934,51 +1970,37 @@ g.beginPath(); g.arc(S.splits[sp].x, S.splits[sp].y, S.splits[sp].r, 0, 6.3); g.
       g.fillStyle = "#c0a060";
       g.fillRect(e.x - 14, e.y - 22, 28, 8);
     } else {
-      /* CHIEF BB-V5.3 — a coloured square with two dark pixels for eyes is not a
-         character. Every ordinary enemy now gets a ground shadow, a dark outline, a
-         lit top face and a shaded bottom so it reads as a solid block under the
-         torchlight, and a real face: white eyes with pupils that track the player. */
+      /* CHIEF BB-V6.2 — first-floor mobs rebuilt on Joe's own `drawEnemy`: one cube
+         with a lit top and a dropped front face, its own idle bob so a room of them
+         breathes at different rates, and two hard dark eyes. The flat square with a
+         highlight strip was a worse picture of the same thing. */
       var r = e.r, x = e.x, y = e.y;
-      g.globalAlpha = a * 0.35;
+      if (e.wob == null) e.wob = 4 + (e.seedw = (e.seedw || Math.random() * 4));
+      var bob = Math.sin(S.t * e.wob + (e.bobPhase || (e.bobPhase = Math.random() * 6.3))) * r * 0.1;
+
+      g.globalAlpha = a * 0.32;
       g.fillStyle = "#0a0806";
-      g.beginPath(); g.ellipse(x, y + r * 0.92, r * 0.86, r * 0.3, 0, 0, 6.3); g.fill();
+      g.beginPath(); g.ellipse(x, y + r * 0.95, r * 0.8, r * 0.28, 0, 0, 6.3); g.fill();
       g.globalAlpha = a;
 
-      var lit = shade(e.col, 1.22), dim = shade(e.col, 0.62);
+      var col = e.flash > 0 ? "#ffffff" : e.col;
       if (e.kind === "swoop") {
-        g.fillStyle = dim;
-        g.beginPath(); g.ellipse(x, y, r + 3, r - 2, 0, 0, 6.3); g.fill();
-        g.fillStyle = e.col;
-        g.beginPath(); g.ellipse(x, y - 1, r, r - 4, 0, 0, 6.3); g.fill();
-        g.fillStyle = lit;
-        g.fillRect(x - r * 0.9, y - r * 0.55, r * 1.8, r * 0.3);
+        cube(g, x - r * 0.95, y - r * 0.75 + bob, r * 1.9, r * 1.0, r * 0.28, col);
+        g.fillStyle = shade(col, 0.55);
+        g.fillRect(x - r * 1.25, y - r * 0.45 + bob, r * 0.32, r * 0.5);
+        g.fillRect(x + r * 0.93, y - r * 0.45 + bob, r * 0.32, r * 0.5);
       } else {
-        g.fillStyle = "#120d09";
-        g.fillRect(x - r - 1, y - r - 1, r * 2 + 2, r * 2 + 2);
-        g.fillStyle = e.col;
-        g.fillRect(x - r, y - r, r * 2, r * 2);
-        g.fillStyle = lit;
-        g.fillRect(x - r, y - r, r * 2, r * 0.34);
-        g.fillStyle = dim;
-        g.fillRect(x - r, y + r * 0.45, r * 2, r * 0.55);
-        if (e.kind === "chase") {
-          g.fillStyle = e.col;
-          g.fillRect(x - r * 0.62, y - r - r * 0.3, r * 1.24, r * 0.34);
-          g.fillStyle = lit;
-          g.fillRect(x - r * 0.62, y - r - r * 0.3, r * 1.24, r * 0.16);
+        cube(g, x - r, y - r * 1.0 + bob, r * 2, r * 1.85, r * 0.42, col);
+        if (e.kind === "range") {
+          g.fillStyle = shade(col, 0.5);
+          g.fillRect(x - r * 1.05, y + r * 0.2 + bob, r * 2.1, r * 0.22);
         }
       }
-
-      var ex = Math.max(1, Math.min(1, (player.x - x) / 160)) * r * 0.1;
-      var ey2 = Math.max(-1, Math.min(1, (player.y - y) / 160)) * r * 0.08;
-      var ew = r * 0.34, eh = r * 0.38, sep = r * 0.36;
-      g.fillStyle = "#f4f0e4";
-      g.fillRect(x - sep - ew, y - r * 0.28, ew, eh);
-      g.fillRect(x + sep, y - r * 0.28, ew, eh);
-      g.fillStyle = "#120d09";
-      var pw = ew * 0.55;
-      g.fillRect(x - sep - ew + ex + (ew - pw) * 0.5, y - r * 0.28 + ey2 + (eh - pw) * 0.5, pw, pw);
-      g.fillRect(x + sep + ex + (ew - pw) * 0.5, y - r * 0.28 + ey2 + (eh - pw) * 0.5, pw, pw);
+      g.fillStyle = "#111";
+      var ez = Math.max(3, r * 0.22);
+      var eo = Math.max(-1, Math.min(1, (player.x - x) / 200)) * r * 0.1;
+      g.fillRect(x - r * 0.46 + eo, y - r * 0.5 + bob, ez, ez);
+      g.fillRect(x + r * 0.22 + eo, y - r * 0.5 + bob, ez, ez);
     }
     if (bossScale !== 1) g.restore();
     if (e.alive) {
