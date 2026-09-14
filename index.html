@@ -75,14 +75,20 @@
   ico(i180, 180);
   ico(i167, 167);
   ico(i152, 152);
+  /* BB-V6.11: this origin (jpwarner-sys.github.io) hosts more than one installed app.
+     Without an explicit id and scope, iOS can key a second home-screen app to the first
+     one's record and open the wrong app. Both apps now declare their own. */
+  var DIR = location.pathname.replace(/[^\/]*$/, "");
   var man = {
+    id: DIR,
     name: "BLOCKBALL",
     short_name: "BLOCKBALL",
     display: "standalone",
     orientation: "landscape",
     background_color: DARK,
     theme_color: DARK,
-    start_url: location.pathname,
+    scope: DIR,
+    start_url: DIR,
     icons: [
       { src: i180, sizes: "180x180", type: "image/png" },
       { src: i167, sizes: "167x167", type: "image/png" },
