@@ -587,11 +587,42 @@
 
   var player, ball, room;
 
+  /* CHIEF BB-V5.1 — twin sticks. The left ring walks the hero, the right ring is the
+     ball: drag it to aim, let go to throw. Both are tracked by pointerId so a thumb
+     on each works at once; a drag that starts anywhere else on the field still aims,
+     which is what a mouse does. Geometry is in canvas pixels, recomputed every frame
+     so it follows a rotation without a resize event. */
+  var STK = {
+    L: { id: null, dx: 0, dy: 0 },
+    R: { id: null, dx: 0, dy: 0 },
+    FIELD: { id: null }
+  };
+
+  function stickGeom() {
+    var cw = canvas.width, ch = canvas.height;
+    var rad = Math.max(46, Math.min(cw, ch) * 0.145);
+    var inset = rad * 1.45;
+    return {
+      rad: rad,
+      L: { cx: inset, cy: ch - inset },
+      R: { cx: cw - inset, cy: ch - inset }
+    };
+  }
+
+  function canvasFromEvent(ev) {
+    var r = canvas.getBoundingClientRect();
+    return {
+      x: (ev.clientX - r.left) * (canvas.width / r.width),
+      y: (ev.clientY - r.top) * (canvas.height / r.height)
+    };
+  }
+
   function freshPlayer() {
     var p = store.profiles[activeProfile] || store.profiles[0];
     return {
-      x: 120, y: 270, r: 16,
-hp: 5, maxHp: 5,
+      x: 120, y: 270, r: 21,
+      spd: 175, walk: 0, vx: 0, vy: 0,
+      hp: 5, maxHp: 5,
       frag: 0,
       dmgLv: 0, spdLv: 0, blkLv: 0, hpBought: 0, fireLv: 0,
       permaFire: false,
@@ -612,7 +643,7 @@ hp: 5, maxHp: 5,
 
   function resetBallHome() {
     ball = {
-      live: false, ret: false, x: player.x, y: player.y - 22, vx: 0, vy: 0, r: 9,
+      live: false, ret: false, x: player.x + 34, y: player.y + 6, vx: 0, vy: 0, r: 17,
       life: 0, bounces: 0, hits: [], dmg: 0, affix: player.ballAffix || [],
       trail: []
     };
@@ -704,29 +735,29 @@ hp: 5, maxHp: 5,
 
   function enemyDef(type) {
     var T = {
-      slime: { hp: 12, r: 14, spd: 28, kind: "chase", col: "#6aaa3a", name: "SLIME" },
-      bat: { hp: 8, r: 10, spd: 70, kind: "swoop", col: "#8878a8", name: "BAT" },
-      skel: { hp: 18, r: 13, spd: 36, kind: "chase", col: "#d0d0c0", name: "SKEL" },
-      archer: { hp: 14, r: 12, spd: 10, kind: "range", col: "#c08050", name: "ARCHER" },
-      imp: { hp: 16, r: 12, spd: 50, kind: "chase", col: "#d04028", name: "IMP" },
-      cinder: { hp: 10, r: 11, spd: 40, kind: "orbit", col: "#f08030", name: "CINDER" },
-      grunt: { hp: 28, r: 16, spd: 24, kind: "chase", col: "#8a6040", name: "GRUNT" },
-      spit: { hp: 18, r: 13, spd: 12, kind: "range", col: "#e06020", name: "SPITTER" },
-      wraith: { hp: 22, r: 14, spd: 44, kind: "swoop", col: "#6070a8", name: "WRAITH" },
-      ashling: { hp: 20, r: 12, spd: 38, kind: "chase", col: "#a09080", name: "ASHLING" },
-      charger: { hp: 26, r: 15, spd: 90, kind: "charge", col: "#c05040", name: "CHARGER" },
-      voider: { hp: 24, r: 13, spd: 14, kind: "range", col: "#503878", name: "VOIDER" },
-      briar: { hp: 30, r: 15, spd: 22, kind: "chase", col: "#3a8040", name: "BRIAR" },
-      spitter: { hp: 22, r: 13, spd: 12, kind: "range", col: "#80b040", name: "NEEDLE" },
-      golem: { hp: 48, r: 18, spd: 16, kind: "chase", col: "#687060", name: "GOLEM" },
-      witchling: { hp: 26, r: 12, spd: 34, kind: "orbit", col: "#70a058", name: "WITCHLING" },
-      boneking: { hp: 220, r: 28, spd: 22, kind: "boss", col: "#e8e0d0", name: "BONE KING", boss: "bone" },
-      ashtitan: { hp: 420, r: 34, spd: 16, kind: "boss", col: "#c06030", name: "ASH TITAN", boss: "ash" },
-      thornqueen: { hp: 640, r: 30, spd: 20, kind: "boss", col: "#50a060", name: "THORN QUEEN", boss: "thorn" },
-      minibone: { hp: 90, r: 22, spd: 24, kind: "boss", col: "#c8b898", name: "BONE KNIGHT", boss: "mini" },
-      miniforge: { hp: 110, r: 22, spd: 20, kind: "boss", col: "#d07030", name: "SLAG KNIGHT", boss: "mini" },
-      miniash: { hp: 140, r: 23, spd: 22, kind: "boss", col: "#908070", name: "ASH KNIGHT", boss: "mini" },
-      minithorn: { hp: 160, r: 23, spd: 20, kind: "boss", col: "#407848", name: "THORN KNIGHT", boss: "mini" }
+      slime: { hp: 12, r: 24, spd: 28, kind: "chase", col: "#6aaa3a", name: "SLIME" },
+      bat: { hp: 8, r: 18, spd: 70, kind: "swoop", col: "#8878a8", name: "BAT" },
+      skel: { hp: 18, r: 22, spd: 36, kind: "chase", col: "#d0d0c0", name: "SKEL" },
+      archer: { hp: 14, r: 20, spd: 10, kind: "range", col: "#c08050", name: "ARCHER" },
+      imp: { hp: 16, r: 20, spd: 50, kind: "chase", col: "#d04028", name: "IMP" },
+      cinder: { hp: 10, r: 19, spd: 40, kind: "orbit", col: "#f08030", name: "CINDER" },
+      grunt: { hp: 28, r: 28, spd: 24, kind: "chase", col: "#8a6040", name: "GRUNT" },
+      spit: { hp: 18, r: 22, spd: 12, kind: "range", col: "#e06020", name: "SPITTER" },
+      wraith: { hp: 22, r: 24, spd: 44, kind: "swoop", col: "#6070a8", name: "WRAITH" },
+      ashling: { hp: 20, r: 20, spd: 38, kind: "chase", col: "#a09080", name: "ASHLING" },
+      charger: { hp: 26, r: 25, spd: 90, kind: "charge", col: "#c05040", name: "CHARGER" },
+      voider: { hp: 24, r: 22, spd: 14, kind: "range", col: "#503878", name: "VOIDER" },
+      briar: { hp: 30, r: 25, spd: 22, kind: "chase", col: "#3a8040", name: "BRIAR" },
+      spitter: { hp: 22, r: 22, spd: 12, kind: "range", col: "#80b040", name: "NEEDLE" },
+      golem: { hp: 48, r: 30, spd: 16, kind: "chase", col: "#687060", name: "GOLEM" },
+      witchling: { hp: 26, r: 20, spd: 34, kind: "orbit", col: "#70a058", name: "WITCHLING" },
+      boneking: { hp: 220, r: 42, spd: 22, kind: "boss", col: "#e8e0d0", name: "BONE KING", boss: "bone" },
+      ashtitan: { hp: 420, r: 51, spd: 16, kind: "boss", col: "#c06030", name: "ASH TITAN", boss: "ash" },
+      thornqueen: { hp: 640, r: 45, spd: 20, kind: "boss", col: "#50a060", name: "THORN QUEEN", boss: "thorn" },
+      minibone: { hp: 90, r: 32, spd: 24, kind: "boss", col: "#c8b898", name: "BONE KNIGHT", boss: "mini" },
+      miniforge: { hp: 110, r: 32, spd: 20, kind: "boss", col: "#d07030", name: "SLAG KNIGHT", boss: "mini" },
+      miniash: { hp: 140, r: 35, spd: 22, kind: "boss", col: "#908070", name: "ASH KNIGHT", boss: "mini" },
+      minithorn: { hp: 160, r: 35, spd: 20, kind: "boss", col: "#407848", name: "THORN KNIGHT", boss: "mini" }
     };
     return T[type] || T.slime;
   }
@@ -974,7 +1005,7 @@ hp: 5, maxHp: 5,
       var aff = [];
       var n = rich ? irnd(1, 2) : (rnd() < 0.5 ? 1 : 0);
       for (var i = 0; i < n; i++) aff.push(pick(AFFIX));
-      it = { kind: "ball", x: x, y: y, r: 10, vy: -40, life: 12, rar: rich ? (rnd() < 0.4 ? "legendary" : "epic") : rarityForFloor(S.floor), affix: aff, taken: false };
+      it = { kind: "ball", x: x, y: y, r: 13, vy: -40, life: 12, rar: rich ? (rnd() < 0.4 ? "legendary" : "epic") : rarityForFloor(S.floor), affix: aff, taken: false };
     } else {
       it = { kind: "frag", x: x, y: y, r: 8, vy: -30, life: 10, rar: "common", n: irnd(1, 3), taken: false };
     }
@@ -1068,8 +1099,10 @@ hp: 5, maxHp: 5,
 
   function updateBall(dt) {
     if (!ball.live) {
-      ball.x = player.x + player.facing * 8;
-      ball.y = player.y - 20;
+      /* CHIEF BB-V5.3 — the ball at rest used to be drawn over the hero's face.
+         It now sits in the throwing hand, out to the side and low. */
+      ball.x = player.x + player.facing * 34;
+      ball.y = player.y + 6;
       return;
     }
     if (ball.ret) {
@@ -1077,7 +1110,7 @@ hp: 5, maxHp: 5,
       var d = Math.hypot(dx, dy) || 1;
       ball.vx = dx / d * 520; ball.vy = dy / d * 520;
       ball.x += ball.vx * dt; ball.y += ball.vy * dt;
-      if (d < 18) { ball.live = false; ball.ret = false; }
+      if (d < 30) { ball.live = false; ball.ret = false; }
       return;
     }
     if (hasAff("Homing")) {
@@ -1345,8 +1378,47 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     syncHud();
   }
 
+  /* CHIEF BB-V5.1 — solid test and axis-separated movement. Axis-separated so a hero
+     pushing into a corner slides along the wall instead of sticking to it, which is
+     the difference between a control that feels alive and one that feels broken. */
+  function solidAt(x, y) {
+    if (!room) return true;
+    var tx = Math.floor(x / TILE), ty = Math.floor(y / TILE);
+    if (tx < 0 || ty < 0 || tx >= COLS || ty >= ROWS) return true;
+    if (room.grid[ty] && room.grid[ty][tx]) return true;
+    var bl = room.blocks || [];
+    for (var i = 0; i < bl.length; i++) {
+      if (Math.abs(bl[i].x - x) < TILE * 0.5 && Math.abs(bl[i].y - y) < TILE * 0.5) return true;
+    }
+    return false;
+  }
+
+  function freeAt(x, y, r) {
+    return !solidAt(x - r, y - r) && !solidAt(x + r, y - r) &&
+           !solidAt(x - r, y + r) && !solidAt(x + r, y + r) &&
+           !solidAt(x, y - r) && !solidAt(x, y + r) &&
+           !solidAt(x - r, y) && !solidAt(x + r, y);
+  }
+
+  function walkPlayer(dt) {
+    var mx = STK.L.dx, my = STK.L.dy;
+    var m = Math.hypot(mx, my);
+    if (m < 0.12) { player.walk *= 0.86; player.vx = player.vy = 0; return; }
+    if (m > 1) { mx /= m; my /= m; m = 1; }
+    var sp = player.spd * (1 + player.spdLv * 0.05) * m;
+    player.vx = mx * sp; player.vy = my * sp;
+    var r = player.r * 0.62;
+    var nx = player.x + player.vx * dt;
+    if (freeAt(nx, player.y, r)) player.x = nx;
+    var ny = player.y + player.vy * dt;
+    if (freeAt(player.x, ny, r)) player.y = ny;
+    player.walk += dt * (6 + m * 5);
+    if (!S.aim) player.facing = mx < -0.15 ? -1 : mx > 0.15 ? 1 : player.facing;
+  }
+
   function updatePlayer(dt) {
     if (player.inv > 0) player.inv -= dt;
+    walkPlayer(dt);
     if (S.aim && S.aim.x < player.x - 8) player.facing = -1;
     else if (S.aim && S.aim.x > player.x + 8) player.facing = 1;
     if (room && room.cleared && room.doorReady && S.bossBeat <= 0 && room.kind !== "boss") {
@@ -1404,9 +1476,79 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     g.scale(scale, scale);
     drawWorld(g);
     g.restore();
+    if (S.mode === "play" && !S.pause && !S.portrait) drawSticks(g);
     if (S.mode === "play" && !S.seenAimHelp) {
       g.fillStyle = "rgba(20,17,14,0.0)";
     }
+  }
+
+  /* CHIEF BB-V5.1 — the two spherical controls, drawn in screen space so they keep
+     their size whatever the world scale is. The right one carries the ball itself, so
+     the player can see at a glance whether the ball is in hand or still in flight. */
+  function drawSticks(g) {
+    var G = stickGeom(), rad = G.rad;
+    var pal = (player && player.cos && PALETTES[player.cos.pal]) || PALETTES.ember;
+
+    function ring(cx, cy, dx, dy, live) {
+      g.globalAlpha = live ? 0.30 : 0.18;
+      g.fillStyle = "#f0e6d4";
+      g.beginPath(); g.arc(cx, cy, rad, 0, 6.3); g.fill();
+      g.globalAlpha = live ? 0.85 : 0.5;
+      g.strokeStyle = "#f0e6d4"; g.lineWidth = Math.max(2, rad * 0.05);
+      g.beginPath(); g.arc(cx, cy, rad, 0, 6.3); g.stroke();
+      g.globalAlpha = 1;
+      return { kx: cx + dx * rad * 0.55, ky: cy + dy * rad * 0.55 };
+    }
+
+    var k = ring(G.L.cx, G.L.cy, STK.L.dx, STK.L.dy, STK.L.id !== null);
+    g.globalAlpha = 0.9;
+    g.fillStyle = "#f4ead6";
+    g.beginPath(); g.arc(k.kx, k.ky, rad * 0.4, 0, 6.3); g.fill();
+    g.strokeStyle = "#1a120c"; g.lineWidth = Math.max(2, rad * 0.05);
+    g.beginPath(); g.arc(k.kx, k.ky, rad * 0.4, 0, 6.3); g.stroke();
+    g.globalAlpha = 0.55;
+    g.fillStyle = "#1a120c";
+    g.beginPath();
+    g.moveTo(k.kx, k.ky - rad * 0.2); g.lineTo(k.kx + rad * 0.14, k.ky); g.lineTo(k.kx - rad * 0.14, k.ky);
+    g.closePath(); g.fill();
+    g.globalAlpha = 1;
+
+    var k2 = ring(G.R.cx, G.R.cy, STK.R.dx, STK.R.dy, STK.R.id !== null);
+    var inHand = !ball.live;
+    g.globalAlpha = inHand ? 1 : 0.35;
+    g.fillStyle = ballColour();
+    g.beginPath(); g.arc(k2.kx, k2.ky, rad * 0.42, 0, 6.3); g.fill();
+    g.strokeStyle = "#1a120c"; g.lineWidth = Math.max(2, rad * 0.06);
+    g.beginPath(); g.arc(k2.kx, k2.ky, rad * 0.42, 0, 6.3);
+    g.moveTo(k2.kx, k2.ky - rad * 0.42); g.lineTo(k2.kx, k2.ky + rad * 0.42);
+    g.moveTo(k2.kx - rad * 0.42, k2.ky); g.lineTo(k2.kx + rad * 0.42, k2.ky);
+    g.stroke();
+    g.globalAlpha = 1;
+    if (STK.R.id !== null && inHand) {
+      g.strokeStyle = pal.a; g.lineWidth = Math.max(3, rad * 0.09);
+      g.beginPath(); g.arc(G.R.cx, G.R.cy, rad * 0.92, 0, 6.3 * Math.min(1, Math.hypot(STK.R.dx, STK.R.dy)));
+      g.stroke();
+    }
+  }
+
+  /* CHIEF BB-V5.3 — one hex in, a lighter or darker hex out, for the lit and shaded
+     faces. Clamped, so a already-bright colour cannot wrap around to black. */
+  function shade(hex, k) {
+    var n = parseInt(hex.slice(1), 16);
+    var r = Math.min(255, Math.round(((n >> 16) & 255) * k));
+    var g2 = Math.min(255, Math.round(((n >> 8) & 255) * k));
+    var b = Math.min(255, Math.round((n & 255) * k));
+    return "#" + ((1 << 24) + (r << 16) + (g2 << 8) + b).toString(16).slice(1);
+  }
+
+  function ballColour() {
+    var skin = player && player.cos ? player.cos.ball : "classic";
+    if (skin === "rose") return "#d07090";
+    if (skin === "midnight") return "#304878";
+    if (skin === "rune") return "#40a090";
+    if (skin === "ivy") return "#3a8848";
+    if (skin === "cracked") return "#b05020";
+    return "#d06018";
   }
 
   function drawWorld(g) {
@@ -1448,8 +1590,9 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       g.fillStyle = "#f09040";
 g.beginPath(); g.arc(S.splits[sp].x, S.splits[sp].y, S.splits[sp].r, 0, 6.3); g.fill();
     }
+    if (ball && !ball.live) drawBallObj(g, ball, false);
     if (player) drawPlayer(g);
-    if (ball) drawBallObj(g, ball, true);
+    if (ball && ball.live) drawBallObj(g, ball, true);
     if (S.aim && !ball.live) {
       var pts = aimGuide(S.aim.ang, S.aim.pow);
       g.strokeStyle = "rgba(240,210,140,0.45)";
@@ -1497,27 +1640,95 @@ g.beginPath(); g.arc(S.splits[sp].x, S.splits[sp].y, S.splits[sp].r, 0, 6.3); g.
     }
   }
 
+  /* CHIEF BB-V5.2 — the hero, rebuilt. He was a 14x22 slab with one dot for a face,
+     drawn smaller than his own 16px hitbox. He is now built from parts — legs that
+     alternate as he walks, two arms, the blue gauntlet on the throwing side, a head
+     with both eyes and an outline — and sized to fill the hitbox he actually has.
+     Everything is derived from HS so one number changes his whole scale. */
+  var HS = 2.15;
+
+  function px(g, x, y, w, h, col) {
+    g.fillStyle = col;
+    g.fillRect(Math.round(x), Math.round(y), Math.round(w), Math.round(h));
+  }
+
   function drawPlayer(g) {
     var cos = player.cos;
     var pal = PALETTES[cos.pal] || PALETTES.ember;
     if (player.inv > 0 && Math.floor(player.inv * 12) % 2 === 0) g.globalAlpha = 0.45;
-    var bw = cos.body === "tall" ? 12 : cos.body === "round" ? 18 : cos.body === "swift" ? 12 : 14;
-    var bh = cos.body === "tall" ? 26 : cos.body === "round" ? 16 : cos.body === "swift" ? 20 : 22;
-    g.fillStyle = pal.b;
-    g.fillRect(player.x - bw / 2 - 3, player.y + 6, 6, 10);
-    g.fillRect(player.x + bw / 2 - 3, player.y + 6, 6, 10);
-    g.fillStyle = pal.a;
-    g.fillRect(player.x - bw / 2, player.y - bh / 2, bw, bh);
-    g.fillStyle = pal.skin;
-    g.fillRect(player.x - 7, player.y - bh / 2 - 12, 14, 12);
-    g.fillStyle = "#1a120c";
-    g.fillRect(player.x - 3 + player.facing * 3, player.y - bh / 2 - 8, 3, 3);
-    drawHat(g, player.x, player.y - bh / 2 - 12, cos.hat, pal);
+
+    var bw = (cos.body === "tall" ? 12 : cos.body === "round" ? 18 : cos.body === "swift" ? 12 : 14) * HS;
+    var bh = (cos.body === "tall" ? 26 : cos.body === "round" ? 16 : cos.body === "swift" ? 20 : 22) * HS;
+    var hw = 14 * HS, hh = 12 * HS;
+    var x = player.x, y = player.y;
+    var top = y - bh / 2;
+    var f = player.facing;
+
+    var moving = Math.hypot(STK.L.dx, STK.L.dy) > 0.12;
+    var step = moving ? Math.sin(player.walk) : 0;
+    var lift = Math.abs(step) * 3 * HS;
+
+    var dark = "#1a120c";
+    var legW = 6 * HS, legH = 10 * HS;
+    var legY = y + bh / 2 - 1;
+
+    // shadow — grounds him on the flagstones
+    g.globalAlpha *= 1;
+    g.fillStyle = "rgba(10,8,6,0.35)";
+    g.beginPath(); g.ellipse(x, legY + legH + 2, bw * 0.62, 4 * HS, 0, 0, 6.3); g.fill();
+
+    // legs, alternating
+    px(g, x - bw / 2 - 1, legY - (step > 0 ? lift : 0), legW, legH, pal.b);
+    px(g, x + bw / 2 - legW + 1, legY - (step < 0 ? lift : 0), legW, legH, pal.b);
+    px(g, x - bw / 2 - 1, legY + legH - 3 * HS - (step > 0 ? lift : 0), legW, 3 * HS, dark);
+    px(g, x + bw / 2 - legW + 1, legY + legH - 3 * HS - (step < 0 ? lift : 0), legW, 3 * HS, dark);
+
+    // back arm
+    px(g, x - f * (bw / 2 + 4 * HS), top + 4 * HS + lift * 0.4, 5 * HS, 14 * HS, pal.b);
+
+    /* CHIEF BB-V5.4 — the same lit-top / shaded-bottom treatment the enemies get, or
+       the hero reads as one flat orange slab against a dark floor. */
+    px(g, x - bw / 2 - 1, top - 1, bw + 2, bh + 2, dark);
+    px(g, x - bw / 2, top, bw, bh, pal.a);
+    px(g, x - bw / 2, top, bw, bh * 0.22, shade(pal.a, 1.25));
+    px(g, x - bw / 2, top + bh * 0.74, bw, bh * 0.26, shade(pal.a, 0.66));
+    px(g, x - bw / 2, top + bh * 0.52, bw, 2.4 * HS, pal.b);
+    px(g, x - bw / 2, top + bh * 0.52, bw, 1 * HS, shade(pal.b, 1.3));
+
+    // throwing arm and gauntlet, swung toward the aim when there is one
+    var armA = S.aim ? S.aim.ang : (f > 0 ? -0.35 : Math.PI + 0.35);
+    var ax = x + Math.cos(armA) * (bw / 2 + 3 * HS);
+    var ay = top + bh * 0.35 + Math.sin(armA) * 5 * HS;
+    px(g, ax - 3 * HS, ay - 2 * HS, 6 * HS, 12 * HS, pal.a);
+    px(g, ax - 4 * HS, ay + 8 * HS, 8 * HS, 7 * HS, "#4a80c8");
+    px(g, ax - 3 * HS, ay + 9.5 * HS, 6 * HS, 4 * HS, "#8ac0f0");
+
+    // head — hair, a lit brow, white eyes with pupils that look where he faces
+    px(g, x - hw / 2 - 1, top - hh - 1, hw + 2, hh + 2, dark);
+    px(g, x - hw / 2, top - hh, hw, hh, pal.skin);
+    px(g, x - hw / 2, top - hh + hh * 0.78, hw, hh * 0.22, shade(pal.skin, 0.72));
+    px(g, x - hw / 2 - 1, top - hh - 2.5 * HS, hw + 2, 5 * HS, "#3a2a1c");
+    px(g, x - hw / 2 - 1, top - hh - 2.5 * HS, hw + 2, 1.6 * HS, "#54402c");
+    var ey = top - hh + 4.4 * HS, ew = 3.2 * HS, eh2 = 3.6 * HS, sep2 = 1.3 * HS;
+    px(g, x - sep2 - ew, ey, ew, eh2, "#f4f0e4");
+    px(g, x + sep2, ey, ew, eh2, "#f4f0e4");
+    var pw2 = 1.7 * HS, po = f > 0 ? ew - pw2 : 0;
+    px(g, x - sep2 - ew + po, ey + 0.9 * HS, pw2, pw2, dark);
+    px(g, x + sep2 + po, ey + 0.9 * HS, pw2, pw2, dark);
+
+    drawHat(g, x, top - hh, cos.hat, pal);
     g.globalAlpha = 1;
   }
 
   function drawHat(g, x, y, hat, pal) {
     if (hat === "none") return;
+    /* CHIEF BB-V5.2 — the hat was cut for a 14px head and is now worn on a 22px one. */
+    g.save(); g.translate(x, y); g.scale(HS, HS); g.translate(-x, -y);
+    drawHatArt(g, x, y, hat, pal);
+    g.restore();
+  }
+
+  function drawHatArt(g, x, y, hat, pal) {
     if (hat === "cap") {
       g.fillStyle = pal.c; g.fillRect(x - 10, y - 2, 20, 5); g.fillRect(x - 2, y - 2, 14, 4);
     } else if (hat === "bow") {
@@ -1577,6 +1788,10 @@ g.beginPath(); g.arc(S.splits[sp].x, S.splits[sp].y, S.splits[sp].r, 0, 6.3); g.
     if (!e.alive && e.deadT <= 0) return;
     var a = !e.alive ? Math.max(0, e.deadT) : 1;
     g.globalAlpha = a;
+    /* CHIEF BB-V5.2 — boss art is drawn from fixed pixel offsets, so it is scaled
+       about the boss's own centre to match the radius it now carries. */
+    var bossScale = e.boss === "ash" ? 1.2 : e.boss ? 1.35 : 1;
+    if (bossScale !== 1) { g.save(); g.translate(e.x, e.y); g.scale(bossScale, bossScale); g.translate(-e.x, -e.y); }
     if (e.boss === "ash") {
       g.fillStyle = "#2a2018";
       g.fillRect(e.x - 28, e.y - 20, 56, 48);
@@ -1634,16 +1849,53 @@ g.beginPath(); g.arc(S.splits[sp].x, S.splits[sp].y, S.splits[sp].r, 0, 6.3); g.
       g.fillStyle = "#c0a060";
       g.fillRect(e.x - 14, e.y - 22, 28, 8);
     } else {
-      g.fillStyle = e.col;
+      /* CHIEF BB-V5.3 — a coloured square with two dark pixels for eyes is not a
+         character. Every ordinary enemy now gets a ground shadow, a dark outline, a
+         lit top face and a shaded bottom so it reads as a solid block under the
+         torchlight, and a real face: white eyes with pupils that track the player. */
+      var r = e.r, x = e.x, y = e.y;
+      g.globalAlpha = a * 0.35;
+      g.fillStyle = "#0a0806";
+      g.beginPath(); g.ellipse(x, y + r * 0.92, r * 0.86, r * 0.3, 0, 0, 6.3); g.fill();
+      g.globalAlpha = a;
+
+      var lit = shade(e.col, 1.22), dim = shade(e.col, 0.62);
       if (e.kind === "swoop") {
-        g.beginPath(); g.ellipse(e.x, e.y, e.r + 2, e.r - 2, 0, 0, 6.3); g.fill();
+        g.fillStyle = dim;
+        g.beginPath(); g.ellipse(x, y, r + 3, r - 2, 0, 0, 6.3); g.fill();
+        g.fillStyle = e.col;
+        g.beginPath(); g.ellipse(x, y - 1, r, r - 4, 0, 0, 6.3); g.fill();
+        g.fillStyle = lit;
+        g.fillRect(x - r * 0.9, y - r * 0.55, r * 1.8, r * 0.3);
       } else {
-        g.fillRect(e.x - e.r, e.y - e.r, e.r * 2, e.r * 2);
+        g.fillStyle = "#120d09";
+        g.fillRect(x - r - 1, y - r - 1, r * 2 + 2, r * 2 + 2);
+        g.fillStyle = e.col;
+        g.fillRect(x - r, y - r, r * 2, r * 2);
+        g.fillStyle = lit;
+        g.fillRect(x - r, y - r, r * 2, r * 0.34);
+        g.fillStyle = dim;
+        g.fillRect(x - r, y + r * 0.45, r * 2, r * 0.55);
+        if (e.kind === "chase") {
+          g.fillStyle = e.col;
+          g.fillRect(x - r * 0.62, y - r - r * 0.3, r * 1.24, r * 0.34);
+          g.fillStyle = lit;
+          g.fillRect(x - r * 0.62, y - r - r * 0.3, r * 1.24, r * 0.16);
+        }
       }
-      g.fillStyle = "#1a120c";
-      g.fillRect(e.x - 4 + e.facing, e.y - 4, 3, 3);
-      g.fillRect(e.x + 2 + e.facing, e.y - 4, 3, 3);
+
+      var ex = Math.max(1, Math.min(1, (player.x - x) / 160)) * r * 0.1;
+      var ey2 = Math.max(-1, Math.min(1, (player.y - y) / 160)) * r * 0.08;
+      var ew = r * 0.34, eh = r * 0.38, sep = r * 0.36;
+      g.fillStyle = "#f4f0e4";
+      g.fillRect(x - sep - ew, y - r * 0.28, ew, eh);
+      g.fillRect(x + sep, y - r * 0.28, ew, eh);
+      g.fillStyle = "#120d09";
+      var pw = ew * 0.55;
+      g.fillRect(x - sep - ew + ex + (ew - pw) * 0.5, y - r * 0.28 + ey2 + (eh - pw) * 0.5, pw, pw);
+      g.fillRect(x + sep + ex + (ew - pw) * 0.5, y - r * 0.28 + ey2 + (eh - pw) * 0.5, pw, pw);
     }
+    if (bossScale !== 1) g.restore();
     if (e.alive) {
       var w = Math.max(20, e.r * 2);
       g.fillStyle = "#2a1810";
@@ -2047,24 +2299,67 @@ function endRunToMenu() {
     });
   }
 
-  /* ---------- input ---------- */
+  /* ---------- input ----------
+     CHIEF BB-V5.1 — three pointers can be down at once: one on each ring and one on
+     the field. Each is claimed by its pointerId at down and only that id can move or
+     release it, so a thumb on the walk ring never steals the aim, and lifting one
+     never cancels the other. The old drag-anywhere aim is kept for the mouse. */
+  function aimFromStick() {
+    var m = Math.hypot(STK.R.dx, STK.R.dy);
+    if (m < 0.18) { S.aim = null; return; }
+    var ang = Math.atan2(STK.R.dy, STK.R.dx);
+    S.aim = {
+      ang: ang,
+      pow: Math.max(0.35, Math.min(1, m)),
+      x: player.x + Math.cos(ang) * 200,
+      y: player.y + Math.sin(ang) * 200
+    };
+  }
+
   function onDown(ev) {
     if (S.mode !== "play" || S.pause || S.portrait) return;
     if (ev.target && ev.target.tagName === "BUTTON") return;
     ensureAudio();
+    var c = canvasFromEvent(ev), G = stickGeom();
+    var grab = G.rad * 1.5;
+    if (STK.L.id === null && Math.hypot(c.x - G.L.cx, c.y - G.L.cy) < grab) {
+      STK.L.id = ev.pointerId; STK.L.dx = 0; STK.L.dy = 0; return;
+    }
+    if (STK.R.id === null && Math.hypot(c.x - G.R.cx, c.y - G.R.cy) < grab) {
+      STK.R.id = ev.pointerId; STK.R.dx = 0; STK.R.dy = 0; return;
+    }
     var w = worldFromEvent(ev);
     if (S.placeMode) { tryPlaceBlock(w.x, w.y); return; }
+    STK.FIELD.id = ev.pointerId;
     S.pointer.down = true;
     S.pointer.x = w.x; S.pointer.y = w.y;
     if (!ball.live) {
       var dx = w.x - player.x, dy = w.y - player.y;
-      var ang = Math.atan2(dy, dx);
-      var pow = Math.min(1, Math.hypot(dx, dy) / 140);
-      S.aim = { ang: ang, pow: Math.max(0.35, pow), x: w.x, y: w.y };
+      S.aim = { ang: Math.atan2(dy, dx), pow: Math.max(0.35, Math.min(1, Math.hypot(dx, dy) / 140)), x: w.x, y: w.y };
     }
   }
+
   function onMove(ev) {
-    if (!S.pointer.down || S.mode !== "play") return;
+    if (S.mode !== "play") return;
+    var G = stickGeom();
+    if (ev.pointerId === STK.L.id) {
+      var c = canvasFromEvent(ev);
+      STK.L.dx = (c.x - G.L.cx) / G.rad;
+      STK.L.dy = (c.y - G.L.cy) / G.rad;
+      var m = Math.hypot(STK.L.dx, STK.L.dy);
+      if (m > 1) { STK.L.dx /= m; STK.L.dy /= m; }
+      return;
+    }
+    if (ev.pointerId === STK.R.id) {
+      var c2 = canvasFromEvent(ev);
+      STK.R.dx = (c2.x - G.R.cx) / G.rad;
+      STK.R.dy = (c2.y - G.R.cy) / G.rad;
+      var m2 = Math.hypot(STK.R.dx, STK.R.dy);
+      if (m2 > 1) { STK.R.dx /= m2; STK.R.dy /= m2; }
+      if (!ball.live) aimFromStick();
+      return;
+    }
+    if (ev.pointerId !== STK.FIELD.id || !S.pointer.down) return;
     var w = worldFromEvent(ev);
     S.pointer.x = w.x; S.pointer.y = w.y;
     if (S.aim && !ball.live) {
@@ -2074,13 +2369,30 @@ function endRunToMenu() {
       S.aim.x = w.x; S.aim.y = w.y;
     }
   }
+
   function onUp(ev) {
+    if (ev.pointerId === STK.L.id) { STK.L.id = null; STK.L.dx = 0; STK.L.dy = 0; return; }
+    if (ev.pointerId === STK.R.id) {
+      STK.R.id = null;
+      var fire = S.aim && !ball.live && !S.placeMode && S.mode === "play";
+      var a = S.aim;
+      STK.R.dx = 0; STK.R.dy = 0;
+      S.aim = null;
+      if (fire) throwBall(a.ang, a.pow);
+      return;
+    }
+    if (ev.pointerId !== STK.FIELD.id) return;
+    STK.FIELD.id = null;
     if (!S.pointer.down) return;
     S.pointer.down = false;
-    if (S.mode === "play" && S.aim && !ball.live && !S.placeMode) {
-      throwBall(S.aim.ang, S.aim.pow);
-    }
+    if (S.mode === "play" && S.aim && !ball.live && !S.placeMode) throwBall(S.aim.ang, S.aim.pow);
     S.aim = null;
+  }
+
+  function clearSticks() {
+    STK.L.id = null; STK.L.dx = 0; STK.L.dy = 0;
+    STK.R.id = null; STK.R.dx = 0; STK.R.dy = 0;
+    STK.FIELD.id = null; S.pointer.down = false; S.aim = null;
   }
 
   canvas.addEventListener("pointerdown", onDown);
@@ -2090,7 +2402,7 @@ function endRunToMenu() {
 
   document.getElementById("btnPause").onclick = function () {
     if (S.mode !== "play") return;
-    S.pause = true; showPause();
+    S.pause = true; clearSticks(); showPause();
   };
   document.getElementById("btnBlock").onclick = function () {
     if (S.mode !== "play") return;
