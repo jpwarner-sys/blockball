@@ -224,6 +224,14 @@
   @media (min-height: 900px) {
     .splashArt { max-height: 66vh; max-width: min(97vw, 1260px); }
   }
+  /* CHIEF FIX BB-V4.9 — portrait is now a first-class title screen, not a rejection.
+     Width is the scarce axis here, so the words are sized off it and the art takes
+     the width it can get; there is height to spare either side. */
+  @media (max-aspect-ratio: 4/5) {
+    .card.splashCard h1.splashTitle { font-size: clamp(30px, 13vw, 92px); letter-spacing: 0.08em; }
+    .splashArt { max-width: 96vw; max-height: 46vh; margin: 22px 0; }
+    .splashGo { margin-top: 26px; font-size: clamp(13px, 3.6vw, 20px); }
+  }
   .card {
     background: #221c16; border: 3px solid #4a4032; max-width: 920px; width: min(920px, 96%);
     max-height: 94%; overflow-y: auto; overflow-x: hidden; padding: 16px 18px; box-shadow: 0 0 0 4px #14110e;
@@ -319,7 +327,7 @@
     <div class="grow"><b>Add to Home Screen</b> for the full app — tap Share, then Add to Home Screen.</div>
     <button id="btnInstallX" type="button">OK</button>
   </div>
-  <div id="rotate"><div class="phone"></div><div style="font-size:22px;font-weight:800">Rotate to play</div><div class="muted">BLOCKBALL is a landscape game. Turn the device on its side.</div></div>
+  <div id="rotate"><div class="phone"></div><div style="font-size:22px;font-weight:800">Turn sideways to play</div><div class="muted">The dungeon is wider than it is tall. Rotate the device and the run picks up where it is.</div></div>
   <div class="panel splash" id="splashPanel"><div class="card splashCard" id="splashCard"></div></div>
   <div class="panel" id="menuPanel"><div class="card" id="menuCard"></div></div>
   <div class="panel" id="pausePanel"><div class="card" id="pauseCard"></div></div>
@@ -853,6 +861,7 @@ hp: 5, maxHp: 5,
     }
     loadRoom(0);
     S.mode = "play";
+    if (typeof syncRotate === "function") syncRotate();
     hidePanels();
     syncHud();
     toast("SEED " + S.seed);
@@ -885,6 +894,7 @@ hp: 5, maxHp: 5,
     if (S.customPlay) {
       toast("LEVEL CLEAR");
       S.mode = "menu";
+    if (typeof syncRotate === "function") syncRotate();
       showMenu();
       return;
     }
@@ -1339,8 +1349,16 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     canvas.style.height = h + "px";
     var port = h > w * 1.05;
     S.portrait = port;
-    rotateEl.className = port ? "show" : "";
-    if (port && S.mode === "play") { /* freeze via flag */ }
+    syncRotate();
+  }
+
+  /* CHIEF FIX BB-V4.8 — the rotate gate used to fire on any portrait screen, so a
+     phone held the normal way met "Rotate to play" before it had seen the title.
+     Only the run and the builder need landscape; the splash and the menu are built
+     to read upright. The gate now waits until the player actually starts. */
+  function syncRotate() {
+    var needsLandscape = S.mode === "play" || S.mode === "builder";
+    rotateEl.className = (S.portrait && needsLandscape) ? "show" : "";
   }
 
   function worldFromEvent(ev) {
@@ -1674,6 +1692,7 @@ g.beginPath(); g.arc(S.splits[sp].x, S.splits[sp].y, S.splits[sp].r, 0, 6.3); g.
 
   function showSplash() {
     S.mode = "splash";
+    if (typeof syncRotate === "function") syncRotate();
     hidePanels();
     var el = document.getElementById("splashCard");
     el.innerHTML =
@@ -1689,6 +1708,7 @@ g.beginPath(); g.arc(S.splits[sp].x, S.splits[sp].y, S.splits[sp].r, 0, 6.3); g.
 
   function showMenu() {
     S.mode = "menu";
+    if (typeof syncRotate === "function") syncRotate();
     hidePanels();
     document.getElementById("menuPanel").className = "panel show";
     var el = document.getElementById("menuCard");
@@ -1790,6 +1810,7 @@ function endRunToMenu() {
       saveStore();
     }
     S.mode = "menu";
+    if (typeof syncRotate === "function") syncRotate();
     hidePanels();
     showMenu();
   }
@@ -1865,6 +1886,7 @@ function endRunToMenu() {
       document.getElementById("floorPanel").className = "panel";
       loadRoom(0);
       S.mode = "play";
+    if (typeof syncRotate === "function") syncRotate();
       toast(bio.name + " " + S.floor);
     };
     if (boss) sfx("win");
@@ -1898,6 +1920,7 @@ function endRunToMenu() {
   function openBuilder(lv) {
     hidePanels();
     S.mode = "builder";
+    if (typeof syncRotate === "function") syncRotate();
     lv = lv || emptyLevel();
     BLD.name = lv.n || "MY DUNGEON";
     BLD.ents = (lv.e || []).slice();
