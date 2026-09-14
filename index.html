@@ -245,7 +245,7 @@
   }
   .card {
     background: #221c16; border: 3px solid #4a4032; max-width: 920px; width: min(920px, 96%);
-    max-height: 100%; overflow-y: auto; overflow-x: hidden; padding: 16px 18px; box-shadow: 0 0 0 4px #14110e;
+    max-height: 100%; overflow-y: auto; overflow-x: hidden; padding: 12px 14px 14px; box-shadow: 0 0 0 4px #14110e;
     box-sizing: border-box;
     /* CHIEF FIX BB-V4.5 — a finger must be able to scroll a card that overflows */
     touch-action: pan-y;
@@ -256,18 +256,22 @@
   .card::-webkit-scrollbar { width: 10px; }
   .card::-webkit-scrollbar-thumb { background: #6a5a44; border-radius: 5px; }
   .card::-webkit-scrollbar-track { background: #14110e; }
-  .card h1 { margin: 0 0 8px; font-size: 28px; letter-spacing: 1px; }
-  .card h1.title { line-height: 0.92; letter-spacing: 3px; font-size: clamp(26px, 5.2vw, 40px); margin-bottom: 12px; }
+  .card h1 { margin: 0 0 6px; font-size: 28px; letter-spacing: 1px; }
+  /* CHIEF FIX BB-V5.5 — the menu was paying for space it did not use: a stale
+     tagline, a 12px heading gap above every section and 16px of card padding.
+     Tightened so the run controls sit directly under the title. */
+  .card h1.title { line-height: 0.92; letter-spacing: 3px; font-size: clamp(24px, 4.6vw, 36px); margin: 0 0 6px; }
   .card h1.title { text-align: center; }
-  .card h1.tTop { margin: 2px 0 6px; }
-  .card h1.tBot { margin: 6px 0 10px; }
+  .card h1.tTop { margin: 0 0 2px; }
+  .card h1.tBot { margin: 0 0 8px; }
   #titleArt { display: block; width: 100%; max-width: 620px; margin: 0 auto; border: 3px solid #4a4032; background: #14110e; }
-  .card h2 { margin: 12px 0 8px; font-size: 16px; color: #c4b49a; font-weight: 700; }
+  .card h2 { margin: 9px 0 5px; font-size: 15px; color: #c4b49a; font-weight: 700; letter-spacing: 1px; }
+  .card h2:first-of-type { margin-top: 2px; }
   .card h2.fold { cursor: pointer; user-select: none; -webkit-user-select: none; display: inline-block;
-    padding: 4px 10px 4px 0; }
+    padding: 2px 10px 2px 0; }
   .card h2.fold:active { color: #f0a050; }
   .foldArrow { color: #8a7a60; font-size: 13px; }
-  .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  .row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
   button.bb, .bb {
     background: #3a3026; color: #f0e6d4; border: 2px solid #6a5a44; padding: 8px 12px;
     font-weight: 700; font-size: 14px; border-radius: 4px; cursor: pointer;
@@ -407,6 +411,7 @@
     muteFx: 0,
     bossBeat: 0,
     seenAimHelp: false,
+    throws: 0,
     shopOpen: false
   };
 
@@ -621,7 +626,7 @@
     var p = store.profiles[activeProfile] || store.profiles[0];
     return {
       x: 120, y: 270, r: 21,
-      spd: 175, walk: 0, vx: 0, vy: 0,
+      spd: 205, walk: 0, vx: 0, vy: 0,
       hp: 5, maxHp: 5,
       frag: 0,
       dmgLv: 0, spdLv: 0, blkLv: 0, hpBought: 0, fireLv: 0,
@@ -889,7 +894,7 @@
     S.shots = []; S.splits = [];
     room.clearWait = 0;
     if (!ents.length) { room.cleared = true; room.doorReady = true; }
-    if (!S.seenAimHelp) toast("DRAG to aim · RELEASE to throw");
+    if (!S.seenAimHelp) toast("LEFT RING to walk · DRAG anywhere to throw");
   }
 
   function startRun(seed, pass, custom) {
@@ -1083,6 +1088,7 @@
 
   function throwBall(ang, pow) {
     if (ball.live) return;
+    S.throws = (S.throws || 0) + 1;
     var spd = throwSpeed() * pow;
     ball.live = true; ball.ret = false;
     ball.x = player.x + Math.cos(ang) * 20;
@@ -1400,20 +1406,68 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
            !solidAt(x - r, y) && !solidAt(x + r, y);
   }
 
-  function walkPlayer(dt) {
+  /* CHIEF BB-V5.6 — how the walk feels is the game, not a detail. Four things make
+     the difference between a hero who walks well and one who slides around:
+
+       1. He accelerates and stops on a ramp, not a switch. Starting is quick (he is
+          responsive) and stopping is quicker (he does not skate past the spot you
+          let go on).
+       2. Diagonals are normalised, so walking corner-ways is not 41% faster.
+       3. A corner nudge: when the leading edge clips a tile corner but the way past
+          is clear a few pixels over, he is slid those few pixels instead of stopping
+          dead. Without this every doorway snags and the whole thing feels sticky.
+       4. Keys as well as the stick, summed, so a desk and a thumb both work. */
+  var KEYS = Object.create(null);
+
+  function inputVec() {
     var mx = STK.L.dx, my = STK.L.dy;
+    if (KEYS.left) mx -= 1;
+    if (KEYS.right) mx += 1;
+    if (KEYS.up) my -= 1;
+    if (KEYS.down) my += 1;
     var m = Math.hypot(mx, my);
-    if (m < 0.12) { player.walk *= 0.86; player.vx = player.vy = 0; return; }
     if (m > 1) { mx /= m; my /= m; m = 1; }
-    var sp = player.spd * (1 + player.spdLv * 0.05) * m;
-    player.vx = mx * sp; player.vy = my * sp;
-    var r = player.r * 0.62;
-    var nx = player.x + player.vx * dt;
-    if (freeAt(nx, player.y, r)) player.x = nx;
-    var ny = player.y + player.vy * dt;
-    if (freeAt(player.x, ny, r)) player.y = ny;
-    player.walk += dt * (6 + m * 5);
-    if (!S.aim) player.facing = mx < -0.15 ? -1 : mx > 0.15 ? 1 : player.facing;
+    return { x: mx, y: my, m: m };
+  }
+
+  var ACCEL = 1500, BRAKE = 2600, NUDGE = 7;
+
+  function slide(axis, step, r) {
+    var nx = axis === "x" ? player.x + step : player.x;
+    var ny = axis === "y" ? player.y + step : player.y;
+    if (freeAt(nx, ny, r)) { player.x = nx; player.y = ny; return true; }
+    for (var k = 1; k <= 3; k++) {
+      var off = NUDGE * k;
+      if (axis === "x") {
+        if (freeAt(nx, player.y - off, r)) { player.x = nx; player.y -= off * 0.55; return true; }
+        if (freeAt(nx, player.y + off, r)) { player.x = nx; player.y += off * 0.55; return true; }
+      } else {
+        if (freeAt(player.x - off, ny, r)) { player.y = ny; player.x -= off * 0.55; return true; }
+        if (freeAt(player.x + off, ny, r)) { player.y = ny; player.x += off * 0.55; return true; }
+      }
+    }
+    return false;
+  }
+
+  function walkPlayer(dt) {
+    var inp = inputVec();
+    var top = player.spd * (1 + player.spdLv * 0.05);
+    var tx = inp.x * top, ty = inp.y * top;
+    var rate = inp.m > 0.12 ? ACCEL : BRAKE;
+    var dvx = tx - player.vx, dvy = ty - player.vy;
+    var dv = Math.hypot(dvx, dvy);
+    if (dv > 0) {
+      var step = Math.min(dv, rate * dt);
+      player.vx += dvx / dv * step;
+      player.vy += dvy / dv * step;
+    }
+    var sp = Math.hypot(player.vx, player.vy);
+    if (sp < 4) { player.vx = player.vy = 0; player.walk *= 0.84; return; }
+    var r = player.r * 0.6;
+    if (!slide("x", player.vx * dt, r)) player.vx *= 0.2;
+    if (!slide("y", player.vy * dt, r)) player.vy *= 0.2;
+    player.walk += dt * (4 + sp / top * 8);
+    if (!S.aim) player.facing = player.vx < -8 ? -1 : player.vx > 8 ? 1 : player.facing;
   }
 
   function updatePlayer(dt) {
@@ -1513,26 +1567,57 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     g.closePath(); g.fill();
     g.globalAlpha = 1;
 
-    var k2 = ring(G.R.cx, G.R.cy, STK.R.dx, STK.R.dy, STK.R.id !== null);
+    /* the right ring: the ball, and — until the player has thrown a few — a small
+       ricochet looping inside it, so the idea arrives without a word of tutorial. */
+    ring(G.R.cx, G.R.cy, 0, 0, false);
     var inHand = !ball.live;
-    g.globalAlpha = inHand ? 1 : 0.35;
-    g.fillStyle = ballColour();
-    g.beginPath(); g.arc(k2.kx, k2.ky, rad * 0.42, 0, 6.3); g.fill();
-    g.strokeStyle = "#1a120c"; g.lineWidth = Math.max(2, rad * 0.06);
-    g.beginPath(); g.arc(k2.kx, k2.ky, rad * 0.42, 0, 6.3);
-    g.moveTo(k2.kx, k2.ky - rad * 0.42); g.lineTo(k2.kx, k2.ky + rad * 0.42);
-    g.moveTo(k2.kx - rad * 0.42, k2.ky); g.lineTo(k2.kx + rad * 0.42, k2.ky);
-    g.stroke();
-    g.globalAlpha = 1;
-    if (STK.R.id !== null && inHand) {
-      g.strokeStyle = pal.a; g.lineWidth = Math.max(3, rad * 0.09);
-      g.beginPath(); g.arc(G.R.cx, G.R.cy, rad * 0.92, 0, 6.3 * Math.min(1, Math.hypot(STK.R.dx, STK.R.dy)));
+    var cx = G.R.cx, cy = G.R.cy;
+
+    if (S.throws < 4) {
+      /* the signature horseshoe from the key art: the ball sweeps round, banks, and
+         comes back. One loop says "throw it at a wall" better than a sentence does. */
+      var a0 = 2.35, a1 = -1.15, rr = rad * 0.6;
+      g.globalAlpha = 0.45;
+      g.strokeStyle = "#f0a050";
+      g.lineWidth = Math.max(3, rad * 0.1);
+      g.lineCap = "round";
+      g.beginPath(); g.arc(cx, cy, rr, a0, a1, true); g.stroke();
+      g.globalAlpha = 0.9;
+      g.strokeStyle = "#6a5a44";
+      g.lineWidth = Math.max(3, rad * 0.085);
+      g.beginPath();
+      g.moveTo(cx + Math.cos(a1) * rr * 1.5, cy + Math.sin(a1) * rr * 1.5 - rad * 0.16);
+      g.lineTo(cx + Math.cos(a1) * rr * 1.5, cy + Math.sin(a1) * rr * 1.5 + rad * 0.16);
       g.stroke();
+      g.globalAlpha = 1;
+      var tt = (S.t * 0.7) % 1;
+      var ang2 = a0 + (a1 - a0 - 6.283) * tt;
+      var hx = cx + Math.cos(ang2) * rr, hy = cy + Math.sin(ang2) * rr;
+      g.fillStyle = ballColour();
+      g.beginPath(); g.arc(hx, hy, rad * 0.19, 0, 6.3); g.fill();
+      g.strokeStyle = "#1a120c"; g.lineWidth = Math.max(1.5, rad * 0.04);
+      g.beginPath(); g.arc(hx, hy, rad * 0.19, 0, 6.3); g.stroke();
+      g.globalAlpha = 0.8;
+      g.fillStyle = "#f0e6d4";
+      g.font = "bold " + Math.round(rad * 0.21) + "px -apple-system, sans-serif";
+      g.textAlign = "center";
+      g.fillText("DRAG ANYWHERE", cx, cy - rad * 1.22);
+      g.globalAlpha = 1;
+    } else {
+      g.globalAlpha = inHand ? 1 : 0.3;
+      g.fillStyle = ballColour();
+      g.beginPath(); g.arc(cx, cy, rad * 0.5, 0, 6.3); g.fill();
+      g.strokeStyle = "#1a120c"; g.lineWidth = Math.max(2, rad * 0.07);
+      g.beginPath(); g.arc(cx, cy, rad * 0.5, 0, 6.3);
+      g.moveTo(cx, cy - rad * 0.5); g.lineTo(cx, cy + rad * 0.5);
+      g.moveTo(cx - rad * 0.5, cy); g.lineTo(cx + rad * 0.5, cy);
+      g.stroke();
+      g.globalAlpha = 1;
     }
   }
 
   /* CHIEF BB-V5.3 — one hex in, a lighter or darker hex out, for the lit and shaded
-     faces. Clamped, so a already-bright colour cannot wrap around to black. */
+     faces. Clamped, so an already-bright colour cannot wrap around to black. */
   function shade(hex, k) {
     var n = parseInt(hex.slice(1), 16);
     var r = Math.min(255, Math.round(((n >> 16) & 255) * k));
@@ -1664,7 +1749,7 @@ g.beginPath(); g.arc(S.splits[sp].x, S.splits[sp].y, S.splits[sp].r, 0, 6.3); g.
     var top = y - bh / 2;
     var f = player.facing;
 
-    var moving = Math.hypot(STK.L.dx, STK.L.dy) > 0.12;
+    var moving = Math.hypot(player.vx || 0, player.vy || 0) > 12;
     var step = moving ? Math.sin(player.walk) : 0;
     var lift = Math.abs(step) * 3 * HS;
 
@@ -1988,7 +2073,6 @@ g.beginPath(); g.arc(S.splits[sp].x, S.splits[sp].y, S.splits[sp].r, 0, 6.3); g.
     el.innerHTML =
       "<h1 class=\"title tTop\">BLOCKBALL</h1>" +
             "<h1 class=\"title tBot\">DUNGEON</h1>" +
-      "<div class='muted'>Drag to aim. Release to throw. Bank the walls. Trick kills pay.</div>" +
       /* CHIEF FIX BB-V4.6 — RUN moved above the cosmetics. On a short screen the
          card overflows, and the one control the player always wants (PLAY) was
          below four rows of dress-up, off the bottom of the panel. */
@@ -2304,18 +2388,6 @@ function endRunToMenu() {
      the field. Each is claimed by its pointerId at down and only that id can move or
      release it, so a thumb on the walk ring never steals the aim, and lifting one
      never cancels the other. The old drag-anywhere aim is kept for the mouse. */
-  function aimFromStick() {
-    var m = Math.hypot(STK.R.dx, STK.R.dy);
-    if (m < 0.18) { S.aim = null; return; }
-    var ang = Math.atan2(STK.R.dy, STK.R.dx);
-    S.aim = {
-      ang: ang,
-      pow: Math.max(0.35, Math.min(1, m)),
-      x: player.x + Math.cos(ang) * 200,
-      y: player.y + Math.sin(ang) * 200
-    };
-  }
-
   function onDown(ev) {
     if (S.mode !== "play" || S.pause || S.portrait) return;
     if (ev.target && ev.target.tagName === "BUTTON") return;
@@ -2325,9 +2397,10 @@ function endRunToMenu() {
     if (STK.L.id === null && Math.hypot(c.x - G.L.cx, c.y - G.L.cy) < grab) {
       STK.L.id = ev.pointerId; STK.L.dx = 0; STK.L.dy = 0; return;
     }
-    if (STK.R.id === null && Math.hypot(c.x - G.R.cx, c.y - G.R.cy) < grab) {
-      STK.R.id = ev.pointerId; STK.R.dx = 0; STK.R.dy = 0; return;
-    }
+    /* CHIEF BB-V5.7 — the right ring is a teacher, not a stick. Throwing is not tied
+       to it: a drag anywhere on the field aims and throws, which is the whole point of
+       a bank-shot game — you look at the wall you want, not at a control. The ring
+       shows the ball and demonstrates the ricochet until the player has done it. */
     var w = worldFromEvent(ev);
     if (S.placeMode) { tryPlaceBlock(w.x, w.y); return; }
     STK.FIELD.id = ev.pointerId;
@@ -2350,15 +2423,6 @@ function endRunToMenu() {
       if (m > 1) { STK.L.dx /= m; STK.L.dy /= m; }
       return;
     }
-    if (ev.pointerId === STK.R.id) {
-      var c2 = canvasFromEvent(ev);
-      STK.R.dx = (c2.x - G.R.cx) / G.rad;
-      STK.R.dy = (c2.y - G.R.cy) / G.rad;
-      var m2 = Math.hypot(STK.R.dx, STK.R.dy);
-      if (m2 > 1) { STK.R.dx /= m2; STK.R.dy /= m2; }
-      if (!ball.live) aimFromStick();
-      return;
-    }
     if (ev.pointerId !== STK.FIELD.id || !S.pointer.down) return;
     var w = worldFromEvent(ev);
     S.pointer.x = w.x; S.pointer.y = w.y;
@@ -2372,15 +2436,6 @@ function endRunToMenu() {
 
   function onUp(ev) {
     if (ev.pointerId === STK.L.id) { STK.L.id = null; STK.L.dx = 0; STK.L.dy = 0; return; }
-    if (ev.pointerId === STK.R.id) {
-      STK.R.id = null;
-      var fire = S.aim && !ball.live && !S.placeMode && S.mode === "play";
-      var a = S.aim;
-      STK.R.dx = 0; STK.R.dy = 0;
-      S.aim = null;
-      if (fire) throwBall(a.ang, a.pow);
-      return;
-    }
     if (ev.pointerId !== STK.FIELD.id) return;
     STK.FIELD.id = null;
     if (!S.pointer.down) return;
@@ -2390,10 +2445,30 @@ function endRunToMenu() {
   }
 
   function clearSticks() {
+    KEYS.left = KEYS.right = KEYS.up = KEYS.down = false;
+    if (player) { player.vx = 0; player.vy = 0; }
     STK.L.id = null; STK.L.dx = 0; STK.L.dy = 0;
     STK.R.id = null; STK.R.dx = 0; STK.R.dy = 0;
     STK.FIELD.id = null; S.pointer.down = false; S.aim = null;
   }
+
+  var KEYMAP = {
+    ArrowLeft: "left", a: "left", A: "left",
+    ArrowRight: "right", d: "right", D: "right",
+    ArrowUp: "up", w: "up", W: "up",
+    ArrowDown: "down", s: "down", S: "down"
+  };
+  window.addEventListener("keydown", function (ev) {
+    var k = KEYMAP[ev.key];
+    if (!k) return;
+    KEYS[k] = true;
+    if (S.mode === "play") ev.preventDefault();
+  });
+  window.addEventListener("keyup", function (ev) {
+    var k = KEYMAP[ev.key];
+    if (k) KEYS[k] = false;
+  });
+  window.addEventListener("blur", function () { KEYS.left = KEYS.right = KEYS.up = KEYS.down = false; });
 
   canvas.addEventListener("pointerdown", onDown);
   canvas.addEventListener("pointermove", onMove);
@@ -2484,6 +2559,8 @@ function endRunToMenu() {
   requestAnimationFrame(frame);
 
   window.__BB_SELFTEST = {
+    /* read-only probe for the headless harness: position and velocity, nothing else */
+    pos: function () { return player ? { x: Math.round(player.x), y: Math.round(player.y), vx: Math.round(player.vx), vy: Math.round(player.vy) } : null; },
     encode: encodeShare,
     decode: decodeShare,
     hash: hashStr,
