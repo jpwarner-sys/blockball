@@ -300,6 +300,8 @@
     pointer-events: none;
   }
   #topbar { pointer-events: none; }
+  #topbar .row:last-child { pointer-events: auto; }
+  #botbar .row { min-height: 0; }
   #botbar { position: absolute; left: 0; right: 0; bottom: 0;
     padding: 8px 10px calc(8px + env(safe-area-inset-bottom));
     pointer-events: none;
@@ -323,18 +325,19 @@
         <div class="chip" id="scChip">SCORE 0</div>
       </div>
       <div class="row">
+        <button class="bb" id="btnBlock">BLOCK 3</button>
+        <button class="bb" id="btnShop">UPGRADE</button>
         <button class="bb" id="btnPause">PAUSE</button>
       </div>
     </div>
+    <!-- CHIEF FIX BB-V6.7 — the bottom strip sat under both thumbs. BALL and SEED
+         were read-only labels that belong on the pause card, not across the play
+         field; BLOCK and UPGRADE are real controls and have moved up beside PAUSE,
+         where nothing is holding the screen. The bottom of the screen now belongs
+         to the two rings and nothing else. -->
     <div id="botbar">
-      <div class="row">
-        <button class="bb" id="btnBlock">BLOCK 3</button>
-        <div class="chip" id="ballChip">BALL CLASSIC</div>
-        <div class="chip" id="seedChip">SEED —</div>
-      </div>
-      <div class="row">
-        <button class="bb" id="btnShop">UPGRADE</button>
-      </div>
+      <div class="row"></div>
+      <div class="row"></div>
     </div>
     <div id="toasts"></div>
   </div>
@@ -1466,6 +1469,14 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
 
   var ACCEL = 2100, BRAKE = 3200, NUDGE = 8;
 
+  /* CHIEF FIX BB-V6.8 — the hero could walk into a wall and stick there. The corner
+     nudge tested one point and then moved to a DIFFERENT one: it asked whether
+     (nx, y ± 7) was clear and, on yes, moved to (nx, y ± 3.85). The point it landed
+     on was never checked, so on a tile edge it put him inside the stone — and once
+     inside, every direction reads as blocked and he is held fast. It now moves to
+     exactly the point it tested, and `unstick` is the belt and braces: if he is ever
+     found inside a solid, he is walked out to the nearest clear spot rather than
+     left there. */
   function slide(axis, step, r) {
     var nx = axis === "x" ? player.x + step : player.x;
     var ny = axis === "y" ? player.y + step : player.y;
@@ -1473,17 +1484,46 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     for (var k = 1; k <= 3; k++) {
       var off = NUDGE * k;
       if (axis === "x") {
-        if (freeAt(nx, player.y - off, r)) { player.x = nx; player.y -= off * 0.55; return true; }
-        if (freeAt(nx, player.y + off, r)) { player.x = nx; player.y += off * 0.55; return true; }
+        if (freeAt(nx, player.y - off, r)) { player.x = nx; player.y -= off; return true; }
+        if (freeAt(nx, player.y + off, r)) { player.x = nx; player.y += off; return true; }
       } else {
-        if (freeAt(player.x - off, ny, r)) { player.y = ny; player.x -= off * 0.55; return true; }
-        if (freeAt(player.x + off, ny, r)) { player.y = ny; player.x += off * 0.55; return true; }
+        if (freeAt(player.x - off, ny, r)) { player.y = ny; player.x -= off; return true; }
+        if (freeAt(player.x + off, ny, r)) { player.y = ny; player.x += off; return true; }
+      }
+    }
+    return false;
+  }
+
+  function unstick(r) {
+    if (freeAt(player.x, player.y, r)) return false;
+    for (var ring = 1; ring <= 10; ring++) {
+      var step = ring * 6;
+      for (var a = 0; a < 16; a++) {
+        var ang = a * Math.PI / 8;
+        var tx = player.x + Math.cos(ang) * step;
+        var ty = player.y + Math.sin(ang) * step;
+        if (freeAt(tx, ty, r)) { player.x = tx; player.y = ty; player.vx = player.vy = 0; return true; }
+      }
+    }
+    /* nothing within sixty pixels: fall back to the middle of the nearest open tile */
+    for (var ty2 = 1; ty2 < ROWS - 1; ty2++) {
+      for (var tx2 = 1; tx2 < COLS - 1; tx2++) {
+        var cx = (tx2 + 0.5) * TILE, cy = (ty2 + 0.5) * TILE;
+        if (freeAt(cx, cy, r)) { player.x = cx; player.y = cy; player.vx = player.vy = 0; return true; }
       }
     }
     return false;
   }
 
   function walkPlayer(dt) {
+    var rr = player.r * 0.6;
+    /* Not while the room is clearing: the exit walk deliberately carries him into
+       the doorway, and the doorway reads as out of bounds. Rescuing him there would
+       be fighting the game. One toast a second at most — a rescue that fires every
+       frame is a spinner, not a message. */
+    if (!(room && room.cleared) && unstick(rr)) {
+      if (S.t - (S.lastUnstick || -9) > 1) { S.lastUnstick = S.t; toast("UNSTUCK"); }
+    }
     var inp = inputVec();
     var top = player.spd * (1 + player.spdLv * 0.05);
     var tx = inp.x * top, ty = inp.y * top;
@@ -1512,7 +1552,8 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     if (room && room.cleared && room.doorReady && S.bossBeat <= 0 && room.kind !== "boss") {
       if (room.clearWait > 0) room.clearWait -= dt;
       else {
-        player.x += 160 * dt;
+        /* CHIEF FIX BB-V6.8 — the exit walk used to move him straight through stone. */
+        slide("x", 200 * dt, player.r * 0.6);
         if (player.x > (COLS - 2) * TILE - 10) nextRoomOrFloor();
       }
     }
@@ -2077,8 +2118,6 @@ g.beginPath(); g.arc(S.splits[sp].x, S.splits[sp].y, S.splits[sp].r, 0, 6.3); g.
     document.getElementById("flChip").textContent = "FLOOR " + S.floor + (S.passPlay ? "  P" + (S.passWho + 1) : "");
     document.getElementById("scChip").textContent = "SCORE " + fmt(S.score);
     document.getElementById("btnBlock").textContent = (S.placeMode ? "PLACE " : "BLOCK ") + (player ? player.blockStock : 0);
-    document.getElementById("ballChip").textContent = "BALL " + ((player && player.ballAffix && player.ballAffix.length) ? player.ballAffix.join("+") : (player && player.permaFire ? "FIRE" : "PLAIN"));
-    document.getElementById("seedChip").textContent = "SEED " + S.seed;
     var show = play ? "flex" : "none";
     document.getElementById("topbar").style.display = play ? "flex" : "none";
     document.getElementById("botbar").style.display = play ? "flex" : "none";
@@ -2204,7 +2243,8 @@ g.beginPath(); g.arc(S.splits[sp].x, S.splits[sp].y, S.splits[sp].r, 0, 6.3); g.
     document.getElementById("pausePanel").className = "panel show";
     document.getElementById("pauseCard").innerHTML =
       "<h1>PAUSE</h1>" +
-      "<p class='muted'>" + S.seed + " · Floor " + S.floor + " · " + (player ? player.token : "") + "</p>" +
+      "<p class='muted'>" + S.seed + " · Floor " + S.floor + " · " + (player ? player.token : "") +
+        " · BALL " + ((player && player.ballAffix && player.ballAffix.length) ? player.ballAffix.join("+") : (player && player.permaFire ? "FIRE" : "PLAIN")) + "</p>" +
       "<div class='row'>" +
       "<button class='bb pri' id='btnRes'>RESUME</button>" +
       "<button class='bb' id='btnMenu'>MENU</button>" +
@@ -2630,6 +2670,18 @@ function endRunToMenu() {
     fire: function (ang, pow) { throwBall(ang, pow); },
     setAff: function (a) { player.ballAffix = a; ball.affix = a; },
     warp: function (x, y) { player.x = x; player.y = y; },
+    stuck: function () { return !freeAt(player.x, player.y, player.r * 0.6); },
+    diag: function () {
+      var r = player.r * 0.6;
+      return { x: Math.round(player.x), y: Math.round(player.y), r: Math.round(r),
+        tile: [Math.floor(player.x / TILE), Math.floor(player.y / TILE)],
+        centreSolid: solidAt(player.x, player.y),
+        pts: [[-1,-1],[1,-1],[-1,1],[1,1],[0,-1],[0,1],[-1,0],[1,0]].map(function (d) {
+          return solidAt(player.x + d[0] * r, player.y + d[1] * r) ? 1 : 0; }),
+        unstickWorks: (function () { var f = freeAt(player.x, player.y, r); return f; })(),
+        mode: S.mode, cleared: room && room.cleared };
+    },
+    drive: function (dx, dy) { STK.L.dx = dx; STK.L.dy = dy; },
     encode: encodeShare,
     decode: decodeShare,
     hash: hashStr,
