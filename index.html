@@ -114,8 +114,17 @@
     touch-action: pan-y;   /* CHIEF FIX BB-V4.5 — was none; see .card below. pan-y, not manipulation: it lets a panel scroll but still refuses pinch-zoom on iOS, which ignores user-scalable=no. */
   }
   #shell {
+    /* CHIEF FIX BB-V4.11 — `inset: 0` pins top AND bottom to the LAYOUT viewport,
+       which on iOS Safari is the tall one, as though the address bar were hidden.
+       The bottom ~90px of every panel therefore sat underneath the browser toolbar
+       and the last row of the menu was clipped off the screen. Pinning only the top
+       and taking the height from 100dvh gives the panels the viewport that is
+       actually visible, and the card's max-height then means what it says. */
     position: fixed;
-    inset: 0;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: auto;
     overflow: hidden;
     background: #14110e;
     height: 100dvh;
@@ -189,7 +198,9 @@
   }
   .panel {
     position: absolute; inset: 0; display: none; align-items: center; justify-content: center;
-    background: #14110ecc; z-index: 40; pointer-events: auto; padding: 12px;
+    background: #14110ecc; z-index: 40; pointer-events: auto;
+    box-sizing: border-box;
+    padding: calc(12px + env(safe-area-inset-top)) 12px calc(12px + env(safe-area-inset-bottom));
   }
   .panel.show { display: flex; }
   .panel.splash { background: #14110e; }
@@ -234,7 +245,8 @@
   }
   .card {
     background: #221c16; border: 3px solid #4a4032; max-width: 920px; width: min(920px, 96%);
-    max-height: 94%; overflow-y: auto; overflow-x: hidden; padding: 16px 18px; box-shadow: 0 0 0 4px #14110e;
+    max-height: 100%; overflow-y: auto; overflow-x: hidden; padding: 16px 18px; box-shadow: 0 0 0 4px #14110e;
+    box-sizing: border-box;
     /* CHIEF FIX BB-V4.5 — a finger must be able to scroll a card that overflows */
     touch-action: pan-y;
     -webkit-overflow-scrolling: touch;
@@ -251,6 +263,10 @@
   .card h1.tBot { margin: 6px 0 10px; }
   #titleArt { display: block; width: 100%; max-width: 620px; margin: 0 auto; border: 3px solid #4a4032; background: #14110e; }
   .card h2 { margin: 12px 0 8px; font-size: 16px; color: #c4b49a; font-weight: 700; }
+  .card h2.fold { cursor: pointer; user-select: none; -webkit-user-select: none; display: inline-block;
+    padding: 4px 10px 4px 0; }
+  .card h2.fold:active { color: #f0a050; }
+  .foldArrow { color: #8a7a60; font-size: 13px; }
   .row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
   button.bb, .bb {
     background: #3a3026; color: #f0e6d4; border: 2px solid #6a5a44; padding: 8px 12px;
@@ -352,6 +368,8 @@
   var hud = document.getElementById("hud");
   var installBar = document.getElementById("install");
   var rotateEl = document.getElementById("rotate");
+  /* CHIEF FIX BB-V4.10 — the LOOK section is folded away by default; see showMenu. */
+  var cosOpen = false;
 
   var S = {
     mode: "menu",
@@ -1729,7 +1747,11 @@ g.beginPath(); g.arc(S.splits[sp].x, S.splits[sp].y, S.splits[sp].r, 0, 6.3); g.
       "<button class='bb' id='btnBuilder'>DUNGEON BUILDER</button>" +
       "</div>" +
       "<h2>PROFILE</h2><div class='row' id='profRow'>" + profs + "</div>" +
-      "<div id='cosBox'></div>" +
+      /* CHIEF FIX BB-V4.10 — five rows of dress-up pushed SEED and SHARE CODE two
+         screens down on a phone. They are a once-a-week choice, not a per-run one,
+         so they fold away behind one heading and the whole menu fits one screen. */
+      "<h2 class='fold' id='cosHead'>LOOK <span class='foldArrow'>" + (cosOpen ? "\u25be" : "\u25b8") + "</span></h2>" +
+      "<div id='cosBox'" + (cosOpen ? "" : " hidden") + "></div>" +
       "<h2>SEED</h2>" +
       "<div class='row'>" +
       "<input class='bb' id='seedIn' value='" + S.seed + "' maxlength='16' style='width:140px'>" +
@@ -1743,6 +1765,7 @@ g.beginPath(); g.arc(S.splits[sp].x, S.splits[sp].y, S.splits[sp].r, 0, 6.3); g.
       "</div>" +
       "<p class='muted'>Best floor " + store.bestFloor + " · Trick kills " + store.trickKills + " · Stash " + store.stash.length + "</p>";
     paintCos();
+    el.querySelector("#cosHead").onclick = function () { cosOpen = !cosOpen; showMenu(); };
     el.querySelector("#profRow").onclick = function (ev) {
       var b = ev.target.closest("button");
       if (!b) return;
