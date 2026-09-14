@@ -628,7 +628,9 @@
       x: 120, y: 270, r: 21,
       /* CHIEF BB-V6.3 — 158 px/s is the number from Joe's v3 build, the one LP
          played to floor 20 and then said "I like the controls, keep them". */
-      spd: 158, walk: 0, vx: 0, vy: 0,
+      /* CHIEF BB-V6.6 — 158 was right for the old sprite; at 2.15x the size the same
+         px/s reads as a crawl, because speed is felt in body-lengths, not pixels. */
+      spd: 235, walk: 0, vx: 0, vy: 0,
       hp: 5, maxHp: 5,
       frag: 0,
       dmgLv: 0, spdLv: 0, blkLv: 0, hpBought: 0, fireLv: 0,
@@ -650,7 +652,7 @@
 
   function resetBallHome() {
     ball = {
-      live: false, ret: false, x: player.x + 34, y: player.y + 6, vx: 0, vy: 0, r: 17,
+      live: false, ret: false, x: player.x + 30, y: player.y - 8, vx: 0, vy: 0, r: 17, pierced: false,
       life: 0, bounces: 0, hits: [], dmg: 0, affix: player.ballAffix || [],
       trail: []
     };
@@ -742,31 +744,40 @@
 
   function enemyDef(type) {
     var T = {
-      slime: { hp: 12, r: 24, spd: 28, kind: "chase", col: "#6aaa3a", name: "SLIME" },
-      bat: { hp: 8, r: 18, spd: 70, kind: "swoop", col: "#8878a8", name: "BAT" },
-      skel: { hp: 18, r: 22, spd: 36, kind: "chase", col: "#d0d0c0", name: "SKEL" },
-      archer: { hp: 14, r: 20, spd: 10, kind: "range", col: "#c08050", name: "ARCHER" },
-      imp: { hp: 16, r: 20, spd: 50, kind: "chase", col: "#d04028", name: "IMP" },
-      cinder: { hp: 10, r: 19, spd: 40, kind: "orbit", col: "#f08030", name: "CINDER" },
-      grunt: { hp: 28, r: 28, spd: 24, kind: "chase", col: "#8a6040", name: "GRUNT" },
-      spit: { hp: 18, r: 22, spd: 12, kind: "range", col: "#e06020", name: "SPITTER" },
-      wraith: { hp: 22, r: 24, spd: 44, kind: "swoop", col: "#6070a8", name: "WRAITH" },
-      ashling: { hp: 20, r: 20, spd: 38, kind: "chase", col: "#a09080", name: "ASHLING" },
-      charger: { hp: 26, r: 25, spd: 90, kind: "charge", col: "#c05040", name: "CHARGER" },
-      voider: { hp: 24, r: 22, spd: 14, kind: "range", col: "#503878", name: "VOIDER" },
-      briar: { hp: 30, r: 25, spd: 22, kind: "chase", col: "#3a8040", name: "BRIAR" },
-      spitter: { hp: 22, r: 22, spd: 12, kind: "range", col: "#80b040", name: "NEEDLE" },
-      golem: { hp: 48, r: 30, spd: 16, kind: "chase", col: "#687060", name: "GOLEM" },
-      witchling: { hp: 26, r: 20, spd: 34, kind: "orbit", col: "#70a058", name: "WITCHLING" },
-      boneking: { hp: 220, r: 42, spd: 22, kind: "boss", col: "#e8e0d0", name: "BONE KING", boss: "bone" },
-      ashtitan: { hp: 420, r: 51, spd: 16, kind: "boss", col: "#c06030", name: "ASH TITAN", boss: "ash" },
-      thornqueen: { hp: 640, r: 45, spd: 20, kind: "boss", col: "#50a060", name: "THORN QUEEN", boss: "thorn" },
-      minibone: { hp: 90, r: 32, spd: 24, kind: "boss", col: "#c8b898", name: "BONE KNIGHT", boss: "mini" },
-      miniforge: { hp: 110, r: 32, spd: 20, kind: "boss", col: "#d07030", name: "SLAG KNIGHT", boss: "mini" },
-      miniash: { hp: 140, r: 35, spd: 22, kind: "boss", col: "#908070", name: "ASH KNIGHT", boss: "mini" },
-      minithorn: { hp: 160, r: 35, spd: 20, kind: "boss", col: "#407848", name: "THORN KNIGHT", boss: "mini" }
+      slime: { hp: 12, r: 24, spd: 41, kind: "chase", col: "#6aaa3a", name: "SLIME" },
+      bat: { hp: 8, r: 18, spd: 102, kind: "swoop", col: "#8878a8", name: "BAT" },
+      skel: { hp: 18, r: 22, spd: 52, kind: "chase", col: "#d0d0c0", name: "SKEL" },
+      archer: { hp: 14, r: 20, spd: 14, kind: "range", col: "#c08050", name: "ARCHER" },
+      imp: { hp: 16, r: 20, spd: 72, kind: "chase", col: "#d04028", name: "IMP" },
+      cinder: { hp: 10, r: 19, spd: 58, kind: "orbit", col: "#f08030", name: "CINDER" },
+      grunt: { hp: 28, r: 28, spd: 35, kind: "chase", col: "#8a6040", name: "GRUNT" },
+      spit: { hp: 18, r: 22, spd: 17, kind: "range", col: "#e06020", name: "SPITTER" },
+      wraith: { hp: 22, r: 24, spd: 64, kind: "swoop", col: "#6070a8", name: "WRAITH" },
+      ashling: { hp: 20, r: 20, spd: 55, kind: "chase", col: "#a09080", name: "ASHLING" },
+      charger: { hp: 26, r: 25, spd: 130, kind: "charge", col: "#c05040", name: "CHARGER" },
+      voider: { hp: 24, r: 22, spd: 20, kind: "range", col: "#503878", name: "VOIDER" },
+      briar: { hp: 30, r: 25, spd: 32, kind: "chase", col: "#3a8040", name: "BRIAR" },
+      spitter: { hp: 22, r: 22, spd: 17, kind: "range", col: "#80b040", name: "NEEDLE" },
+      golem: { hp: 48, r: 30, spd: 23, kind: "chase", col: "#687060", name: "GOLEM" },
+      witchling: { hp: 26, r: 20, spd: 49, kind: "orbit", col: "#70a058", name: "WITCHLING" },
+      boneking: { hp: 220, r: 42, spd: 32, kind: "boss", col: "#e8e0d0", name: "BONE KING", boss: "bone" },
+      ashtitan: { hp: 420, r: 51, spd: 23, kind: "boss", col: "#c06030", name: "ASH TITAN", boss: "ash" },
+      thornqueen: { hp: 640, r: 45, spd: 29, kind: "boss", col: "#50a060", name: "THORN QUEEN", boss: "thorn" },
+      minibone: { hp: 90, r: 32, spd: 35, kind: "boss", col: "#c8b898", name: "BONE KNIGHT", boss: "mini" },
+      miniforge: { hp: 110, r: 32, spd: 29, kind: "boss", col: "#d07030", name: "SLAG KNIGHT", boss: "mini" },
+      miniash: { hp: 140, r: 35, spd: 32, kind: "boss", col: "#908070", name: "ASH KNIGHT", boss: "mini" },
+      minithorn: { hp: 160, r: 35, spd: 29, kind: "boss", col: "#407848", name: "THORN KNIGHT", boss: "mini" }
     };
     return T[type] || T.slime;
+  }
+
+  /* CHIEF BB-V6.6 — a 48px creature moving at 41px/s covers less than one of its own
+     bodies a second and reads as stationary. Pursuing kinds get a floor under their
+     speed; ranged and orbiting kinds are meant to hold position and keep theirs. */
+  function walkFloor(kind, spd) {
+    if (kind === "chase" || kind === "swoop" || kind === "charge") return Math.max(spd, 78);
+    if (kind === "orbit") return Math.max(spd, 58);
+    return spd;
   }
 
   function spawnEnemy(type, x, y, fl, isBoss) {
@@ -774,7 +785,7 @@
     var hp = scaleStat(d.hp, fl);
     return {
       type: type, name: d.name, x: x, y: y, r: d.r, hp: hp, maxHp: hp,
-      spd: d.spd, kind: d.kind, col: d.col, boss: d.boss || null,
+      spd: walkFloor(d.kind, d.spd), kind: d.kind, col: d.col, boss: d.boss || null,
       cd: rnd() * 1.2, stun: 0, burn: 0, alive: true, vx: 0, vy: 0,
       phase: 0, tell: 0, gap: 0, ringR: 0, ringOn: false, deadT: 0,
       facing: 1
@@ -1092,7 +1103,7 @@
     if (ball.live) return;
     S.throws = (S.throws || 0) + 1;
     var spd = throwSpeed() * pow;
-    ball.live = true; ball.ret = false;
+    ball.live = true; ball.ret = false; ball.pierced = false;
     ball.x = player.x + Math.cos(ang) * 20;
     ball.y = player.y + Math.sin(ang) * 20;
     ball.vx = Math.cos(ang) * spd;
@@ -1142,9 +1153,30 @@
       var e = room.enemies[i];
       if (!e.alive) continue;
       if (Math.hypot(e.x - ball.x, e.y - ball.y) < e.r + ball.r) {
+        var wasAlive = e.alive;
         hitEnemy(e, ball, ball.dmg, false);
         if (hasAff("Split") && ball.hits.length === 1) spawnSplit();
-        if (hasAff("Heavy")) { ball.vx *= 0.85; ball.vy *= 0.85; }
+        /* CHIEF BB-V6.4 — the ball used to sail straight through a live enemy, which
+           made a body no different from empty floor and quietly deleted the reason to
+           aim. It now rebounds off anything still standing, exactly as it does off a
+           wall, and that rebound counts as a bounce — so hitting an enemy and then
+           banking into a second one is a TRICK KILL. Heavy is the affix that buys
+           the old behaviour: it pierces the first enemy it meets and carries on.
+           A body that dies on the hit never blocks: you punch through the kill. */
+        var pierce = hasAff("Heavy") && !ball.pierced;
+        if (pierce) { ball.pierced = true; ball.vx *= 0.85; ball.vy *= 0.85; }
+        else if (wasAlive && e.alive) {
+          var dx = ball.x - e.x, dy = ball.y - e.y;
+          var d = Math.hypot(dx, dy) || 1;
+          var nx = dx / d, ny = dy / d;
+          var into = ball.vx * nx + ball.vy * ny;
+          if (into < 0) { ball.vx -= 1.85 * into * nx; ball.vy -= 1.85 * into * ny; }
+          ball.x = e.x + nx * (e.r + ball.r + 1);
+          ball.y = e.y + ny * (e.r + ball.r + 1);
+          ball.bounces += 1;
+          sfx("bounce");
+          burst(ball.x, ball.y, "#ffe0a0", 3);
+        }
       }
     }
     ball.trail.push({ x: ball.x, y: ball.y, t: 0.25 });
@@ -1432,7 +1464,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     return { x: mx, y: my, m: m };
   }
 
-  var ACCEL = 1500, BRAKE = 2600, NUDGE = 7;
+  var ACCEL = 2100, BRAKE = 3200, NUDGE = 8;
 
   function slide(axis, step, r) {
     var nx = axis === "x" ? player.x + step : player.x;
@@ -2428,9 +2460,15 @@ function endRunToMenu() {
     STK.FIELD.id = ev.pointerId;
     S.pointer.down = true;
     S.pointer.x = w.x; S.pointer.y = w.y;
+    /* CHIEF BB-V6.5 — the aim used to be the angle from the HERO to your finger, so
+       how fast the arc swung depended on how far away you had put your thumb: near
+       him it snapped wildly, far from him it crawled. It is now measured from where
+       the drag STARTED, which makes the swing the same speed everywhere on the
+       screen, and one screen-width of travel covers a full sweep. */
+    S.dragFrom = { x: w.x, y: w.y };
     if (!ball.live) {
-      var dx = w.x - player.x, dy = w.y - player.y;
-      S.aim = { ang: Math.atan2(dy, dx), pow: Math.max(0.35, Math.min(1, Math.hypot(dx, dy) / 140)), x: w.x, y: w.y };
+      var dx0 = w.x - player.x, dy0 = w.y - player.y;
+      S.aim = { ang: Math.atan2(dy0, dx0), pow: 0.6, x: w.x, y: w.y };
     }
   }
 
@@ -2448,11 +2486,15 @@ function endRunToMenu() {
     if (ev.pointerId !== STK.FIELD.id || !S.pointer.down) return;
     var w = worldFromEvent(ev);
     S.pointer.x = w.x; S.pointer.y = w.y;
-    if (S.aim && !ball.live) {
-      var dx = w.x - player.x, dy = w.y - player.y;
-      S.aim.ang = Math.atan2(dy, dx);
-      S.aim.pow = Math.max(0.35, Math.min(1, Math.hypot(dx, dy) / 140));
-      S.aim.x = w.x; S.aim.y = w.y;
+    if (S.aim && !ball.live && S.dragFrom) {
+      var dx = w.x - S.dragFrom.x, dy = w.y - S.dragFrom.y;
+      var m = Math.hypot(dx, dy);
+      if (m > 6) {
+        S.aim.ang = Math.atan2(dy, dx);
+        S.aim.pow = Math.max(0.4, Math.min(1, 0.4 + m / 150));
+      }
+      S.aim.x = player.x + Math.cos(S.aim.ang) * 200;
+      S.aim.y = player.y + Math.sin(S.aim.ang) * 200;
     }
   }
 
@@ -2583,6 +2625,11 @@ function endRunToMenu() {
   window.__BB_SELFTEST = {
     /* read-only probe for the headless harness: position and velocity, nothing else */
     pos: function () { return player ? { x: Math.round(player.x), y: Math.round(player.y), vx: Math.round(player.vx), vy: Math.round(player.vy) } : null; },
+    ballState: function () { return ball ? { x: Math.round(ball.x), y: Math.round(ball.y), vx: Math.round(ball.vx), vy: Math.round(ball.vy), live: ball.live, bounces: ball.bounces, hits: ball.hits.length, pierced: !!ball.pierced } : null; },
+    enemies: function () { return room ? room.enemies.filter(function (e) { return e.alive; }).map(function (e) { return { x: Math.round(e.x), y: Math.round(e.y), r: e.r, hp: e.hp, spd: e.spd }; }) : []; },
+    fire: function (ang, pow) { throwBall(ang, pow); },
+    setAff: function (a) { player.ballAffix = a; ball.affix = a; },
+    warp: function (x, y) { player.x = x; player.y = y; },
     encode: encodeShare,
     decode: decodeShare,
     hash: hashStr,
