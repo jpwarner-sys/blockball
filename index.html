@@ -1485,6 +1485,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      158 px/s at 1.00x sprite scale and was the one that got "keep the controls";
      the sprite is now 2.15x, and speed is felt in body-lengths, so 158 * 2.15 = 340.
      Shipping at 235 was a 31% slowdown in the only unit that matters. */
+  var BUILD = "v7.1";
   var FEEL_DEF = { spd: 340, accel: 2600, brake: 3600, throwSpd: 620, aimMode: "hybrid", aimDead: 2, aimHold: 64 };
   var FEEL = (function () {
     var f = {};
@@ -2191,7 +2192,9 @@ g.beginPath(); g.arc(S.splits[sp].x, S.splits[sp].y, S.splits[sp].r, 0, 6.3); g.
       "<h1 class=\"splashTitle\">BLOCKBALL</h1>" +
       "<img class=\"splashArt\" alt=\"\" src=\"" + TITLE_ART + "\">" +
       "<h1 class=\"splashTitle\">DUNGEON</h1>" +
-      "<div class=\"splashGo\">TAP TO START</div>";
+      "<div class=\"splashGo\">TAP TO START</div>" +
+      "<div class='muted' style='margin-top:10px;font-size:12px'>" + BUILD +
+        " · aim " + FEEL.aimMode.toUpperCase() + "</div>";
     var panel = document.getElementById("splashPanel");
     panel.className = "panel splash show";
     panel.onclick = function () { ensureAudio(); showMenu(); };
@@ -2218,7 +2221,12 @@ g.beginPath(); g.arc(S.splits[sp].x, S.splits[sp].y, S.splits[sp].r, 0, 6.3); g.
       "<button class='bb pri' id='btnPlay'>PLAY</button>" +
       "<button class='bb' id='btnPass'>PASS AND PLAY</button>" +
       "<button class='bb' id='btnBuilder'>DUNGEON BUILDER</button>" +
+      /* FEEL lives here as well as on the pause card — you should not have to be
+         mid-fight to change how the game feels */
+      "<button class='bb' id='btnFeelMenu'>FEEL · " + FEEL.aimMode.toUpperCase() + "</button>" +
       "</div>" +
+      "<p class='muted' style='margin:2px 0 0'>" + BUILD + " · move " + FEEL.spd +
+        " · throw " + FEEL.throwSpd + "</p>" +
       "<h2>PROFILE</h2><div class='row' id='profRow'>" + profs + "</div>" +
       /* CHIEF FIX BB-V4.10 — five rows of dress-up pushed SEED and SHARE CODE two
          screens down on a phone. They are a once-a-week choice, not a per-run one,
@@ -2245,6 +2253,7 @@ g.beginPath(); g.arc(S.splits[sp].x, S.splits[sp].y, S.splits[sp].r, 0, 6.3); g.
       activeProfile = +b.getAttribute("data-p");
       showMenu();
     };
+    document.getElementById("btnFeelMenu").onclick = function () { showFeel(); };
     document.getElementById("btnPlay").onclick = function () { startRun(makeSeed(), false, null); };
     document.getElementById("btnPass").onclick = function () { startRun(makeSeed(), true, null); };
     document.getElementById("btnBuilder").onclick = function () { openBuilder(null); };
@@ -2348,6 +2357,7 @@ function endRunToMenu() {
      here, live while the game is paused behind it. COPY puts the settings on the
      clipboard so the ones that feel right can be sent back and baked in. */
   function showFeel() {
+    S.feelFrom = (S.mode === "menu") ? "menu" : "pause";
     hidePanels();
     S.pause = true;
     clearSticks();
@@ -2371,7 +2381,8 @@ function endRunToMenu() {
     }).join("");
     document.getElementById("feelCard").innerHTML =
       "<h1>FEEL</h1>" +
-      "<p class='muted'>Live. Move a slider, hit RESUME, play a room. Defaults are the v3-equivalent.</p>" +
+      "<p class='muted'>" + BUILD + " · aim is <b>" + FEEL.aimMode.toUpperCase() + "</b> right now. " +
+        "Live — move a slider, close this, play a room.</p>" +
       feelRow("spd", "MOVE", 150, 460, 5, "") +
       feelRow("accel", "ACCELERATION", 800, 4500, 50, "") +
       feelRow("brake", "STOPPING", 800, 5000, 50, "") +
@@ -2402,7 +2413,11 @@ function endRunToMenu() {
       if (!b) return;
       var am = b.getAttribute("data-aim");
       if (am) { FEEL.aimMode = am; saveFeel(); renderFeel(); return; }
-      if (b.id === "btnFeelX") { document.getElementById("feelPanel").className = "panel"; showPause(); return; }
+      if (b.id === "btnFeelX") {
+        document.getElementById("feelPanel").className = "panel";
+        if (S.feelFrom === "menu") { S.pause = false; showMenu(); } else showPause();
+        return;
+      }
       if (b.id === "btnFeelReset") { for (var k in FEEL_DEF) FEEL[k] = FEEL_DEF[k];
         if (player) player.spd = FEEL.spd; saveFeel(); renderFeel(); return; }
       if (b.id === "btnFeelCopy") {
