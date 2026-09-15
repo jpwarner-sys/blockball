@@ -1485,18 +1485,22 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      158 px/s at 1.00x sprite scale and was the one that got "keep the controls";
      the sprite is now 2.15x, and speed is felt in body-lengths, so 158 * 2.15 = 340.
      Shipping at 235 was a 31% slowdown in the only unit that matters. */
-  var BUILD = "v7.1";
-  var FEEL_DEF = { spd: 340, accel: 2600, brake: 3600, throwSpd: 620, aimMode: "hybrid", aimDead: 2, aimHold: 64 };
+  var BUILD = "v7.2";
+  var FEEL_DEF = { spd: 340, accel: 2600, brake: 3600, throwSpd: 620, aimMode: "drag", aimDead: 2, aimHold: 64 };
   var FEEL = (function () {
     var f = {};
     for (var k in FEEL_DEF) f[k] = FEEL_DEF[k];
     try {
-      var raw = localStorage.getItem("bb.feel.v1");
-      if (raw) { var o = JSON.parse(raw); for (var j in o) if (j in f) f[j] = o[j]; }
+      /* v2 bumped the key so the new DRAG default actually reaches a device that
+         already wrote a v1 blob. Slider tweaks carry over; aimMode deliberately
+         does not -- otherwise a stale "hybrid" would outrank the new default. */
+      var raw = localStorage.getItem("bb.feel.v2"), skipAim = false;
+      if (!raw) { raw = localStorage.getItem("bb.feel.v1"); skipAim = !!raw; }
+      if (raw) { var o = JSON.parse(raw); for (var j in o) if (j in f && !(skipAim && j === "aimMode")) f[j] = o[j]; }
     } catch (e) {}
     return f;
   })();
-  function saveFeel() { try { localStorage.setItem("bb.feel.v1", JSON.stringify(FEEL)); } catch (e) {} }
+  function saveFeel() { try { localStorage.setItem("bb.feel.v2", JSON.stringify(FEEL)); } catch (e) {} }
 
   var NUDGE = 8;
 
