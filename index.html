@@ -1501,7 +1501,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      158 px/s at 1.00x sprite scale and was the one that got "keep the controls";
      the sprite is now 2.15x, and speed is felt in body-lengths, so 158 * 2.15 = 340.
      Shipping at 235 was a 31% slowdown in the only unit that matters. */
-  var BUILD = "v7.3";
+  var BUILD = "v7.4";
   var FEEL_DEF = { spd: 340, accel: 2600, brake: 3600, throwSpd: 620, aimMode: "drag", aimDead: 2, aimHold: 64 };
   var FEEL = (function () {
     var f = {};
@@ -1786,19 +1786,31 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     return ballCols().lo;
   }
 
+  /* BB-V7.4 — walls were flat tiles with a 6px shadow strip INSIDE the tile: 20% of a
+     30px tile, an emboss, and nothing occluded anything. Meanwhile the hero, the mobs
+     and the knights all carry real cube() depth, so the sprites promised a 3/4 view
+     and the floor delivered a top-down checkerboard. The old LP build got this right:
+     walls are blocks lifted by their own height, ~48% of a tile. That one number is
+     the difference between a room and a grid. */
+  var WALL_Z = 0.48;
   function drawWorld(g) {
     var bio = biomeOf(S.floor);
-    for (var y = 0; y < ROWS; y++) {
-      for (var x = 0; x < COLS; x++) {
-        var wall = room ? room.grid[y][x] : 1;
-        g.fillStyle = wall ? bio.walls[(x + y) & 1] : bio.floor[(x + y) & 1];
+    var wz = Math.round(TILE * WALL_Z);
+    var y, x, wall;
+    /* floor for EVERY tile first, or a wall's lifted top is painted over by the
+       floor of the tile above it. */
+    for (y = 0; y < ROWS; y++) {
+      for (x = 0; x < COLS; x++) {
+        g.fillStyle = bio.floor[(x + y) & 1];
         g.fillRect(x * TILE, y * TILE, TILE, TILE);
-        if (wall) {
-          g.fillStyle = "rgba(0,0,0,0.25)";
-          g.fillRect(x * TILE, y * TILE + TILE - 6, TILE, 6);
-          g.fillStyle = "rgba(255,255,255,0.05)";
-          g.fillRect(x * TILE + 2, y * TILE + 2, TILE - 8, 4);
-        }
+      }
+    }
+    /* then walls as blocks, top row first so a lower wall occludes the one above it */
+    for (y = 0; y < ROWS; y++) {
+      for (x = 0; x < COLS; x++) {
+        wall = room ? room.grid[y][x] : 1;
+        if (!wall) continue;
+        cube(g, x * TILE, y * TILE - wz, TILE, TILE, wz, bio.walls[(x + y) & 1]);
       }
     }
     if (room && room.cleared) {
