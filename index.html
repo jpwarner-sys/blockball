@@ -363,6 +363,7 @@
   <div class="panel" id="passPanel"><div class="card" id="passCard"></div></div>
   <div class="panel" id="floorPanel"><div class="card" id="floorCard"></div></div>
   <div class="panel" id="builderPanel"><div class="card" id="builderCard"></div></div>
+  <div class="panel" id="feelPanel"><div class="card" id="feelCard"></div></div>
 </div>
 <script>
 (function () {
@@ -638,7 +639,7 @@
          played to floor 20 and then said "I like the controls, keep them". */
       /* CHIEF BB-V6.6 — 158 was right for the old sprite; at 2.15x the size the same
          px/s reads as a crawl, because speed is felt in body-lengths, not pixels. */
-      spd: 235, walk: 0, vx: 0, vy: 0,
+      spd: FEEL.spd, walk: 0, vx: 0, vy: 0,
       hp: 5, maxHp: 5,
       frag: 0,
       dmgLv: 0, spdLv: 0, blkLv: 0, hpBought: 0, fireLv: 0,
@@ -655,7 +656,7 @@
     return scaleStat(8 + player.dmgLv * 6, S.floor);
   }
   function throwSpeed() {
-    return 420 + player.spdLv * 55;
+    return FEEL.throwSpd + player.spdLv * 55;
   }
 
   function resetBallHome() {
@@ -1480,7 +1481,23 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     return { x: mx, y: my, m: m };
   }
 
-  var ACCEL = 2100, BRAKE = 3200, NUDGE = 8;
+  /* FEEL — live-tunable, persisted. Defaults are the v3-equivalent: that build ran
+     158 px/s at 1.00x sprite scale and was the one that got "keep the controls";
+     the sprite is now 2.15x, and speed is felt in body-lengths, so 158 * 2.15 = 340.
+     Shipping at 235 was a 31% slowdown in the only unit that matters. */
+  var FEEL_DEF = { spd: 340, accel: 2600, brake: 3600, throwSpd: 620, aimMode: "hybrid", aimDead: 2, aimHold: 64 };
+  var FEEL = (function () {
+    var f = {};
+    for (var k in FEEL_DEF) f[k] = FEEL_DEF[k];
+    try {
+      var raw = localStorage.getItem("bb.feel.v1");
+      if (raw) { var o = JSON.parse(raw); for (var j in o) if (j in f) f[j] = o[j]; }
+    } catch (e) {}
+    return f;
+  })();
+  function saveFeel() { try { localStorage.setItem("bb.feel.v1", JSON.stringify(FEEL)); } catch (e) {} }
+
+  var NUDGE = 8;
 
   /* CHIEF FIX BB-V6.8 — the hero could walk into a wall and stick there. The corner
      nudge tested one point and then moved to a DIFFERENT one: it asked whether
@@ -1540,7 +1557,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     var inp = inputVec();
     var top = player.spd * (1 + player.spdLv * 0.05);
     var tx = inp.x * top, ty = inp.y * top;
-    var rate = inp.m > 0.12 ? ACCEL : BRAKE;
+    var rate = inp.m > 0.12 ? FEEL.accel : FEEL.brake;
     var dvx = tx - player.vx, dvy = ty - player.vy;
     var dv = Math.hypot(dvx, dvy);
     if (dv > 0) {
@@ -1592,7 +1609,17 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      Only the run and the builder need landscape; the splash and the menu are built
      to read upright. The gate now waits until the player actually starts. */
   function syncRotate() {
-    var needsLandscape = S.mode === "play" || S.mode === "builder";
+    /* FIX BB-V7.0 — the rotate gate is z-index 80 and the panels are 40, so in
+       portrait it covered the pause, shop and floor cards. Mode stays "play" while
+       paused, so pausing and turning the phone upright locked you out of MENU with
+       a screen that only says "turn sideways". A card does not need landscape;
+       only the live field does. */
+    var panelOpen = ["splashPanel", "menuPanel", "pausePanel", "shopPanel", "passPanel",
+                     "floorPanel", "builderPanel", "feelPanel"].some(function (id) {
+      var el = document.getElementById(id);
+      return el && el.className.indexOf("show") >= 0;
+    });
+    var needsLandscape = (S.mode === "play" || S.mode === "builder") && !S.pause && !panelOpen;
     rotateEl.className = (S.portrait && needsLandscape) ? "show" : "";
   }
 
@@ -2149,9 +2176,10 @@ g.beginPath(); g.arc(S.splits[sp].x, S.splits[sp].y, S.splits[sp].r, 0, 6.3); g.
   }
 
   function hidePanels() {
-    ["splashPanel", "menuPanel", "pausePanel", "shopPanel", "passPanel", "floorPanel", "builderPanel"].forEach(function (id) {
+    ["splashPanel", "menuPanel", "pausePanel", "shopPanel", "passPanel", "floorPanel", "builderPanel", "feelPanel"].forEach(function (id) {
       document.getElementById(id).className = "panel";
     });
+    if (typeof syncRotate === "function") syncRotate();
   }
 
   function showSplash() {
@@ -2256,6 +2284,7 @@ g.beginPath(); g.arc(S.splits[sp].x, S.splits[sp].y, S.splits[sp].r, 0, 6.3); g.
   }
 
   function showPause() {
+    hidePanels();                 /* same trap as showShop had */
     document.getElementById("pausePanel").className = "panel show";
     document.getElementById("pauseCard").innerHTML =
       "<h1>PAUSE</h1>" +
@@ -2267,8 +2296,10 @@ g.beginPath(); g.arc(S.splits[sp].x, S.splits[sp].y, S.splits[sp].r, 0, 6.3); g.
       "<div class='row'>" +
       "<button class='bb pri' id='btnRes'>RESUME</button>" +
       "<button class='bb' id='btnUpg'>UPGRADE · " + player.frag + "</button>" +
+      "<button class='bb' id='btnFeel'>FEEL</button>" +
       "<button class='bb' id='btnMenu'>MENU</button>" +
       "</div>";
+    document.getElementById("btnFeel").onclick = function () { showFeel(); };
     document.getElementById("btnUpg").onclick = function () { showShop(); };
     document.getElementById("btnRes").onclick = function () { document.getElementById("pausePanel").className = "panel"; S.pause = false; };
     document.getElementById("btnMenu").onclick = function () { S.pause = false; endRunToMenu(); };
@@ -2290,19 +2321,98 @@ function endRunToMenu() {
   }
 
   function showShop() {
+    /* FIX BB-V7.0 — this was the one show* that never called hidePanels(), so
+       opening UPGRADE from the floor card left BOTH panels up. DESCEND then hid
+       the floor card, started the room, and left this overlay over a live game
+       with nothing able to dismiss it. Read where we came from FIRST, then clear. */
     S.shopFrom = document.getElementById("floorPanel").className.indexOf("show") >= 0 ? "floor" : "pause";
+    hidePanels();
     S.pause = true;
     clearSticks();
     document.getElementById("shopPanel").className = "panel show";
     renderShop();
+    syncRotate();
   }
 
   function closeShop() {
     document.getElementById("shopPanel").className = "panel";
-    if (S.shopFrom === "floor") { S.pause = false; return; }
+    /* the floor card was hidden on the way in, so it has to be put back rather
+       than assumed to still be there */
+    if (S.shopFrom === "floor") { S.pause = false; showFloorCard(S.shopBoss); return; }
     /* came from the pause card, so go back to it rather than into a live room */
     showPause();
   }
+  /* ---------- FEEL ----------
+     The old build felt more agile and the throws more energetic. Rather than
+     guess one number and ship it, every number that makes up "feel" is a slider
+     here, live while the game is paused behind it. COPY puts the settings on the
+     clipboard so the ones that feel right can be sent back and baked in. */
+  function showFeel() {
+    hidePanels();
+    S.pause = true;
+    clearSticks();
+    document.getElementById("feelPanel").className = "panel show";
+    renderFeel();
+    syncRotate();
+  }
+  function feelRow(key, label, min, max, step, unit) {
+    return "<div class='row' style='margin:7px 0;align-items:center'>" +
+      "<span style='min-width:118px'>" + label + "</span>" +
+      "<input type='range' data-feel='" + key + "' min='" + min + "' max='" + max + "' step='" + step +
+      "' value='" + FEEL[key] + "' style='flex:1;min-width:110px'>" +
+      "<span class='muted' data-feelv='" + key + "' style='min-width:58px;text-align:right'>" +
+      FEEL[key] + (unit || "") + "</span></div>";
+  }
+  function renderFeel() {
+    var modes = ["hybrid", "point", "drag"];
+    var modeBtns = modes.map(function (m) {
+      return "<button class='bb" + (FEEL.aimMode === m ? " pri" : "") + "' data-aim='" + m + "'>" +
+        m.toUpperCase() + "</button>";
+    }).join("");
+    document.getElementById("feelCard").innerHTML =
+      "<h1>FEEL</h1>" +
+      "<p class='muted'>Live. Move a slider, hit RESUME, play a room. Defaults are the v3-equivalent.</p>" +
+      feelRow("spd", "MOVE", 150, 460, 5, "") +
+      feelRow("accel", "ACCELERATION", 800, 4500, 50, "") +
+      feelRow("brake", "STOPPING", 800, 5000, 50, "") +
+      feelRow("throwSpd", "THROW", 300, 1000, 10, "") +
+      "<div class='row' style='margin:10px 0 4px'><span style='min-width:118px'>AIM</span>" + modeBtns + "</div>" +
+      "<p class='muted' id='aimWhy' style='margin:2px 0 6px'></p>" +
+      feelRow("aimHold", "AIM DEAD ZONE", 0, 160, 4, "px") +
+      "<div class='row'>" +
+      "<button class='bb pri' id='btnFeelX'>DONE</button>" +
+      "<button class='bb' id='btnFeelCopy'>COPY</button>" +
+      "<button class='bb' id='btnFeelReset'>RESET</button>" +
+      "</div>";
+    var why = { hybrid: "Point where you want it, but the angle holds while your thumb is near the hero — no wild snap.",
+                point: "Aim straight at your thumb. Instant, the old feel. Twitchy close in.",
+                drag: "Angle from where the drag started. Steady, but a full sweep costs a screen-width." };
+    document.getElementById("aimWhy").textContent = why[FEEL.aimMode];
+    document.getElementById("feelCard").oninput = function (ev) {
+      var k = ev.target.getAttribute("data-feel");
+      if (!k) return;
+      FEEL[k] = parseFloat(ev.target.value);
+      var out = document.querySelector("[data-feelv='" + k + "']");
+      if (out) out.textContent = FEEL[k] + (k === "aimHold" ? "px" : "");
+      if (k === "spd" && player) player.spd = FEEL.spd;   /* takes effect this run, not next */
+      saveFeel();
+    };
+    document.getElementById("feelCard").onclick = function (ev) {
+      var b = ev.target.closest("button");
+      if (!b) return;
+      var am = b.getAttribute("data-aim");
+      if (am) { FEEL.aimMode = am; saveFeel(); renderFeel(); return; }
+      if (b.id === "btnFeelX") { document.getElementById("feelPanel").className = "panel"; showPause(); return; }
+      if (b.id === "btnFeelReset") { for (var k in FEEL_DEF) FEEL[k] = FEEL_DEF[k];
+        if (player) player.spd = FEEL.spd; saveFeel(); renderFeel(); return; }
+      if (b.id === "btnFeelCopy") {
+        var txt = "BLOCKBALL FEEL " + JSON.stringify(FEEL);
+        try { navigator.clipboard.writeText(txt); toast("Settings copied"); }
+        catch (e) { toast(txt); }
+      }
+    };
+  }
+
   function renderShop() {
     function row(name, lv, fn) {
       var cost = curveCost(lv);
@@ -2358,6 +2468,7 @@ function endRunToMenu() {
   }
 
   function showFloorCard(boss) {
+    S.shopBoss = !!boss;          /* remembered so UPGRADE -> DONE comes back correctly */
     hidePanels();
     document.getElementById("floorPanel").className = "panel show";
     var bio = biomeOf(S.floor);
@@ -2371,7 +2482,8 @@ function endRunToMenu() {
       "</div>";
     document.getElementById("btnFloorUpg").onclick = function () { showShop(); };
     document.getElementById("btnFloorGo").onclick = function () {
-      document.getElementById("floorPanel").className = "panel";
+      hidePanels();               /* belt and braces: never start a room under an overlay */
+      S.pause = false;
       loadRoom(0);
       S.mode = "play";
     if (typeof syncRotate === "function") syncRotate();
@@ -2562,10 +2674,24 @@ function endRunToMenu() {
     var w = worldFromEvent(ev);
     S.pointer.x = w.x; S.pointer.y = w.y;
     if (S.aim && !ball.live && S.dragFrom) {
-      var dx = w.x - S.dragFrom.x, dy = w.y - S.dragFrom.y;
-      var m = Math.hypot(dx, dy);
-      if (m > 6) {
-        S.aim.ang = Math.atan2(dy, dx);
+      var dx, dy, m;
+      if (FEEL.aimMode === "drag") {
+        /* V6.5 behaviour: angle from where the drag started. Stable, but a full
+           sweep costs a screen-width of thumb travel. */
+        dx = w.x - S.dragFrom.x; dy = w.y - S.dragFrom.y; m = Math.hypot(dx, dy);
+        if (m > FEEL.aimDead) S.aim.ang = Math.atan2(dy, dx);
+      } else {
+        /* POINT: aim straight at the finger — instant, the pre-V6.5 feel.
+           HYBRID: the same, except inside aimHold px of the hero the angle is held
+           rather than recomputed, which is the wild snap V6.5 was fixing without
+           paying a screen-width for every sweep. */
+        dx = w.x - player.x; dy = w.y - player.y; m = Math.hypot(dx, dy);
+        var near = FEEL.aimMode === "hybrid" && m < FEEL.aimHold;
+        if (!near && m > FEEL.aimDead) S.aim.ang = Math.atan2(dy, dx);
+        var dragM = Math.hypot(w.x - S.dragFrom.x, w.y - S.dragFrom.y);
+        m = dragM;
+      }
+      {
         S.aim.pow = Math.max(0.4, Math.min(1, 0.4 + m / 150));
       }
       S.aim.x = player.x + Math.cos(S.aim.ang) * 200;
