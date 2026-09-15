@@ -1010,7 +1010,23 @@
     sfx(trick ? "trick" : "kill");
     burst(en.x, en.y, en.col, trick ? 22 : 10);
     if (rnd() < 0.62 || en.boss) dropLoot(en.x, en.y, !!en.boss);
-    if (en.boss === "ash" || en.boss === "bone" || en.boss === "thorn") startBossDeath(en);
+    if (en.boss === "mini") startMiniDeath(en);
+    else if (en.boss === "ash" || en.boss === "bone" || en.boss === "thorn") startBossDeath(en);
+  }
+
+  /* BB-V7.3 — a mini kill was indistinguishable from killing a slime: no beat, no
+     fountain, no shake. It gets its own, deliberately smaller than a floor boss's
+     so the floor-5 king still out-peaks the floor-1 knight. */
+  function startMiniDeath(en) {
+    S.bossBeat = 1.1;
+    S.muteFx = 0.25;
+    S.shake = 0.38;
+    sfx("boss");
+    for (var i = 0; i < 4; i++) {
+      (function (k) {
+        setTimeout(function () { dropLoot(en.x + irnd(-26, 26), en.y + irnd(-20, 20), true); }, 90 * k);
+      })(i);
+    }
   }
 
   function startBossDeath(en) {
@@ -1485,7 +1501,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      158 px/s at 1.00x sprite scale and was the one that got "keep the controls";
      the sprite is now 2.15x, and speed is felt in body-lengths, so 158 * 2.15 = 340.
      Shipping at 235 was a 31% slowdown in the only unit that matters. */
-  var BUILD = "v7.2";
+  var BUILD = "v7.3";
   var FEEL_DEF = { spd: 340, accel: 2600, brake: 3600, throwSpd: 620, aimMode: "drag", aimDead: 2, aimHold: 64 };
   var FEEL = (function () {
     var f = {};
@@ -2026,13 +2042,131 @@ g.beginPath(); g.arc(S.splits[sp].x, S.splits[sp].y, S.splits[sp].r, 0, 6.3); g.
     }
   }
 
+  /* BB-V7.3 — the four mini-bosses were ONE branch and a colour swap, which broke
+     the playtester's own rule that bosses look visibly different from each other.
+     They were also the last sprites in the game still drawn as flat fillRects: the
+     hero and the trash mobs were rebuilt on cube() and the bosses were never
+     revisited, so the biggest thing in the room was the least-lit thing in it.
+     Each knight now gets its own helm, shoulders and weapon on a shared skeleton,
+     drawn with the same cube() the hero uses. No sprite sheet, no added bytes. */
+  var KNIGHT = {
+    minibone:  { body: "#d8cdb4", trim: "#79808c", accent: "#c9a44c", eye: "#ff7a2a",
+                 helm: "crest",  arms: "pauldron", weap: "sword",  cloak: "#5a2230" },
+    miniforge: { body: "#d8843c", trim: "#5a3a2c", accent: "#ffb040", eye: "#ffd050",
+                 helm: "horn",   arms: "slab",     weap: "hammer", cloak: "#4a1c14" },
+    miniash:   { body: "#9a8c7c", trim: "#4a443c", accent: "#a8dce4", eye: "#9fe8f0",
+                 helm: "hood",   arms: "spike",    weap: "scythe", cloak: "#2c3038" },
+    minithorn: { body: "#4e8c58", trim: "#24381f", accent: "#c0e070", eye: "#d8ff80",
+                 helm: "antler", arms: "bramble",  weap: "lance",  cloak: "#243a20" }
+  };
+
+  function drawKnight(g, e) {
+    var k = KNIGHT[e.type] || KNIGHT.minibone;
+    var body = e.flash > 0 ? "#ffffff" : k.body;
+    var u = e.r * 1.35;
+    var x = e.x;
+    e.artH = u * 2.86;   /* tells drawEnemy where the bar and the name go */
+    if (e.bobPhase == null) e.bobPhase = Math.random() * 6.3;
+    /* wind-up: on the tell the whole figure rises and the weapon lifts */
+    var tell = e.tell > 0 ? Math.min(1, e.tell) : 0;
+    var bob = Math.sin(S.t * 2.0 + e.bobPhase) * u * 0.05 - tell * u * 0.10;
+    var yt = e.y - u * 2.05 + bob;
+    var face = e.x < player.x ? 1 : -1;
+
+    g.globalAlpha = (g.globalAlpha || 1);
+    /* a heavier shadow than any trash mob gets — this is how weight reads */
+    g.save(); g.globalAlpha = 0.44; g.fillStyle = "#0a0806";
+    g.beginPath(); g.ellipse(x, e.y + u * 0.22, u * 0.88, u * 0.27, 0, 0, 6.3); g.fill(); g.restore();
+
+    /* cloak behind everything */
+    cube(g, x - u * 0.60, yt + u * 0.60, u * 1.20, u * 1.02, u * 0.08, k.cloak);
+    /* legs */
+    cube(g, x - u * 0.46, yt + u * 1.52, u * 0.36, u * 0.38, u * 0.18, shade(k.body, 0.72));
+    cube(g, x + u * 0.10, yt + u * 1.52, u * 0.36, u * 0.38, u * 0.18, shade(k.body, 0.72));
+    /* cuirass */
+    cube(g, x - u * 0.52, yt + u * 0.66, u * 1.04, u * 0.92, u * 0.26, body);
+    g.fillStyle = shade(body, 0.72);
+    for (var i = 0; i < 3; i++) g.fillRect(x - u * 0.44, yt + u * (0.86 + i * 0.22), u * 0.88, u * 0.07);
+
+    /* shoulders — the silhouette break */
+    if (k.arms === "pauldron") {
+      cube(g, x - u * 0.86, yt + u * 0.56, u * 0.40, u * 0.34, u * 0.16, k.trim);
+      cube(g, x + u * 0.46, yt + u * 0.56, u * 0.40, u * 0.34, u * 0.16, k.trim);
+    } else if (k.arms === "slab") {
+      cube(g, x - u * 0.98, yt + u * 0.48, u * 0.50, u * 0.46, u * 0.22, k.trim);
+      cube(g, x + u * 0.48, yt + u * 0.48, u * 0.50, u * 0.46, u * 0.22, k.trim);
+    } else if (k.arms === "spike") {
+      cube(g, x - u * 0.82, yt + u * 0.58, u * 0.34, u * 0.30, u * 0.14, k.trim);
+      cube(g, x + u * 0.48, yt + u * 0.58, u * 0.34, u * 0.30, u * 0.14, k.trim);
+      cube(g, x - u * 0.76, yt + u * 0.30, u * 0.12, u * 0.32, u * 0.06, k.accent);
+      cube(g, x + u * 0.64, yt + u * 0.30, u * 0.12, u * 0.32, u * 0.06, k.accent);
+    } else {
+      cube(g, x - u * 0.84, yt + u * 0.54, u * 0.38, u * 0.32, u * 0.15, k.trim);
+      cube(g, x + u * 0.46, yt + u * 0.54, u * 0.38, u * 0.32, u * 0.15, k.trim);
+      cube(g, x - u * 0.92, yt + u * 0.38, u * 0.16, u * 0.20, u * 0.06, k.accent);
+      cube(g, x + u * 0.76, yt + u * 0.38, u * 0.16, u * 0.20, u * 0.06, k.accent);
+    }
+
+    /* weapon, on the side he is facing, lifted on the tell */
+    var wx = x + face * u * 0.74, lift = tell * u * 0.42;
+    if (k.weap === "sword") {
+      cube(g, wx - u * 0.13, yt + u * 0.86 - lift, u * 0.26, u * 0.46, u * 0.12, shade(k.body, 0.72));
+      cube(g, wx - u * 0.11, yt - u * 0.10 - lift, u * 0.22, u * 1.00, u * 0.10, k.trim);
+      cube(g, wx - u * 0.25, yt + u * 0.80 - lift, u * 0.50, u * 0.14, u * 0.08, k.accent);
+    } else if (k.weap === "hammer") {
+      cube(g, wx - u * 0.09, yt + u * 0.10 - lift, u * 0.18, u * 1.36, u * 0.09, shade(k.body, 0.6));
+      cube(g, wx - u * 0.30, yt - u * 0.22 - lift, u * 0.60, u * 0.44, u * 0.20, k.trim);
+      g.fillStyle = k.accent; g.fillRect(wx - u * 0.30, yt - u * 0.06 - lift, u * 0.60, u * 0.07);
+    } else if (k.weap === "scythe") {
+      cube(g, wx - u * 0.08, yt - u * 0.10 - lift, u * 0.16, u * 1.66, u * 0.08, shade(k.body, 0.6));
+      cube(g, wx - face * u * 0.34, yt - u * 0.44 - lift, u * 0.46, u * 0.16, u * 0.08, k.accent);
+      cube(g, wx - face * u * 0.34, yt - u * 0.30 - lift, u * 0.14, u * 0.22, u * 0.06, k.accent);
+    } else {
+      cube(g, wx - u * 0.07, yt - u * 0.30 - lift, u * 0.14, u * 1.96, u * 0.07, shade(k.body, 0.6));
+      cube(g, wx - u * 0.15, yt - u * 0.52 - lift, u * 0.30, u * 0.26, u * 0.10, k.accent);
+    }
+
+    /* head */
+    cube(g, x - u * 0.38, yt + u * 0.06, u * 0.76, u * 0.62, u * 0.22, body);
+    g.fillStyle = "#120d09";
+    g.fillRect(x - u * 0.28, yt + u * 0.26, u * 0.22, u * 0.19);
+    g.fillRect(x + u * 0.06, yt + u * 0.26, u * 0.22, u * 0.19);
+    g.fillStyle = k.eye;
+    var glow = 0.6 + 0.4 * Math.sin(S.t * 3 + e.bobPhase) + tell * 0.6;
+    g.globalAlpha = Math.min(1, glow);
+    g.fillRect(x - u * 0.24 + face * u * 0.02, yt + u * 0.31, u * 0.13, u * 0.09);
+    g.fillRect(x + u * 0.10 + face * u * 0.02, yt + u * 0.31, u * 0.13, u * 0.09);
+    g.globalAlpha = 1;
+
+    /* helm — the one silhouette a player reads from across the room */
+    cube(g, x - u * 0.44, yt - u * 0.18, u * 0.88, u * 0.30, u * 0.14, k.trim);
+    if (k.helm === "crest") {
+      cube(g, x - u * 0.05, yt - u * 0.60, u * 0.10, u * 0.44, u * 0.05, k.accent);
+      cube(g, x - u * 0.20, yt - u * 0.72, u * 0.40, u * 0.16, u * 0.06, k.accent);
+      cube(g, x - u * 0.30, yt - u * 0.62, u * 0.18, u * 0.12, u * 0.05, shade(k.accent, 0.8));
+    } else if (k.helm === "horn") {
+      cube(g, x - u * 0.62, yt - u * 0.44, u * 0.22, u * 0.30, u * 0.10, k.accent);
+      cube(g, x + u * 0.40, yt - u * 0.44, u * 0.22, u * 0.30, u * 0.10, k.accent);
+      cube(g, x - u * 0.72, yt - u * 0.26, u * 0.14, u * 0.18, u * 0.06, k.accent);
+      cube(g, x + u * 0.58, yt - u * 0.26, u * 0.14, u * 0.18, u * 0.06, k.accent);
+    } else if (k.helm === "hood") {
+      cube(g, x - u * 0.52, yt - u * 0.30, u * 1.04, u * 0.34, u * 0.12, k.cloak);
+      cube(g, x - u * 0.42, yt - u * 0.46, u * 0.84, u * 0.20, u * 0.08, shade(k.cloak, 1.2));
+    } else {
+      cube(g, x - u * 0.30, yt - u * 0.52, u * 0.12, u * 0.36, u * 0.05, k.accent);
+      cube(g, x + u * 0.18, yt - u * 0.52, u * 0.12, u * 0.36, u * 0.05, k.accent);
+      cube(g, x - u * 0.52, yt - u * 0.64, u * 0.26, u * 0.10, u * 0.04, k.accent);
+      cube(g, x + u * 0.26, yt - u * 0.64, u * 0.26, u * 0.10, u * 0.04, k.accent);
+    }
+  }
+
   function drawEnemy(g, e) {
     if (!e.alive && e.deadT <= 0) return;
     var a = !e.alive ? Math.max(0, e.deadT) : 1;
     g.globalAlpha = a;
     /* CHIEF BB-V5.2 — boss art is drawn from fixed pixel offsets, so it is scaled
        about the boss's own centre to match the radius it now carries. */
-    var bossScale = e.boss === "ash" ? 1.2 : e.boss ? 1.35 : 1;
+    var bossScale = e.boss === "ash" ? 1.2 : e.boss === "mini" ? 1 : e.boss ? 1.35 : 1;
     if (bossScale !== 1) { g.save(); g.translate(e.x, e.y); g.scale(bossScale, bossScale); g.translate(-e.x, -e.y); }
     if (e.boss === "ash") {
       g.fillStyle = "#2a2018";
@@ -2084,12 +2218,7 @@ g.beginPath(); g.arc(S.splits[sp].x, S.splits[sp].y, S.splits[sp].r, 0, 6.3); g.
       g.fillStyle = "#c0e070";
       g.fillRect(e.x - 22, e.y + 4, 8, 18); g.fillRect(e.x + 14, e.y + 4, 8, 18);
     } else if (e.boss === "mini") {
-      g.fillStyle = e.col;
-      g.fillRect(e.x - 16, e.y - 16, 32, 32);
-      g.fillStyle = "#1a120c";
-      g.fillRect(e.x - 8, e.y - 8, 5, 5); g.fillRect(e.x + 3, e.y - 8, 5, 5);
-      g.fillStyle = "#c0a060";
-      g.fillRect(e.x - 14, e.y - 22, 28, 8);
+      drawKnight(g, e);
     } else {
       /* CHIEF BB-V6.2 — first-floor mobs rebuilt on Joe's own `drawEnemy`: one cube
          with a lit top and a dropped front face, its own idle bob so a room of them
@@ -2124,23 +2253,27 @@ g.beginPath(); g.arc(S.splits[sp].x, S.splits[sp].y, S.splits[sp].r, 0, 6.3); g.
       g.fillRect(x + r * 0.22 + eo, y - r * 0.5 + bob, ez, ez);
     }
     if (bossScale !== 1) g.restore();
+    /* BB-V7.3 — anchored to e.r back when every sprite was a square the size of its
+       own hitbox. A knight stands about 2.8r tall, so the bar and the name landed on
+       his face. Sprites that draw taller than their hitbox now say so in e.artH. */
+    var topOff = e.artH || e.r;
     if (e.alive) {
       var w = Math.max(20, e.r * 2);
       g.fillStyle = "#2a1810";
-      g.fillRect(e.x - w / 2, e.y - e.r - 10, w, 4);
+      g.fillRect(e.x - w / 2, e.y - topOff - 10, w, 4);
       g.fillStyle = e.hp / e.maxHp > 0.35 ? "#50c060" : "#d04030";
-      g.fillRect(e.x - w / 2, e.y - e.r - 10, w * Math.max(0, e.hp / e.maxHp), 4);
+      g.fillRect(e.x - w / 2, e.y - topOff - 10, w * Math.max(0, e.hp / e.maxHp), 4);
     }
     if (e.burn > 0 && e.alive) {
       g.fillStyle = "rgba(255,80,20,0.5)";
-      g.fillRect(e.x - 6, e.y - e.r - 4, 4, 8);
+      g.fillRect(e.x - 6, e.y - topOff - 4, 4, 8);
     }
     g.globalAlpha = 1;
     if (e.boss && e.alive) {
       g.fillStyle = "#f0e0c0";
       g.font = "bold 12px sans-serif";
       g.textAlign = "center";
-      g.fillText(e.name, e.x, e.y - e.r - 16);
+      g.fillText(e.name, e.x, e.y - topOff - 16);
     }
   }
 
