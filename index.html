@@ -316,6 +316,29 @@
     background: #1a1612cc; border: 2px solid #4a4032; padding: 4px 8px; font-weight: 800;
     font-size: 13px; pointer-events: auto;
   }
+  .hudStat {
+    display: flex; align-items: center; gap: 6px;
+    min-height: 28px; padding: 4px 8px;
+    pointer-events: none;
+  }
+  .hudStat .hudIcon { width: 18px; height: 18px; flex: 0 0 auto; display: block; }
+  .hearts { display: flex; gap: 3px; align-items: center; flex-wrap: wrap; max-width: 168px; }
+  .heart { width: 17px; height: 16px; display: block; }
+  .heart.on { color: #e24a42; filter: drop-shadow(0 0 3px rgba(226,74,66,0.55)); }
+  .heart.off { color: #3a3028; }
+  .hpBar {
+    display: flex; align-items: stretch; gap: 2px; height: 16px;
+  }
+  .hpSeg {
+    width: 9px; height: 16px; background: #2a1814; border: 1px solid #5a3830;
+    box-sizing: border-box;
+  }
+  .hpSeg.on { background: #d04038; border-color: #f07868; box-shadow: 0 0 6px rgba(208,64,56,0.45); }
+  .hudNum { font-variant-numeric: tabular-nums; letter-spacing: 0.4px; font-size: 14px; }
+  #btnBlock {
+    display: inline-flex; align-items: center; gap: 6px; min-width: 52px; justify-content: center;
+  }
+  #btnBlock .hudIcon { width: 16px; height: 16px; display: block; }
   #copybox { width: 100%; min-height: 72px; }
 </style>
 </head>
@@ -325,10 +348,10 @@
   <div id="hud">
     <div id="topbar">
       <div class="row">
-        <div class="chip" id="hpChip">HP 5/5</div>
-        <div class="chip" id="frChip">FRAG 0</div>
-        <div class="chip" id="flChip">FLOOR 1</div>
-        <div class="chip" id="scChip">SCORE 0</div>
+        <div class="chip hudStat" id="hpChip" aria-label="health"></div>
+        <div class="chip hudStat" id="frChip" aria-label="fragments"></div>
+        <div class="chip hudStat" id="flChip" aria-label="floor"></div>
+        <div class="chip hudStat" id="scChip" aria-label="score"></div>
       </div>
       <div class="row">
         <button class="bb" id="btnBlock">BLOCK 3</button>
@@ -370,8 +393,14 @@
   "use strict";
   var DIR = location.pathname.replace(/[^\/]*$/, "");
 
-  var WORLD_W = 960, WORLD_H = 540, TILE = 30;
   var COLS = 32, ROWS = 18;
+  /* BB-V7.6 — tiles were 30px in a 960×540 world, then letterboxed on a phone so
+     a block read as ~22 CSS px. TILE is 40 now (chunkier walls/placeables) and the
+     camera zooms on a phone so a tile lands near 34 CSS px without spilling the
+     room off-screen. Speeds/radii scale with TSCALE so stick + throw feel hold. */
+  var TILE = 40;
+  var WORLD_W = COLS * TILE, WORLD_H = ROWS * TILE;
+  var TSCALE = TILE / 30;
   var DT = 1 / 60;
   var MAX_PART = 90;
   var DARK = "#14110e";
@@ -617,7 +646,7 @@
   var STK = {
     L: { id: null, dx: 0, dy: 0 },
     R: { id: null, dx: 0, dy: 0 },
-    FIELD: { id: null }
+    FIELD: { id: null, placeTap: false, dragged: false, downX: 0, downY: 0 }
   };
 
   function stickGeom() {
@@ -642,7 +671,7 @@
   function freshPlayer() {
     var p = store.profiles[activeProfile] || store.profiles[0];
     return {
-      x: 120, y: 270, r: 21,
+      x: 120, y: 270, r: 21 * TSCALE,
       /* CHIEF BB-V6.3 — 158 px/s is the number from Joe's v3 build, the one LP
          played to floor 20 and then said "I like the controls, keep them". */
       /* CHIEF BB-V6.6 — 158 was right for the old sprite; at 2.15x the size the same
@@ -664,12 +693,12 @@
     return scaleStat(8 + player.dmgLv * 6, S.floor);
   }
   function throwSpeed() {
-    return FEEL.throwSpd + player.spdLv * 55;
+    return (FEEL.throwSpd + player.spdLv * 55) * TSCALE;
   }
 
   function resetBallHome() {
     ball = {
-      live: false, ret: false, x: player.x + 30, y: player.y - 8, vx: 0, vy: 0, r: 17, pierced: false,
+      live: false, ret: false, x: player.x + 30 * TSCALE, y: player.y - 8 * TSCALE, vx: 0, vy: 0, r: 17 * TSCALE, pierced: false,
       life: 0, bounces: 0, hits: [], dmg: 0, affix: player.ballAffix || [],
       trail: []
     };
@@ -801,8 +830,8 @@
     var d = enemyDef(type);
     var hp = scaleStat(d.hp, fl);
     return {
-      type: type, name: d.name, x: x, y: y, r: d.r, hp: hp, maxHp: hp,
-      spd: walkFloor(d.kind, d.spd), kind: d.kind, col: d.col, boss: d.boss || null,
+      type: type, name: d.name, x: x, y: y, r: d.r * TSCALE, hp: hp, maxHp: hp,
+      spd: walkFloor(d.kind, d.spd) * TSCALE, kind: d.kind, col: d.col, boss: d.boss || null,
       cd: rnd() * 1.2, stun: 0, burn: 0, alive: true, vx: 0, vy: 0,
       phase: 0, tell: 0, tellMax: 0, gap: 0, ringR: 0, ringOn: false, deadT: 0,
       facing: 1, disarm: false, thrown: null, rearm: 0, knivesLeft: 0
@@ -897,7 +926,7 @@
       var e = spec.ents[i];
       var x = (e.tx + 0.5) * TILE, y = (e.ty + 0.5) * TILE;
       if (e.kind === "enemy") ents.push(spawnEnemy(e.type, x, y, S.floor, spec.kind === "boss"));
-      else if (e.kind === "chest") chests.push({ x: x, y: y, open: false, r: 14 });
+      else if (e.kind === "chest") chests.push({ x: x, y: y, open: false, r: 14 * TSCALE });
     }
     room = {
       spec: spec,
@@ -1122,11 +1151,12 @@
   }
 
   function nearestEnemy(x, y, skip) {
-    var best = null, bd = 90;
+    var best = null, bd = 90 * TSCALE;
     for (var i = 0; i < room.enemies.length; i++) {
       var e = room.enemies[i];
       if (!e.alive || e === skip) continue;
-      var d = Math.hypot(e.x - x, e.y - y);
+      var h = projHit(e);
+      var d = Math.hypot(h.x - x, h.y - y);
       if (d < bd) { bd = d; best = e; }
     }
     return best;
@@ -1137,8 +1167,8 @@
     S.throws = (S.throws || 0) + 1;
     var spd = throwSpeed() * pow;
     ball.live = true; ball.ret = false; ball.pierced = false;
-    ball.x = player.x + Math.cos(ang) * 20;
-    ball.y = player.y + Math.sin(ang) * 20;
+    ball.x = player.x + Math.cos(ang) * 20 * TSCALE;
+    ball.y = player.y + Math.sin(ang) * 20 * TSCALE;
     ball.vx = Math.cos(ang) * spd;
     ball.vy = Math.sin(ang) * spd;
     ball.life = 2.6; ball.bounces = 0; ball.hits = [];
@@ -1149,20 +1179,29 @@
     if (!S.seenAimHelp) { S.seenAimHelp = true; store.aimHelp = true; saveStore(); }
   }
 
+  /* BB-V7.6 — projectile hit vs the walk radius. Mini knights stand ~2.8r tall
+     with the circle on their feet, so a ball through the chest registered 0 dmg.
+     Bosses/minis get a raised, larger circle for the ball and splits only. */
+  function projHit(e) {
+    if (e.boss === "mini") return { x: e.x, y: e.y - e.r * 1.35, r: e.r * 2.15 };
+    if (e.boss) return { x: e.x, y: e.y - e.r * 0.45, r: e.r * 1.65 };
+    return { x: e.x, y: e.y, r: e.r * 1.12 };
+  }
+
   function updateBall(dt) {
     if (!ball.live) {
       /* CHIEF BB-V5.3 — the ball at rest used to be drawn over the hero's face.
          It now sits in the throwing hand, out to the side and low. */
-      ball.x = player.x + player.facing * 30;
-      ball.y = player.y - 8;
+      ball.x = player.x + player.facing * 30 * TSCALE;
+      ball.y = player.y - 8 * TSCALE;
       return;
     }
     if (ball.ret) {
-      var dx = player.x - ball.x, dy = player.y - 18 - ball.y;
+      var dx = player.x - ball.x, dy = player.y - 18 * TSCALE - ball.y;
       var d = Math.hypot(dx, dy) || 1;
-      ball.vx = dx / d * 520; ball.vy = dy / d * 520;
+      ball.vx = dx / d * 520 * TSCALE; ball.vy = dy / d * 520 * TSCALE;
       ball.x += ball.vx * dt; ball.y += ball.vy * dt;
-      if (d < 30) { ball.live = false; ball.ret = false; }
+      if (d < 30 * TSCALE) { ball.live = false; ball.ret = false; }
       return;
     }
     if (hasAff("Homing")) {
@@ -1185,7 +1224,8 @@
     for (var i = 0; i < room.enemies.length; i++) {
       var e = room.enemies[i];
       if (!e.alive) continue;
-      if (Math.hypot(e.x - ball.x, e.y - ball.y) < e.r + ball.r) {
+      var hit = projHit(e);
+      if (Math.hypot(hit.x - ball.x, hit.y - ball.y) < hit.r + ball.r) {
         var wasAlive = e.alive;
         hitEnemy(e, ball, ball.dmg, false);
         if (hasAff("Split") && ball.hits.length === 1) spawnSplit();
@@ -1199,13 +1239,13 @@
         var pierce = hasAff("Heavy") && !ball.pierced;
         if (pierce) { ball.pierced = true; ball.vx *= 0.85; ball.vy *= 0.85; }
         else if (wasAlive && e.alive) {
-          var dx = ball.x - e.x, dy = ball.y - e.y;
+          var dx = ball.x - hit.x, dy = ball.y - hit.y;
           var d = Math.hypot(dx, dy) || 1;
           var nx = dx / d, ny = dy / d;
           var into = ball.vx * nx + ball.vy * ny;
           if (into < 0) { ball.vx -= 1.85 * into * nx; ball.vy -= 1.85 * into * ny; }
-          ball.x = e.x + nx * (e.r + ball.r + 1);
-          ball.y = e.y + ny * (e.r + ball.r + 1);
+          ball.x = hit.x + nx * (hit.r + ball.r + 1);
+          ball.y = hit.y + ny * (hit.r + ball.r + 1);
           ball.bounces += 1;
           sfx("bounce");
           burst(ball.x, ball.y, "#ffe0a0", 3);
@@ -1231,7 +1271,10 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       resolveCircle(room.grid, room.blocks, s);
       for (var j = 0; j < room.enemies.length; j++) {
         var e = room.enemies[j];
-        if (e.alive && Math.hypot(e.x - s.x, e.y - s.y) < e.r + s.r) hitEnemy(e, s, Math.floor(currentDmg() * 0.45), true);
+        if (e.alive) {
+          var sh = projHit(e);
+          if (Math.hypot(sh.x - s.x, sh.y - s.y) < sh.r + s.r) hitEnemy(e, s, Math.floor(currentDmg() * 0.45), true);
+        }
       }
       if (s.life <= 0) S.splits.splice(i, 1);
     }
@@ -1239,7 +1282,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
 
   function aimGuide(ang, pow) {
     var pts = [];
-    var x = player.x + Math.cos(ang) * 20, y = player.y + Math.sin(ang) * 20;
+    var x = player.x + Math.cos(ang) * 20 * TSCALE, y = player.y + Math.sin(ang) * 20 * TSCALE;
     var vx = Math.cos(ang), vy = Math.sin(ang);
     pts.push({ x: x, y: y });
     var bounced = false;
@@ -1334,9 +1377,10 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
   function fireShot(x, y, ux, uy, spd, dmg, kind, extra) {
     extra = extra || {};
     kind = kind || "knife";
+    var sp = spd * TSCALE;
     var s = {
-      x: x, y: y, vx: ux * spd, vy: uy * spd,
-      r: extra.r != null ? extra.r : (kind === "knife" ? 4.5 : 5),
+      x: x, y: y, vx: ux * sp, vy: uy * sp,
+      r: (extra.r != null ? extra.r : (kind === "knife" ? 4.5 : 5)) * TSCALE,
       life: extra.life != null ? extra.life : 3,
       dmg: dmg, kind: kind
     };
@@ -1481,7 +1525,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       var it = S.loot[i];
       it.life -= dt; it.vy += 80 * dt; it.y += it.vy * dt;
       if (it.y > WORLD_H - 40) { it.y = WORLD_H - 40; it.vy *= -0.3; }
-      if (!it.taken && Math.hypot(it.x - player.x, it.y - player.y) < 28) takeLoot(it);
+      if (!it.taken && Math.hypot(it.x - player.x, it.y - player.y) < 28 * TSCALE) takeLoot(it);
       if (it.life <= 0 || it.taken) S.loot.splice(i, 1);
     }
   }
@@ -1521,17 +1565,18 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
   }
 
   function tryPlaceBlock(wx, wy) {
-    if (player.blockStock <= 0) { toast("NO BLOCKS"); return; }
+    if (player.blockStock <= 0) { toast("NO BLOCKS"); return false; }
     var tx = Math.floor(wx / TILE), ty = Math.floor(wy / TILE);
-    if (ty <= 0 || tx <= 0 || ty >= ROWS - 1 || tx >= COLS - 1) return;
-    if (room.grid[ty][tx]) return;
+    if (ty <= 0 || tx <= 0 || ty >= ROWS - 1 || tx >= COLS - 1) return false;
+    if (room.grid[ty][tx]) return false;
     var x = (tx + 0.5) * TILE, y = (ty + 0.5) * TILE;
-    if (Math.hypot(x - player.x, y - player.y) < 36) return;
+    if (Math.hypot(x - player.x, y - player.y) < TILE * 1.2) return false;
     room.blocks.push({ x: x, y: y, tx: tx, ty: ty });
     S.rooms[S.roomI].blocks = room.blocks.slice();
     player.blockStock -= 1;
     sfx("place");
     syncHud();
+    return true;
   }
 
   /* CHIEF BB-V5.1 — solid test and axis-separated movement. Axis-separated so a hero
@@ -1584,7 +1629,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      158 px/s at 1.00x sprite scale and was the one that got "keep the controls";
      the sprite is now 2.15x, and speed is felt in body-lengths, so 158 * 2.15 = 340.
      Shipping at 235 was a 31% slowdown in the only unit that matters. */
-  var BUILD = "v7.5";
+  var BUILD = "v7.6";
   var FEEL_DEF = { spd: 340, accel: 2600, brake: 3600, throwSpd: 620, aimMode: "drag", aimDead: 2, aimHold: 64 };
   var FEEL = (function () {
     var f = {};
@@ -1659,7 +1704,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       if (S.t - (S.lastUnstick || -9) > 1) { S.lastUnstick = S.t; toast("UNSTUCK"); }
     }
     var inp = inputVec();
-    var top = player.spd * (1 + player.spdLv * 0.05);
+    var top = player.spd * TSCALE * (1 + player.spdLv * 0.05);
     var tx = inp.x * top, ty = inp.y * top;
     var rate = inp.m > 0.12 ? FEEL.accel : FEEL.brake;
     var dvx = tx - player.vx, dvy = ty - player.vy;
@@ -1742,10 +1787,30 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     var cw = canvas.width, ch = canvas.height;
     g.fillStyle = DARK;
     g.fillRect(0, 0, cw, ch);
-    var scale = Math.min(cw / WORLD_W, ch / WORLD_H);
-    var ox = (cw - WORLD_W * scale) * 0.5;
-    var oy = (ch - WORLD_H * scale) * 0.5;
-    S.world = { x: ox, y: oy, s: scale };
+    var contain = Math.min(cw / WORLD_W, ch / WORLD_H);
+    var cssW = window.innerWidth, cssH = window.innerHeight;
+    var dpr = cw / Math.max(1, cssW);
+    var phone = Math.min(cssW, cssH) <= 520;
+    var scale = contain;
+    /* BB-V7.6 — phones letterbox a 16:9 world inside a ~19:9 screen, so tiles
+       shrank to ~22 CSS px. Zoom toward ~34 CSS px/tile, but keep ≥20×11 tiles
+       in view so a room stays bankable. Camera follows the hero, clamped. */
+    if (S.mode === "play" && phone) {
+      var target = (34 * dpr) / TILE;
+      var maxS = Math.min(cw / (20 * TILE), ch / (11 * TILE));
+      scale = Math.min(maxS, Math.max(contain, target));
+    }
+    var vw = cw / scale, vh = ch / scale;
+    var cx = WORLD_W * 0.5, cy = WORLD_H * 0.5;
+    if (player && S.mode === "play") { cx = player.x; cy = player.y; }
+    var camX, camY;
+    if (vw >= WORLD_W) camX = (WORLD_W - vw) * 0.5;
+    else camX = Math.max(0, Math.min(WORLD_W - vw, cx - vw * 0.5));
+    if (vh >= WORLD_H) camY = (WORLD_H - vh) * 0.5;
+    else camY = Math.max(0, Math.min(WORLD_H - vh, cy - vh * 0.5));
+    var ox = -camX * scale;
+    var oy = -camY * scale;
+    S.world = { x: ox, y: oy, s: scale, fit: contain };
     g.save();
     if (S.shake > 0) g.translate((Math.random() - 0.5) * 10 * S.shake * scale, (Math.random() - 0.5) * 10 * S.shake * scale);
     g.translate(ox, oy);
@@ -1903,10 +1968,8 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     if (room) {
       for (var b = 0; b < room.blocks.length; b++) {
         var bl = room.blocks[b];
-        g.fillStyle = "#6a5a44";
-        g.fillRect(bl.x - TILE * 0.45, bl.y - TILE * 0.45, TILE * 0.9, TILE * 0.9);
-        g.fillStyle = "#8a7a60";
-        g.fillRect(bl.x - TILE * 0.45, bl.y - TILE * 0.45, TILE * 0.9, 6);
+        var bw = TILE * 0.92, bz = Math.round(TILE * 0.42);
+        cube(g, bl.x - bw * 0.5, bl.y - bw * 0.5 - bz, bw, bw, bz, "#6a5a44");
       }
       for (var c = 0; c < room.chests.length; c++) drawChest(g, room.chests[c]);
       for (var i = 0; i < room.enemies.length; i++) drawEnemy(g, room.enemies[i]);
@@ -1920,7 +1983,7 @@ g.beginPath(); g.arc(S.splits[sp].x, S.splits[sp].y, S.splits[sp].r, 0, 6.3); g.
     if (ball && !ball.live) drawBallObj(g, ball, false);
     if (player) drawPlayer(g);
     if (ball && ball.live) drawBallObj(g, ball, true);
-    if (S.aim && !ball.live) {
+    if (S.aim && !ball.live && !(STK.FIELD.placeTap && !STK.FIELD.dragged)) {
       var pts = aimGuide(S.aim.ang, S.aim.pow);
       g.strokeStyle = "rgba(240,210,140,0.45)";
       g.lineWidth = 2;
@@ -2481,14 +2544,34 @@ g.beginPath(); g.arc(S.splits[sp].x, S.splits[sp].y, S.splits[sp].r, 0, 6.3); g.
   }
 
   /* ---------- HUD / menus ---------- */
+  function hudSvg(path, fill) {
+    return '<svg class="hudIcon" viewBox="0 0 16 16" aria-hidden="true"><path fill="' + (fill || "currentColor") + '" d="' + path + '"/></svg>';
+  }
+  function hudHeart(on) {
+    return '<svg class="heart' + (on ? " on" : " off") + '" viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 14.2L6.85 13.15C3.4 10.05 1.2 8.05 1.2 5.55 1.2 3.55 2.75 2 4.75 2c1.12 0 2.2.52 2.9 1.35C8.35 2.52 9.43 2 10.55 2c2 0 3.55 1.55 3.55 3.55 0 2.5-2.2 4.5-5.65 7.6L8 14.2z"/></svg>';
+  }
+
   function syncHud() {
     var play = S.mode === "play";
-    document.getElementById("hpChip").textContent = "HP " + (player ? player.hp + "/" + player.maxHp : "—");
-    document.getElementById("frChip").textContent = "FRAG " + (player ? player.frag : 0);
-    document.getElementById("flChip").textContent = "FLOOR " + S.floor + (S.passPlay ? "  P" + (S.passWho + 1) : "");
-    document.getElementById("scChip").textContent = "SCORE " + fmt(S.score);
-    document.getElementById("btnBlock").textContent = (S.placeMode ? "PLACE " : "BLOCK ") + (player ? player.blockStock : 0);
-    var show = play ? "flex" : "none";
+    var hpEl = document.getElementById("hpChip");
+    var i, html;
+    if (player) {
+      if (player.maxHp <= 8) {
+        html = '<div class="hearts">';
+        for (i = 0; i < player.maxHp; i++) html += hudHeart(i < player.hp);
+        hpEl.innerHTML = html + "</div>";
+      } else {
+        html = '<div class="hpBar">';
+        for (i = 0; i < player.maxHp; i++) html += '<i class="hpSeg' + (i < player.hp ? " on" : "") + '"></i>';
+        hpEl.innerHTML = html + "</div>";
+      }
+    } else hpEl.innerHTML = "";
+    document.getElementById("frChip").innerHTML = hudSvg("M8 1.2L14.6 8 8 14.8 1.4 8z", "#7ec8e8") + '<span class="hudNum">' + (player ? player.frag : 0) + "</span>";
+    document.getElementById("flChip").innerHTML = hudSvg("M2 11h5V6h7V3H2v8zm0 1.6V14h12v-1.4H2zM8 6.8h6V12H8V6.8z", "#c4a070") + '<span class="hudNum">' + S.floor + (S.passPlay ? "·" + (S.passWho + 1) : "") + "</span>";
+    document.getElementById("scChip").innerHTML = hudSvg("M8 1.4l1.7 3.5 3.9.6-2.8 2.7.7 3.8L8 10.2 4.5 12l.7-3.8L2.4 5.5l3.9-.6z", "#f0c040") + '<span class="hudNum">' + fmt(S.score) + "</span>";
+    var blk = document.getElementById("btnBlock");
+    blk.className = S.placeMode ? "bb on" : "bb";
+    blk.innerHTML = hudSvg("M2 5.2L8 2.2l6 3v6.6l-6 3-6-3V5.2zm6 1.2L4.1 4.6 8 2.8l3.9 1.8L8 6.4zM3.3 6.2v4.7L7.3 13V8.2L3.3 6.2zm9.4 0L8.7 8.2V13l4-2.1V6.2z", S.placeMode ? "#1a120c" : "#e8dcc8") + "<span>" + (player ? player.blockStock : 0) + "</span>";
     document.getElementById("topbar").style.display = play ? "flex" : "none";
     document.getElementById("botbar").style.display = play ? "flex" : "none";
   }
@@ -2891,7 +2974,7 @@ function endRunToMenu() {
       "<button class='bb pri' id='btnPlayLv'>PLAY</button>" +
       "<button class='bb' id='btnBldMenu'>MENU</button></div>" +
       "<h2>TOOLS</h2><div class='row' id='tools'>" + tools + "</div>" +
-      "<canvas id='bld' width='960' height='540' style='width:100%;background:#14110e;touch-action:none;margin-top:8px'></canvas>" +
+      "<canvas id='bld' width='" + WORLD_W + "' height='" + WORLD_H + "' style='width:100%;background:#14110e;touch-action:none;margin-top:8px'></canvas>" +
       "<h2>SHARE CODE</h2>" +
       "<textarea class='bb' id='copybox' readonly>" + code + "</textarea>" +
       "<div class='row'><button class='bb good' id='btnCopy'>COPY</button><button class='bb' id='btnClearB'>CLEAR</button></div>" +
@@ -2984,8 +3067,15 @@ function endRunToMenu() {
        a bank-shot game — you look at the wall you want, not at a control. The ring
        shows the ball and demonstrates the ricochet until the player has done it. */
     var w = worldFromEvent(ev);
-    if (S.placeMode) { tryPlaceBlock(w.x, w.y); return; }
+    /* BB-V7.6 — place used to consume the whole pointerdown, so a tap-to-drop
+       ate the throw and left place-mode blocking the next drag. Tap still places;
+       a drag is always a throw. After a successful place, place-mode turns off
+       so attack works immediately. */
     STK.FIELD.id = ev.pointerId;
+    STK.FIELD.placeTap = !!S.placeMode;
+    STK.FIELD.dragged = false;
+    STK.FIELD.downX = w.x;
+    STK.FIELD.downY = w.y;
     S.pointer.down = true;
     S.pointer.x = w.x; S.pointer.y = w.y;
     /* CHIEF BB-V6.5 — the aim used to be the angle from the HERO to your finger, so
@@ -3014,7 +3104,9 @@ function endRunToMenu() {
     if (ev.pointerId !== STK.FIELD.id || !S.pointer.down) return;
     var w = worldFromEvent(ev);
     S.pointer.x = w.x; S.pointer.y = w.y;
-    if (S.aim && !ball.live && S.dragFrom) {
+    var dragDist = Math.hypot(w.x - STK.FIELD.downX, w.y - STK.FIELD.downY);
+    if (dragDist > TILE * 0.4) STK.FIELD.dragged = true;
+    if (S.aim && !ball.live && S.dragFrom && !(STK.FIELD.placeTap && !STK.FIELD.dragged)) {
       var dx, dy, m;
       if (FEEL.aimMode === "drag") {
         /* V6.5 behaviour: angle from where the drag started. Stable, but a full
@@ -3027,26 +3119,38 @@ function endRunToMenu() {
            rather than recomputed, which is the wild snap V6.5 was fixing without
            paying a screen-width for every sweep. */
         dx = w.x - player.x; dy = w.y - player.y; m = Math.hypot(dx, dy);
-        var near = FEEL.aimMode === "hybrid" && m < FEEL.aimHold;
+        var near = FEEL.aimMode === "hybrid" && m < FEEL.aimHold * TSCALE;
         if (!near && m > FEEL.aimDead) S.aim.ang = Math.atan2(dy, dx);
         var dragM = Math.hypot(w.x - S.dragFrom.x, w.y - S.dragFrom.y);
         m = dragM;
       }
       {
-        S.aim.pow = Math.max(0.4, Math.min(1, 0.4 + m / 150));
+        var feelM = m * (S.world.s / (S.world.fit || S.world.s));
+        S.aim.pow = Math.max(0.4, Math.min(1, 0.4 + feelM / (150 * TSCALE)));
       }
-      S.aim.x = player.x + Math.cos(S.aim.ang) * 200;
-      S.aim.y = player.y + Math.sin(S.aim.ang) * 200;
+      S.aim.x = player.x + Math.cos(S.aim.ang) * 200 * TSCALE;
+      S.aim.y = player.y + Math.sin(S.aim.ang) * 200 * TSCALE;
     }
   }
 
   function onUp(ev) {
     if (ev.pointerId === STK.L.id) { STK.L.id = null; STK.L.dx = 0; STK.L.dy = 0; return; }
     if (ev.pointerId !== STK.FIELD.id) return;
+    var placeTap = STK.FIELD.placeTap && !STK.FIELD.dragged;
     STK.FIELD.id = null;
+    STK.FIELD.placeTap = false;
+    STK.FIELD.dragged = false;
     if (!S.pointer.down) return;
     S.pointer.down = false;
-    if (S.mode === "play" && S.aim && !ball.live && !S.placeMode) throwBall(S.aim.ang, S.aim.pow);
+    if (S.mode === "play" && placeTap) {
+      if (tryPlaceBlock(S.pointer.x, S.pointer.y)) {
+        S.placeMode = false;
+        syncHud();
+      }
+      S.aim = null;
+      return;
+    }
+    if (S.mode === "play" && S.aim && !ball.live) throwBall(S.aim.ang, S.aim.pow);
     S.aim = null;
   }
 
@@ -3055,7 +3159,7 @@ function endRunToMenu() {
     if (player) { player.vx = 0; player.vy = 0; }
     STK.L.id = null; STK.L.dx = 0; STK.L.dy = 0;
     STK.R.id = null; STK.R.dx = 0; STK.R.dy = 0;
-    STK.FIELD.id = null; S.pointer.down = false; S.aim = null;
+    STK.FIELD.id = null; STK.FIELD.placeTap = false; STK.FIELD.dragged = false; S.pointer.down = false; S.aim = null;
   }
 
   var KEYMAP = {
@@ -3090,6 +3194,7 @@ function endRunToMenu() {
     S.placeMode = !S.placeMode;
     syncHud();
   };
+  document.getElementById("btnBlock").onpointerdown = function (ev) { ev.stopPropagation(); };
 
   document.addEventListener("touchmove", function (e) { e.preventDefault(); }, { passive: false });
   window.addEventListener("resize", resize);
@@ -3100,7 +3205,7 @@ function endRunToMenu() {
     if (!room) return;
     for (var i = 0; i < room.chests.length; i++) {
       var ch = room.chests[i];
-      if (!ch.open && Math.hypot(ch.x - player.x, ch.y - player.y) < 28) {
+      if (!ch.open && Math.hypot(ch.x - player.x, ch.y - player.y) < 28 * TSCALE) {
         ch.open = true;
         dropLoot(ch.x, ch.y - 10, S.floor >= 4);
         dropLoot(ch.x + 10, ch.y - 6, false);
@@ -3166,6 +3271,11 @@ function endRunToMenu() {
     ballState: function () { return ball ? { x: Math.round(ball.x), y: Math.round(ball.y), vx: Math.round(ball.vx), vy: Math.round(ball.vy), live: ball.live, bounces: ball.bounces, hits: ball.hits.length, pierced: !!ball.pierced } : null; },
     enemies: function () { return room ? room.enemies.filter(function (e) { return e.alive; }).map(function (e) { return { x: Math.round(e.x), y: Math.round(e.y), r: e.r, hp: e.hp, spd: e.spd }; }) : []; },
     fire: function (ang, pow) { throwBall(ang, pow); },
+    projHit: projHit,
+    tile: function () { return TILE; },
+    build: function () { return BUILD; },
+    placeMode: function () { return !!S.placeMode; },
+    setPlace: function (v) { S.placeMode = !!v; syncHud(); },
     setAff: function (a) { player.ballAffix = a; ball.affix = a; },
     warp: function (x, y) { player.x = x; player.y = y; },
     stuck: function () { return !freeAt(player.x, player.y, player.r * 0.6); },
