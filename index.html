@@ -368,6 +368,7 @@
 <script>
 (function () {
   "use strict";
+  var DIR = location.pathname.replace(/[^\/]*$/, "");
 
   var WORLD_W = 960, WORLD_H = 540, TILE = 30;
   var COLS = 32, ROWS = 18;
@@ -470,10 +471,17 @@
   };
 
   function lsGet(k) {
-    try { return localStorage.getItem(k); } catch (e) { return null; }
+    try {
+      var v = localStorage.getItem(DIR + k);
+      if (v === null && DIR !== "/") {
+        v = localStorage.getItem(k);
+        if (v !== null) localStorage.setItem(DIR + k, v);
+      }
+      return v;
+    } catch (e) { return null; }
   }
   function lsSet(k, v) {
-    try { localStorage.setItem(k, v); return true; } catch (e) { return false; }
+    try { localStorage.setItem(DIR + k, v); return true; } catch (e) { return false; }
   }
   function loadStore() {
     try {
@@ -1510,13 +1518,13 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       /* v2 bumped the key so the new DRAG default actually reaches a device that
          already wrote a v1 blob. Slider tweaks carry over; aimMode deliberately
          does not -- otherwise a stale "hybrid" would outrank the new default. */
-      var raw = localStorage.getItem("bb.feel.v2"), skipAim = false;
-      if (!raw) { raw = localStorage.getItem("bb.feel.v1"); skipAim = !!raw; }
+      var raw = lsGet("bb.feel.v2"), skipAim = false;
+      if (!raw) { raw = lsGet("bb.feel.v1"); skipAim = !!raw; }
       if (raw) { var o = JSON.parse(raw); for (var j in o) if (j in f && !(skipAim && j === "aimMode")) f[j] = o[j]; }
     } catch (e) {}
     return f;
   })();
-  function saveFeel() { try { localStorage.setItem("bb.feel.v2", JSON.stringify(FEEL)); } catch (e) {} }
+  function saveFeel() { lsSet("bb.feel.v2", JSON.stringify(FEEL)); }
 
   var NUDGE = 8;
 
