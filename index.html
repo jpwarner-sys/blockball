@@ -902,8 +902,8 @@
     return {
       type: type, name: d.name, x: x, y: y, r: d.r,       hp: hp, maxHp: hp,
       spd: walkFloor(d.kind, d.spd), kind: d.kind, col: d.col, boss: d.boss || null,
-      hitR: d.boss === "mini" ? Math.round(d.r * 1.85) : d.boss ? Math.round(d.r * 1.65) : d.r,
-      hitLift: d.boss ? Math.round(d.r * 0.95) : 0,
+      hitR: d.boss === "mini" ? Math.round(d.r * 2.05) : d.boss ? Math.round(d.r * 1.85) : d.r,
+      hitLift: d.boss === "mini" ? Math.round(d.r * 1.15) : d.boss ? Math.round(d.r * 1.05) : 0,
       cd: rnd() * 1.2, stun: 0, burn: 0, alive: true, vx: 0, vy: 0,
       phase: 0, tell: 0, tellMax: 0, gap: 0, ringR: 0, ringOn: false, deadT: 0,
       facing: 1, disarm: false, thrown: null, rearm: 0, knivesLeft: 0
@@ -1238,6 +1238,20 @@
     return { x: e.x, y: e.y - (e.hitLift || 0), r: e.hitR || e.r };
   }
 
+  function sweptHits(x0, y0, x1, y1, cx, cy, rad) {
+    var dx = x1 - x0, dy = y1 - y0;
+    var fx = x0 - cx, fy = y0 - cy;
+    var a = dx * dx + dy * dy;
+    var b = 2 * (fx * dx + fy * dy);
+    var c = fx * fx + fy * fy - rad * rad;
+    if (c <= 0) return true;
+    if (a < 1e-8) return false;
+    var disc = b * b - 4 * a * c;
+    if (disc < 0) return false;
+    var t = (-b - Math.sqrt(disc)) / (2 * a);
+    return t >= 0 && t <= 1;
+  }
+
   var PLACE_HITS_PER = 5;
   var PLACE_MAX_HARD = 6;
   function placeHitsNeed() {
@@ -1298,6 +1312,7 @@
         ball.vy = ball.vy * 0.92 + cy * 0.08;
       }
     }
+    var prevX = ball.x, prevY = ball.y;
     ball.x += ball.vx * dt; ball.y += ball.vy * dt;
     ball.life -= dt;
     if (resolveCircle(room.grid, room.blocks, ball)) {
@@ -1309,7 +1324,9 @@
       var e = room.enemies[i];
       if (!e.alive) continue;
       var box = enemyHurtBox(e);
-      if (Math.hypot(box.x - ball.x, box.y - ball.y) < box.r + ball.r) {
+      var rad = box.r + ball.r;
+      if (Math.hypot(box.x - ball.x, box.y - ball.y) < rad ||
+          sweptHits(prevX, prevY, ball.x, ball.y, box.x, box.y, rad)) {
         var wasAlive = e.alive;
         hitEnemy(e, ball, ball.dmg, false);
         if (hasAff("Split") && ball.hits.length === 1) spawnSplit();
@@ -1817,7 +1834,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
        be fighting the game. One toast a second at most — a rescue that fires every
        frame is a spinner, not a message. */
     if (!(room && room.cleared) && unstick(rr)) {
-      if (S.t - (S.lastUnstick || -9) > 1) { S.lastUnstick = S.t; toast("UNSTUCK"); }
+      if (!(S.placeCd > 0) && S.t - (S.lastUnstick || -9) > 1) { S.lastUnstick = S.t; toast("UNSTUCK"); }
     }
     var inp = inputVec();
     var top = player.spd * (1 + player.spdLv * 0.05);
@@ -2083,12 +2100,6 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
         var bl = room.blocks[b];
         cube(g, bl.x - TILE * 0.5, bl.y - TILE * 0.5 - wz, TILE, TILE, wz, "#6a5a44");
       }
-      var ghost = (S.mode === "play" && !S.pause) ? placeGhostCell() : null;
-      if (ghost) {
-        g.globalAlpha = S.placeArmed ? 0.62 : 0.28;
-        cube(g, ghost.tx * TILE, ghost.ty * TILE - wz, TILE, TILE, wz, "#f0c050");
-        g.globalAlpha = 1;
-      }
       if (S.scaleProbe && player) drawScaleProbe(g, wz);
       for (var c = 0; c < room.chests.length; c++) drawChest(g, room.chests[c]);
       for (var i = 0; i < room.enemies.length; i++) drawEnemy(g, room.enemies[i]);
@@ -2102,6 +2113,7 @@ g.beginPath(); g.arc(S.splits[sp].x, S.splits[sp].y, S.splits[sp].r, 0, 6.3); g.
     if (ball && !ball.live) drawBallObj(g, ball, false);
     if (player) drawPlayer(g);
     if (ball && ball.live) drawBallObj(g, ball, true);
+    if (S.mode === "play" && !S.pause) drawPlaceGhost(g, wz);
     if (S.aim && !ball.live) {
       var pts = aimGuide(S.aim.ang, S.aim.pow);
       g.strokeStyle = "rgba(240,210,140,0.45)";
@@ -2156,6 +2168,22 @@ g.beginPath(); g.arc(S.splits[sp].x, S.splits[sp].y, S.splits[sp].r, 0, 6.3); g.
     g.textAlign = "center";
     g.fillText("2", x2, baseY + 22);
     g.fillText("3", x3, baseY + 22);
+  }
+
+  function drawPlaceGhost(g, wz) {
+    var ghost = placeGhostCell();
+    if (!ghost) return;
+    var x = ghost.tx * TILE, y = ghost.ty * TILE;
+    g.save();
+    g.globalAlpha = S.placeArmed ? 0.78 : 0.52;
+    cube(g, x, y - wz, TILE, TILE, wz, "#e8b84a", false);
+    g.globalAlpha = 1;
+    g.strokeStyle = S.placeArmed ? "#fff3b0" : "#f0d070";
+    g.lineWidth = 2.5;
+    g.setLineDash([6, 4]);
+    g.strokeRect(x + 1.5, y - wz + 1.5, TILE - 3, TILE - 3);
+    g.setLineDash([]);
+    g.restore();
   }
 
   function drawChest(g, ch) {
@@ -3449,6 +3477,7 @@ function endRunToMenu() {
     ballState: function () { return ball ? { x: Math.round(ball.x), y: Math.round(ball.y), vx: Math.round(ball.vx), vy: Math.round(ball.vy), live: ball.live, bounces: ball.bounces, hits: ball.hits.length, pierced: !!ball.pierced } : null; },
     enemies: function () { return room ? room.enemies.filter(function (e) { return e.alive; }).map(function (e) { return { x: Math.round(e.x), y: Math.round(e.y), r: e.r, hitR: e.hitR || e.r, hitLift: e.hitLift || 0, hp: e.hp, spd: e.spd, boss: e.boss || null }; }) : []; },
     fire: function (ang, pow) { throwBall(ang, pow); },
+    resetBall: function () { if (ball) { ball.live = false; ball.ret = false; resetBallHome(); } },
     setAff: function (a) { player.ballAffix = a; ball.affix = a; },
     warp: function (x, y) { player.x = x; player.y = y; },
     stuck: function () { return !freeAt(player.x, player.y, player.r * 0.6); },
@@ -3479,6 +3508,13 @@ function endRunToMenu() {
       if (max != null) player.blockMax = Math.max(3, Math.min(PLACE_MAX_HARD, max));
       player.blockStock = Math.max(0, Math.min(player.blockMax, n));
       syncHud();
+    },
+    spawnAt: function (type, dx, dy) {
+      if (!room || !player) return null;
+      var e = spawnEnemy(type || "minibone", player.x + (dx == null ? 90 : dx), player.y + (dy || 0), S.floor, true);
+      e.spd = 0; e.cd = 99; e.tell = 0; e.knivesLeft = 0;
+      room.enemies.push(e);
+      return { x: Math.round(e.x), y: Math.round(e.y), r: e.r, hitR: e.hitR || e.r, hitLift: e.hitLift || 0, boss: e.boss };
     }
   };
 })();
