@@ -1355,9 +1355,15 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
 
   function throwKnightWeapon(e, ux, uy) {
     var k = KNIGHT[e.type] || KNIGHT.minibone;
-    var n = Math.hypot(ux, uy) || 1;
+    var face = (player && player.x < e.x) ? -1 : 1;
+    var u = e.r * 1.35;
+    var sx = e.x + face * u * 0.74;
+    var sy = e.y - u * 0.85;
+    var ax = (player ? player.x : sx + ux) - sx;
+    var ay = (player ? player.y : sy + uy) - sy;
+    var n = Math.hypot(ax, ay) || 1;
     /* 160 px/s vs the hero's 340: walk-dodgeable on a phone, big enough to read. */
-    var s = fireShot(e.x, e.y, ux / n, uy / n, 160, 3, "weapon", {
+    var s = fireShot(sx, sy, ax / n, ay / n, 160, 3, "weapon", {
       r: 13, life: 2.6, weap: k.weap, owner: e,
       col: k.trim, accent: k.accent, body: k.body
     });
@@ -1365,7 +1371,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     e.thrown = s;
     e.rearm = 1.15;
     sfx("throw");
-    burst(e.x, e.y, k.accent, 8);
+    burst(sx, sy, k.accent, 8);
     return s;
   }
 
@@ -1427,20 +1433,24 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       if (e.disarm && e.rearm <= 0 && !weaponFlying(e)) {
         e.disarm = false;
         e.thrown = null;
+        /* knives AFTER the throw so they cannot i-frame the big hit */
+        e.knivesLeft = 1 + (rnd() < 0.65 ? 1 : 0);
+        e.cd = 0.32;
       }
       if (e.tell > 0) {
         e.tell -= dt;
         if (e.tell <= 0) {
           throwKnightWeapon(e, dx, dy);
-          e.knivesLeft = 1 + (rnd() < 0.65 ? 1 : 0);
-          e.cd = 0.5;
+          e.cd = 0.4;
         }
       } else if (e.cd <= 0) {
-        if (e.knivesLeft > 0) {
+        if (e.disarm) {
+          /* hold fire while the weapon is in the air */
+        } else if (e.knivesLeft > 0) {
           fireShot(e.x, e.y, dx / dist, dy / dist, 210, 1, "knife");
           e.knivesLeft--;
           e.cd = 0.48;
-        } else if (!e.disarm) {
+        } else {
           e.tell = 0.8 + rnd() * 0.15;
           e.tellMax = e.tell;
         }
@@ -1993,7 +2003,7 @@ g.beginPath(); g.arc(S.splits[sp].x, S.splits[sp].y, S.splits[sp].r, 0, 6.3); g.
 
   function drawKnife(g, s) {
     var ang = Math.atan2(s.vy, s.vx);
-    var sc = s.dmg >= 2 ? 1.25 : 1;
+    var sc = s.dmg >= 2 ? 1.45 : 1.2;
     g.save();
     g.translate(s.x, s.y);
     g.rotate(ang);
