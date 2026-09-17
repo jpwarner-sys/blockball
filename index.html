@@ -804,8 +804,8 @@
       type: type, name: d.name, x: x, y: y, r: d.r, hp: hp, maxHp: hp,
       spd: walkFloor(d.kind, d.spd), kind: d.kind, col: d.col, boss: d.boss || null,
       cd: rnd() * 1.2, stun: 0, burn: 0, alive: true, vx: 0, vy: 0,
-      phase: 0, tell: 0, gap: 0, ringR: 0, ringOn: false, deadT: 0,
-      facing: 1
+      phase: 0, tell: 0, tellMax: 0, gap: 0, ringR: 0, ringOn: false, deadT: 0,
+      facing: 1, disarm: false, thrown: null, rearm: 0, knivesLeft: 0
     };
   }
 
@@ -1331,8 +1331,48 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     resolveCircle(room.grid, room.blocks, e);
   }
 
-  function fireShot(x, y, ux, uy, spd, dmg) {
-    S.shots.push({ x: x, y: y, vx: ux * spd, vy: uy * spd, r: 5, life: 3, dmg: dmg });
+  function fireShot(x, y, ux, uy, spd, dmg, kind, extra) {
+    extra = extra || {};
+    kind = kind || "knife";
+    var s = {
+      x: x, y: y, vx: ux * spd, vy: uy * spd,
+      r: extra.r != null ? extra.r : (kind === "knife" ? 4.5 : 5),
+      life: extra.life != null ? extra.life : 3,
+      dmg: dmg, kind: kind
+    };
+    if (extra.weap) s.weap = extra.weap;
+    if (extra.owner) s.owner = extra.owner;
+    if (extra.col) s.col = extra.col;
+    if (extra.accent) s.accent = extra.accent;
+    if (extra.body) s.body = extra.body;
+    S.shots.push(s);
+    return s;
+  }
+
+  function weaponFlying(e) {
+    return e.thrown && S.shots.indexOf(e.thrown) >= 0;
+  }
+
+  function throwKnightWeapon(e, ux, uy) {
+    var k = KNIGHT[e.type] || KNIGHT.minibone;
+    var face = (player && player.x < e.x) ? -1 : 1;
+    var u = e.r * 1.35;
+    var sx = e.x + face * u * 0.74;
+    var sy = e.y - u * 0.85;
+    var ax = (player ? player.x : sx + ux) - sx;
+    var ay = (player ? player.y : sy + uy) - sy;
+    var n = Math.hypot(ax, ay) || 1;
+    /* 160 px/s vs the hero's 340: walk-dodgeable on a phone, big enough to read. */
+    var s = fireShot(sx, sy, ax / n, ay / n, 160, 3, "weapon", {
+      r: 13, life: 2.6, weap: k.weap, owner: e,
+      col: k.trim, accent: k.accent, body: k.body
+    });
+    e.disarm = true;
+    e.thrown = s;
+    e.rearm = 1.15;
+    sfx("throw");
+    burst(sx, sy, k.accent, 8);
+    return s;
   }
 
   function updateBoss(e, dt, dx, dy, dist) {
@@ -1384,20 +1424,55 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       if (Math.floor(e.phase) % 4 === 0 && e.tell <= 0) e.tell = 0.01;
       moveToward(e, dx / dist * 0.5, dy / dist * 0.5, e.spd, dt);
     } else {
-      moveToward(e, dx / dist, dy / dist, e.spd, dt);
-      if (e.cd <= 0) { fireShot(e.x, e.y, dx / dist, dy / dist, 180, 1); e.cd = 1.5; }
+      /* BB-V7.5 — mini knights: lift the held weapon (drawKnight already does this
+         on e.tell), throw it as a slow high-damage projectile, then toss 1–2 knife
+         volleys while it flies. The yellow-dot fireShot every 1.5s is gone. */
+      var chase = e.tell > 0 ? 0.4 : 1;
+      moveToward(e, dx / dist * chase, dy / dist * chase, e.spd, dt);
+      if (e.rearm > 0) e.rearm -= dt;
+      if (e.disarm && e.rearm <= 0 && !weaponFlying(e)) {
+        e.disarm = false;
+        e.thrown = null;
+        /* knives AFTER the throw so they cannot i-frame the big hit */
+        e.knivesLeft = 1 + (rnd() < 0.65 ? 1 : 0);
+        e.cd = 0.32;
+      }
+      if (e.tell > 0) {
+        e.tell -= dt;
+        if (e.tell <= 0) {
+          throwKnightWeapon(e, dx, dy);
+          e.cd = 0.4;
+        }
+      } else if (e.cd <= 0) {
+        if (e.disarm) {
+          /* hold fire while the weapon is in the air */
+        } else if (e.knivesLeft > 0) {
+          fireShot(e.x, e.y, dx / dist, dy / dist, 210, 1, "knife");
+          e.knivesLeft--;
+          e.cd = 0.48;
+        } else {
+          e.tell = 0.8 + rnd() * 0.15;
+          e.tellMax = e.tell;
+        }
+      }
     }
+  }
+
+  function killShot(i) {
+    var s = S.shots[i];
+    if (s && s.kind === "weapon") burst(s.x, s.y, s.col || "#c8d0d8", 10);
+    S.shots.splice(i, 1);
   }
 
   function updateShots(dt) {
     for (var i = S.shots.length - 1; i >= 0; i--) {
       var s = S.shots[i];
       s.x += s.vx * dt; s.y += s.vy * dt; s.life -= dt;
-      if (tileAt(room.grid, s.x, s.y) || blockHit(room.blocks, s.x, s.y, s.r, true)) { S.shots.splice(i, 1); continue; }
+      if (tileAt(room.grid, s.x, s.y) || blockHit(room.blocks, s.x, s.y, s.r, true)) { killShot(i); continue; }
       if (Math.hypot(s.x - player.x, s.y - player.y) < player.r + s.r) {
-        hurtPlayer(s.dmg); S.shots.splice(i, 1); continue;
+        hurtPlayer(s.dmg); killShot(i); continue;
       }
-      if (s.life <= 0) S.shots.splice(i, 1);
+      if (s.life <= 0) killShot(i);
     }
   }
 
@@ -1509,7 +1584,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      158 px/s at 1.00x sprite scale and was the one that got "keep the controls";
      the sprite is now 2.15x, and speed is felt in body-lengths, so 158 * 2.15 = 340.
      Shipping at 235 was a 31% slowdown in the only unit that matters. */
-  var BUILD = "v7.4";
+  var BUILD = "v7.5";
   var FEEL_DEF = { spd: 340, accel: 2600, brake: 3600, throwSpd: 620, aimMode: "drag", aimDead: 2, aimHold: 64 };
   var FEEL = (function () {
     var f = {};
@@ -1837,10 +1912,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       for (var i = 0; i < room.enemies.length; i++) drawEnemy(g, room.enemies[i]);
     }
     for (var L = 0; L < S.loot.length; L++) drawLoot(g, S.loot[L]);
-    for (var s = 0; s < S.shots.length; s++) {
-      g.fillStyle = "#f0c070";
-      g.beginPath(); g.arc(S.shots[s].x, S.shots[s].y, S.shots[s].r, 0, 6.3); g.fill();
-    }
+    for (var s = 0; s < S.shots.length; s++) drawShot(g, S.shots[s]);
     for (var sp = 0; sp < S.splits.length; sp++) {
       g.fillStyle = "#f09040";
 g.beginPath(); g.arc(S.splits[sp].x, S.splits[sp].y, S.splits[sp].r, 0, 6.3); g.fill();
@@ -1920,6 +1992,91 @@ g.beginPath(); g.arc(S.splits[sp].x, S.splits[sp].y, S.splits[sp].r, 0, 6.3); g.
       g.lineWidth = 1;
       g.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
     }
+  }
+
+  /* BB-V7.5 — shots used to be one yellow arc. Knives are a small blade along
+     velocity; thrown knight weapons are the same silhouette he holds, just flying. */
+  function drawShot(g, s) {
+    if (s.kind === "weapon") drawThrownWeapon(g, s);
+    else drawKnife(g, s);
+  }
+
+  function drawKnife(g, s) {
+    var ang = Math.atan2(s.vy, s.vx);
+    var sc = s.dmg >= 2 ? 1.45 : 1.2;
+    g.save();
+    g.translate(s.x, s.y);
+    g.rotate(ang);
+    g.globalAlpha = 0.28;
+    g.fillStyle = "#0a0806";
+    g.beginPath(); g.ellipse(-2 * sc, 5 * sc, 7 * sc, 2.4 * sc, 0, 0, 6.3); g.fill();
+    g.globalAlpha = 1;
+    g.fillStyle = "#9aa4b0";
+    g.beginPath();
+    g.moveTo(10 * sc, 0);
+    g.lineTo(1 * sc, 3.2 * sc);
+    g.lineTo(-6 * sc, 1.8 * sc);
+    g.lineTo(-6 * sc, 0);
+    g.closePath();
+    g.fill();
+    g.fillStyle = "#c8d0d8";
+    g.beginPath();
+    g.moveTo(10 * sc, 0);
+    g.lineTo(1 * sc, -3.2 * sc);
+    g.lineTo(-6 * sc, -1.8 * sc);
+    g.lineTo(-6 * sc, 0);
+    g.closePath();
+    g.fill();
+    g.fillStyle = "#6a7380";
+    g.fillRect(-8 * sc, -1.6 * sc, 3.4 * sc, 3.2 * sc);
+    g.fillStyle = "#c9a44c";
+    g.fillRect(-9.4 * sc, -1.1 * sc, 2.2 * sc, 2.2 * sc);
+    g.restore();
+  }
+
+  function drawThrownWeapon(g, s) {
+    var ang = Math.atan2(s.vy, s.vx);
+    var trim = s.col || "#79808c";
+    var accent = s.accent || "#c9a44c";
+    var body = s.body || "#d8cdb4";
+    var weap = s.weap || "sword";
+    g.save();
+    g.translate(s.x, s.y);
+    g.rotate(ang);
+    g.globalAlpha = 0.32;
+    g.fillStyle = "#0a0806";
+    g.beginPath(); g.ellipse(-4, 10, 16, 5, 0, 0, 6.3); g.fill();
+    g.globalAlpha = 1;
+    /* a short streak so the throw direction reads at a glance on a phone */
+    g.strokeStyle = "rgba(232, 236, 240, 0.45)";
+    g.lineWidth = 2;
+    g.beginPath(); g.moveTo(-8, 0); g.lineTo(-28, 0); g.stroke();
+    if (weap === "sword") {
+      cube(g, -22, -4, 12, 8, 4, shade(body, 0.72));
+      cube(g, -12, -11, 7, 22, 4, accent);
+      cube(g, -6, -5, 26, 10, 5, trim);
+      g.fillStyle = shade(trim, 1.22);
+      g.beginPath();
+      g.moveTo(20, -5); g.lineTo(34, 0); g.lineTo(20, 5); g.closePath(); g.fill();
+      g.strokeStyle = shade(trim, 0.4); g.lineWidth = 1;
+      g.beginPath();
+      g.moveTo(20, -5); g.lineTo(34, 0); g.lineTo(20, 5); g.closePath(); g.stroke();
+    } else if (weap === "hammer") {
+      cube(g, -24, -4, 30, 8, 4, shade(body, 0.6));
+      cube(g, 4, -13, 20, 26, 8, trim);
+      g.fillStyle = accent; g.fillRect(4, -2, 20, 4);
+    } else if (weap === "scythe") {
+      cube(g, -26, -3.5, 40, 7, 4, shade(body, 0.6));
+      cube(g, 6, -18, 22, 8, 4, accent);
+      cube(g, 22, -18, 7, 20, 3, accent);
+    } else {
+      cube(g, -28, -3, 44, 6, 3, shade(body, 0.6));
+      cube(g, 14, -7, 14, 14, 4, accent);
+      g.fillStyle = shade(accent, 1.2);
+      g.beginPath();
+      g.moveTo(28, -7); g.lineTo(42, 0); g.lineTo(28, 7); g.closePath(); g.fill();
+    }
+    g.restore();
   }
 
   function px(g, x, y, w, h, col) {
@@ -2087,8 +2244,11 @@ g.beginPath(); g.arc(S.splits[sp].x, S.splits[sp].y, S.splits[sp].r, 0, 6.3); g.
     var x = e.x;
     e.artH = u * 2.86;   /* tells drawEnemy where the bar and the name go */
     if (e.bobPhase == null) e.bobPhase = Math.random() * 6.3;
-    /* wind-up: on the tell the whole figure rises and the weapon lifts */
-    var tell = e.tell > 0 ? Math.min(1, e.tell) : 0;
+    /* wind-up: tell counts down, lift grows toward release so the throw reads */
+    var tell = 0;
+    if (e.tell > 0) {
+      tell = e.tellMax > 0 ? 1 - Math.max(0, e.tell) / e.tellMax : Math.min(1, e.tell);
+    }
     var bob = Math.sin(S.t * 2.0 + e.bobPhase) * u * 0.05 - tell * u * 0.10;
     var yt = e.y - u * 2.05 + bob;
     var face = e.x < player.x ? 1 : -1;
@@ -2127,9 +2287,11 @@ g.beginPath(); g.arc(S.splits[sp].x, S.splits[sp].y, S.splits[sp].r, 0, 6.3); g.
       cube(g, x + u * 0.76, yt + u * 0.38, u * 0.16, u * 0.20, u * 0.06, k.accent);
     }
 
-    /* weapon, on the side he is facing, lifted on the tell */
+    /* weapon, on the side he is facing, lifted on the tell; empty hand while thrown */
     var wx = x + face * u * 0.74, lift = tell * u * 0.42;
-    if (k.weap === "sword") {
+    if (e.disarm) {
+      cube(g, wx - u * 0.12, yt + u * 0.98, u * 0.22, u * 0.20, u * 0.10, body);
+    } else if (k.weap === "sword") {
       cube(g, wx - u * 0.13, yt + u * 0.86 - lift, u * 0.26, u * 0.46, u * 0.12, shade(k.body, 0.72));
       cube(g, wx - u * 0.11, yt - u * 0.10 - lift, u * 0.22, u * 1.00, u * 0.10, k.trim);
       cube(g, wx - u * 0.25, yt + u * 0.80 - lift, u * 0.50, u * 0.14, u * 0.08, k.accent);
@@ -2177,6 +2339,13 @@ g.beginPath(); g.arc(S.splits[sp].x, S.splits[sp].y, S.splits[sp].r, 0, 6.3); g.
       cube(g, x + u * 0.18, yt - u * 0.52, u * 0.12, u * 0.36, u * 0.05, k.accent);
       cube(g, x - u * 0.52, yt - u * 0.64, u * 0.26, u * 0.10, u * 0.04, k.accent);
       cube(g, x + u * 0.26, yt - u * 0.64, u * 0.26, u * 0.10, u * 0.04, k.accent);
+    }
+    if (e.tell > 0) {
+      g.strokeStyle = "rgba(240,220,140," + (0.4 + 0.45 * tell) + ")";
+      g.lineWidth = 2.5;
+      g.beginPath();
+      g.arc(x, e.y - u * 0.4, u * 1.2 + Math.sin(S.t * 14) * u * 0.06, 0, 6.3);
+      g.stroke();
     }
   }
 
