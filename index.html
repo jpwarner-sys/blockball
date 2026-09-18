@@ -1137,8 +1137,9 @@
       g = blankGrid(0, size.cols, size.rows);
       (PIECES[piece] || PIECES.arena)(g);
       for (var d = 0; d < doors.length; d++) carveDoor(g, doors[d]);
-      spawn = { tx: 1, ty: doorY(g) };
+      spawn = { tx: 2, ty: doorY(g) };
       if (g[spawn.ty]) g[spawn.ty][spawn.tx] = 0;
+      if (g[spawn.ty] && spawn.tx - 1 > 0) g[spawn.ty][spawn.tx - 1] = 0;
       if (g[spawn.ty] && spawn.tx + 1 < gCols(g) - 1) g[spawn.ty][spawn.tx + 1] = 0;
       doorCells = collectDoors(g, doors);
       if (ensureConnected(g, spawn, doorCells)) {
@@ -1149,8 +1150,9 @@
     g = blankGrid(0, size.cols, size.rows);
     stampBorder(g);
     for (d = 0; d < doors.length; d++) carveDoor(g, doors[d]);
-    spawn = { tx: 1, ty: doorY(g) };
+    spawn = { tx: 2, ty: doorY(g) };
     if (g[spawn.ty]) g[spawn.ty][spawn.tx] = 0;
+    if (g[spawn.ty] && spawn.tx - 1 > 0) g[spawn.ty][spawn.tx - 1] = 0;
     doorCells = collectDoors(g, doors);
     ensureConnected(g, spawn, doorCells);
     return { grid: g, spawn: spawn, cols: size.cols, rows: size.rows, pathOk: roomPathOk(g, spawn, doorCells) };
@@ -1299,7 +1301,7 @@
       kind: spec.kind,
       cleared: spec.cleared,
       doorReady: spec.cleared,
-      spawnX: spec.spawn ? (spec.spawn.tx + 0.5) * TILE : 1.5 * TILE,
+      spawnX: spec.spawn ? (spec.spawn.tx + 0.5) * TILE : 2.5 * TILE,
       spawnY: spec.spawn ? (spec.spawn.ty + 0.5) * TILE : (doorY(spec.grid) + 0.5) * TILE
     };
     var spawnEnt = spec.ents.filter(function (e) { return e.kind === "spawn"; })[0];
@@ -1359,7 +1361,7 @@
     return {
       piece: "custom", kind: "room", grid: g, ents: ents, cleared: false, blocks: [],
       name: lv.n || "CUSTOM", cols: COLS, rows: ROWS,
-      spawn: { tx: 1, ty: doorY(g) }, pathOk: true
+      spawn: { tx: 2, ty: doorY(g) }, pathOk: true
     };
   }
 
@@ -3829,7 +3831,7 @@ function endRunToMenu() {
     },
     pathOk: function () {
       if (!room || !room.spec) return null;
-      var spec = room.spec, g = spec.grid, spawn = spec.spawn || { tx: 1, ty: doorY(g) };
+      var spec = room.spec, g = spec.grid, spawn = spec.spawn || { tx: 2, ty: doorY(g) };
       var cols = gCols(g), rows = gRows(g), doors = [], y;
       for (y = 0; y < rows; y++) {
         if (!g[y][0]) doors.push({ tx: 0, ty: y });
