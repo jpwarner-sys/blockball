@@ -538,7 +538,11 @@
   function enemyVis(e) { return e && e.boss ? BOSS_VIS : MOB_VIS; }
   /* BB-V7.9 — ball sprite AND hitbox. 17 sat huge next to HS 1.7 / r 24. */
   var BALL_R = 14;
+  /* BB-V7.12 — placed cubes are temporary cover: crumble on a timer AND break
+     when the ball / a split / an enemy shot hits them. Permanent dungeon walls
+     stay in room.grid; only room.blocks are soft. */
   var BLOCK_LIFE = 4;
+  var BLOCK_HITS = 1;
   var DT = 1 / 60;
   var MAX_PART = 90;
   var DARK = "#14110e";
@@ -1339,11 +1343,39 @@
     }
     return hit;
   }
-  function blockHit(blocks, x, y, r, horiz) {
+  function blockAt(blocks, x, y, r) {
+    if (!blocks) return -1;
     for (var i = 0; i < blocks.length; i++) {
       var b = blocks[i];
-      if (Math.abs(x - b.x) < r + TILE * 0.45 && Math.abs(y - b.y) < r + TILE * 0.45) return true;
+      if (Math.abs(x - b.x) < r + TILE * 0.45 && Math.abs(y - b.y) < r + TILE * 0.45) return i;
     }
+    return -1;
+  }
+  function blockHit(blocks, x, y, r, horiz) {
+    return blockAt(blocks, x, y, r) >= 0;
+  }
+  function syncRoomBlocks() {
+    if (room && S.rooms && S.rooms[S.roomI]) S.rooms[S.roomI].blocks = room.blocks.slice();
+  }
+  function removeBlockAt(i) {
+    if (!room || !room.blocks || i < 0 || i >= room.blocks.length) return false;
+    var b = room.blocks[i];
+    burst(b.x, b.y, "#8a7a60", 10);
+    sfx("hit");
+    room.blocks.splice(i, 1);
+    syncRoomBlocks();
+    return true;
+  }
+  /* Hit a placed cube. Returns true if it shattered. Wall tiles are not soft. */
+  function hurtBlockAt(i, hits) {
+    if (!room || !room.blocks || i < 0 || i >= room.blocks.length) return false;
+    var b = room.blocks[i];
+    if (b.hp == null) b.hp = BLOCK_HITS;
+    if (b.maxHp == null) b.maxHp = BLOCK_HITS;
+    b.hp -= hits == null ? 1 : hits;
+    if (b.hp <= 0) return removeBlockAt(i);
+    burst(b.x, b.y, "#8a7a60", 4);
+    sfx("bounce");
     return false;
   }
 
@@ -1705,9 +1737,11 @@
     var prevX = ball.x, prevY = ball.y;
     ball.x += ball.vx * dt; ball.y += ball.vy * dt;
     ball.life -= dt;
+    var ballBlock = blockAt(room.blocks, ball.x, ball.y, ball.r);
     if (resolveCircle(room.grid, room.blocks, ball)) {
       ball.bounces += 1;
       sfx("bounce");
+      if (ballBlock >= 0) hurtBlockAt(ballBlock, 1);
       if (hasAff("Split") && ball.bounces === 1) spawnSplit();
     }
     for (var i = 0; i < room.enemies.length; i++) {
@@ -1759,7 +1793,8 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     for (var i = S.splits.length - 1; i >= 0; i--) {
       var s = S.splits[i];
       s.x += s.vx * dt; s.y += s.vy * dt; s.life -= dt;
-      resolveCircle(room.grid, room.blocks, s);
+      var splitBlock = blockAt(room.blocks, s.x, s.y, s.r);
+      if (resolveCircle(room.grid, room.blocks, s) && splitBlock >= 0) hurtBlockAt(splitBlock, 1);
       for (var j = 0; j < room.enemies.length; j++) {
         var e = room.enemies[j];
         var box = enemyHurtBox(e);
@@ -2000,7 +2035,11 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     for (var i = S.shots.length - 1; i >= 0; i--) {
       var s = S.shots[i];
       s.x += s.vx * dt; s.y += s.vy * dt; s.life -= dt;
-      if (tileAt(room.grid, s.x, s.y) || blockHit(room.blocks, s.x, s.y, s.r, true)) { killShot(i); continue; }
+      var shotBlock = blockAt(room.blocks, s.x, s.y, s.r);
+      if (tileAt(room.grid, s.x, s.y) || shotBlock >= 0) {
+        if (shotBlock >= 0) hurtBlockAt(shotBlock, 1);
+        killShot(i); continue;
+      }
       if (Math.hypot(s.x - player.x, s.y - player.y) < player.r + s.r) {
         hurtPlayer(s.dmg); killShot(i); continue;
       }
@@ -2013,14 +2052,15 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     var bl = room.blocks, gone = false, i;
     for (i = bl.length - 1; i >= 0; i--) {
       if (bl[i].life == null) { bl[i].life = BLOCK_LIFE; bl[i].maxLife = BLOCK_LIFE; }
+      if (bl[i].hp == null) { bl[i].hp = BLOCK_HITS; bl[i].maxHp = BLOCK_HITS; }
       bl[i].life -= dt;
-      if (bl[i].life <= 0) {
+      if (bl[i].life <= 0 || bl[i].hp <= 0) {
         burst(bl[i].x, bl[i].y, "#8a7a60", 7);
         bl.splice(i, 1);
         gone = true;
       }
     }
-    if (gone && S.rooms && S.rooms[S.roomI]) S.rooms[S.roomI].blocks = bl.slice();
+    if (gone) syncRoomBlocks();
   }
 
   function updateLoot(dt) {
@@ -2110,8 +2150,12 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     for (var i = 0; i < bl.length; i++) {
       if (bl[i].tx === tx && bl[i].ty === ty) return;
     }
-    room.blocks.push({ x: x, y: y, tx: tx, ty: ty, life: BLOCK_LIFE, maxLife: BLOCK_LIFE });
-    S.rooms[S.roomI].blocks = room.blocks.slice();
+    room.blocks.push({
+      x: x, y: y, tx: tx, ty: ty,
+      life: BLOCK_LIFE, maxLife: BLOCK_LIFE,
+      hp: BLOCK_HITS, maxHp: BLOCK_HITS
+    });
+    syncRoomBlocks();
     player.blockStock -= 1;
     sfx("place");
     syncHud();
@@ -2172,8 +2216,9 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      BB-V7.9 — still a bit high on the live phone. 290 → 250. Throw/aim still locked.
      BB-V7.10 — landscape type fills the unused width; shop BUY buttons share
      a max-content right column per stack so neighbours line up exactly.
-     BB-V7.11 — landscape copy right-justified so labels sit against their buttons. */
-  var BUILD = "v7.11";
+     BB-V7.11 — landscape copy right-justified so labels sit against their buttons.
+     BB-V7.12 — placed cubes break on ball/shot hit and still crumble after BLOCK_LIFE. */
+  var BUILD = "v7.12";
   var FEEL_DEF = { spd: 250, accel: 2600, brake: 3600, throwSpd: 620, aimMode: "drag", aimDead: 2, aimHold: 64 };
   var FEEL = (function () {
     var f = {};
@@ -2523,7 +2568,9 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     if (room) {
       for (var b = 0; b < room.blocks.length; b++) {
         var bl = room.blocks[b];
-        var t = bl.maxLife ? Math.max(0, bl.life / bl.maxLife) : 1;
+        var tLife = bl.maxLife ? Math.max(0, bl.life / bl.maxLife) : 1;
+        var tHp = bl.maxHp ? Math.max(0, bl.hp / bl.maxHp) : 1;
+        var t = Math.min(tLife, tHp);
         var bh = TILE * (0.42 + 0.58 * t);
         var bz = Math.round(wz * (0.35 + 0.65 * t));
         g.globalAlpha = 0.38 + 0.62 * t;
@@ -3964,8 +4011,9 @@ function endRunToMenu() {
     setHp: function (n) { if (!player) return; player.hp = n; player.inv = 9; syncHud(); },
     hurt: function (n) { if (player) player.inv = 0; hurtPlayer(n); },
     dropHeart: dropHeart,
-    blocks: function () { return room ? room.blocks.map(function (b) { return { tx: b.tx, ty: b.ty, life: b.life, maxLife: b.maxLife }; }) : []; },
+    blocks: function () { return room ? room.blocks.map(function (b) { return { tx: b.tx, ty: b.ty, life: b.life, maxLife: b.maxLife, hp: b.hp, maxHp: b.maxHp }; }) : []; },
     setBlockLife: function (t) { if (room && room.blocks[0]) room.blocks[0].life = t; },
+    hurtBlock: function (i, n) { return hurtBlockAt(i == null ? 0 : i, n == null ? 1 : n); },
     placeAt: tryPlaceBlock,
     playerStats: function () { return { frag: player.frag, maxHp: player.maxHp, hp: player.hp, dmgLv: player.dmgLv, spdLv: player.spdLv, blkLv: player.blkLv, fireLv: player.fireLv, permaFire: !!player.permaFire, hpBought: player.hpBought, blockStock: player.blockStock, blockMax: player.blockMax, placeHits: player.placeHits || 0, placeRateLv: player.placeRateLv || 0 }; },
     paused: function () { return !!S.pause; },
@@ -3982,7 +4030,7 @@ function endRunToMenu() {
         build: BUILD, hs: HS, mobVis: MOB_VIS, bossVis: BOSS_VIS, tileCssTarget: TILE_CSS,
         scale: cam.scale, tileCss: TILE * cam.scale / dpr,
         cols: playCols(), rows: playRows(), ww: playW(), hh: playH(),
-        playerR: player ? player.r : null, ballR: ball ? ball.r : null, moveSpd: FEEL.spd, throwSpd: FEEL.throwSpd, aimMode: FEEL.aimMode, blockLife: BLOCK_LIFE
+        playerR: player ? player.r : null, ballR: ball ? ball.r : null, moveSpd: FEEL.spd, throwSpd: FEEL.throwSpd, aimMode: FEEL.aimMode, blockLife: BLOCK_LIFE, blockHits: BLOCK_HITS
       };
     },
     feel: function () {
