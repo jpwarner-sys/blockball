@@ -154,6 +154,23 @@
     pointer-events: none;
     padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
     box-sizing: border-box;
+    /* BB-V7.14 — each chip is absolutely placed from these so a later pass can
+       nudge one without dragging the rest. Change a --hud-*-t/l/r, not a flex group. */
+    --hud-pad: 8px;
+    --hud-hp-t: var(--hud-pad);
+    --hud-hp-l: var(--hud-pad);
+    --hud-fl-t: calc(var(--hud-pad) + clamp(28px, 7.8vh, 42px));
+    --hud-fl-l: var(--hud-pad);
+    --hud-sc-t: var(--hud-fl-t);
+    --hud-sc-l: calc(var(--hud-pad) + 4.6em);
+    --hud-fr-t: var(--hud-fl-t);
+    --hud-fr-l: calc(var(--hud-pad) + 9em);
+    --hud-pause-t: var(--hud-pad);
+    --hud-pause-r: var(--hud-pad);
+    --hud-place-t: var(--hud-pad);
+    --hud-place-r: calc(var(--hud-pad) + clamp(52px, 13vh, 72px));
+    --hud-pips-t: calc(var(--hud-pad) + 10px);
+    --hud-pips-r: calc(var(--hud-place-r) + clamp(80px, 18vh, 100px) + 8px);
   }
   #hud button, #hud input, #hud textarea, #hud .hit {
     pointer-events: auto;
@@ -361,88 +378,87 @@
     display: flex; justify-content: space-between; align-items: flex-start; gap: 8px;
     pointer-events: none;
   }
-  #topbar {
-    pointer-events: none;
-    padding: 8px 8px 0;
-    align-items: flex-start;
+  .hud-item { position: absolute; display: none; }
+  #hud.play #hpPips { display: flex; }
+  #hud.play .meta.hud-item { display: inline-flex; }
+  #hud.play #placePips { display: grid; }
+  #hud.play #btnBlock { display: block; }
+  #hud.play #btnPause { display: flex; }
+  #hpPips {
+    top: var(--hud-hp-t); left: var(--hud-hp-l);
+    flex-wrap: wrap; gap: 5px; align-items: center; max-width: 48vw;
   }
-  #hudStats {
-    display: flex; flex-direction: column; gap: 6px;
-    pointer-events: none;
-  }
-  #hpPips { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; max-width: 48vw; }
   #hpPips svg.heart {
     display: block;
     width: clamp(24px, 7vh, 36px);
     height: clamp(21px, 6.1vh, 32px);
     filter: drop-shadow(0 1px 0 #1a120c);
   }
-  #hudMeta { display: flex; gap: 14px; align-items: center; }
   .meta {
-    display: inline-flex; align-items: center; gap: 6px;
+    align-items: center; gap: 6px;
     font-weight: 800; font-size: clamp(18px, 5.4vh, 28px); color: #f0e6d4;
     text-shadow: 0 1px 0 #1a120c;
     letter-spacing: 0.02em;
   }
+  #flChip { top: var(--hud-fl-t); left: var(--hud-fl-l); }
+  #scChip { top: var(--hud-sc-t); left: var(--hud-sc-l); }
+  #frChip { top: var(--hud-fr-t); left: var(--hud-fr-l); }
   .meta svg { display: block; flex: 0 0 auto; width: clamp(20px, 6vh, 30px); height: clamp(20px, 6vh, 30px); }
   .meta b { font-weight: 800; }
-  #hudRight {
-    display: flex; align-items: flex-start; gap: 12px;
-    pointer-events: auto;
-  }
-  #placeCluster {
-    display: flex; align-items: flex-start; gap: 8px;
-    pointer-events: auto;
-  }
   #placePips {
-    display: grid;
-    grid-template-columns: repeat(3, clamp(22px, 6.4vh, 34px));
-    grid-auto-rows: clamp(20px, 5.6vh, 30px);
-    gap: 5px 5px;
+    top: var(--hud-pips-t); right: var(--hud-pips-r);
+    grid-template-columns: repeat(3, clamp(16px, 4.2vh, 22px));
+    grid-auto-rows: clamp(14px, 3.6vh, 20px);
+    gap: 4px 4px;
     pointer-events: none;
-    margin-top: 16px;
   }
   .mini-cube {
-    width: clamp(22px, 6.4vh, 34px); height: clamp(20px, 5.6vh, 30px);
+    width: clamp(16px, 4.2vh, 22px); height: clamp(14px, 3.6vh, 20px);
     position: relative;
-    opacity: 0.28;
+    opacity: 0.16;
   }
   .mini-cube svg { display: block; width: 100%; height: 100%; }
-  .mini-cube.on { opacity: 1; filter: drop-shadow(0 0 3px rgba(240,176,64,0.85)); }
-  .mini-cube.partial { opacity: 0.85; }
+  .mini-cube.on { opacity: 0.55; filter: drop-shadow(0 0 2px rgba(240,176,64,0.45)); }
+  .mini-cube.partial { opacity: 0.42; }
+  #btnBlock {
+    top: var(--hud-place-t); right: var(--hud-place-r);
+  }
   .place-btn {
-    position: relative;
-    width: clamp(104px, 28vh, 148px); height: clamp(114px, 31vh, 164px);
+    width: clamp(80px, 18vh, 100px); height: clamp(88px, 20vh, 110px);
     padding: 0; margin: 0;
     border: 0; background: transparent;
     cursor: pointer;
     touch-action: manipulation;
     -webkit-tap-highlight-color: transparent;
-    filter: drop-shadow(0 2px 0 #1a120c);
+    filter: drop-shadow(0 1px 0 rgba(26,18,12,0.45));
   }
   .place-btn .place-svg { display: block; width: 100%; height: 100%; pointer-events: none; }
   .place-btn .place-words {
     position: absolute; left: 0; right: 0; top: 30%;
     text-align: center; pointer-events: none;
-    font-weight: 800; font-size: clamp(16px, 4.6vh, 24px); line-height: 1.05;
-    letter-spacing: 0.04em; color: #1a120c;
-    text-shadow: 0 1px 0 rgba(255,236,200,0.35);
+    font-weight: 800; font-size: clamp(13px, 3.4vh, 18px); line-height: 1.05;
+    letter-spacing: 0.04em; color: #f0e6d4;
+    opacity: 0.72;
+    text-shadow: 0 1px 0 #1a120c;
   }
-  .place-btn.empty { opacity: 0.42; filter: grayscale(0.35) drop-shadow(0 2px 0 #1a120c); }
+  .place-btn.empty { opacity: 0.32; filter: grayscale(0.35) drop-shadow(0 1px 0 rgba(26,18,12,0.45)); }
   .place-btn.armed {
     transform: translateY(1px) scale(0.97);
     filter: drop-shadow(0 0 8px rgba(255,190,70,0.95));
   }
-  .place-btn.armed .iso-top { fill: rgba(255,240,190,0.72); }
-  .place-btn.armed .iso-left { fill: rgba(240,180,70,0.58); }
-  .place-btn.armed .iso-right { fill: rgba(190,130,48,0.58); }
-  .place-btn.armed .place-words { color: #3a1808; }
+  .place-btn.armed .iso-top { fill: rgba(255,240,190,0.55); }
+  .place-btn.armed .iso-left { fill: rgba(240,180,70,0.42); }
+  .place-btn.armed .iso-right { fill: rgba(190,130,48,0.42); }
+  .place-btn.armed .place-words { color: #3a1808; opacity: 0.9; }
+  #btnPause {
+    top: var(--hud-pause-t); right: var(--hud-pause-r);
+  }
   #hud button.bb.icon-btn {
     width: clamp(44px, 11vh, 60px);
     height: clamp(44px, 11vh, 60px);
     padding: 8px;
     box-sizing: border-box;
-    display: flex; align-items: center; justify-content: center;
+    align-items: center; justify-content: center;
   }
   #hud button.bb.icon-btn svg { width: 70%; height: 70%; }
   #botbar .row { min-height: 0; }
@@ -461,41 +477,31 @@
 <div id="shell">
   <canvas id="game" width="1280" height="720"></canvas>
   <div id="hud">
-    <div id="topbar">
-      <div id="hudStats">
-        <div id="hpPips" aria-label="health"></div>
-        <div id="hudMeta">
-          <span class="meta" id="flChip" title="floor">
-            <svg width="26" height="26" viewBox="0 0 14 14" aria-hidden="true"><rect x="1" y="8" width="12" height="5" rx="0.5" fill="#6a5a44" stroke="#c4b49a" stroke-width="1"/><rect x="3" y="4" width="8" height="5" rx="0.5" fill="#8a7a60" stroke="#e8dcc8" stroke-width="1"/><rect x="5" y="1" width="4" height="4" rx="0.5" fill="#c4a060" stroke="#f0e6d4" stroke-width="1"/></svg>
-            <b id="flNum">1</b>
-          </span>
-          <span class="meta" id="scChip" title="score">
-            <svg width="26" height="26" viewBox="0 0 14 14" aria-hidden="true"><polygon points="7,1 13,7 7,13 1,7" fill="#d0a040" stroke="#f0e0a0" stroke-width="1"/></svg>
-            <b id="scNum">0</b>
-          </span>
-          <span class="meta" id="frChip" title="fragments">
-            <svg width="22" height="26" viewBox="0 0 12 14" aria-hidden="true"><polygon points="6,1 11,6 8,13 4,13 1,6" fill="#70b0d0" stroke="#d0f0ff" stroke-width="1"/></svg>
-            <b id="frNum">0</b>
-          </span>
-        </div>
-      </div>
-      <div id="hudRight">
-        <div id="placeCluster">
-          <div id="placePips" aria-hidden="true"></div>
-          <button type="button" class="place-btn" id="btnBlock" aria-label="place me">
-            <svg class="place-svg" viewBox="0 0 80 88" aria-hidden="true">
-              <polygon class="iso-top" points="40,6 74,24 40,42 6,24" fill="rgba(248,228,180,0.42)" stroke="rgba(255,236,200,0.95)" stroke-width="1.6"/>
-              <polygon class="iso-left" points="6,24 40,42 40,76 6,58" fill="rgba(196,150,72,0.38)" stroke="rgba(255,220,150,0.7)" stroke-width="1.4"/>
-              <polygon class="iso-right" points="40,42 74,24 74,56 40,76" fill="rgba(140,96,40,0.40)" stroke="rgba(255,210,140,0.65)" stroke-width="1.4"/>
-            </svg>
-            <span class="place-words">place<br>me</span>
-          </button>
-        </div>
-        <button type="button" class="bb icon-btn" id="btnPause" aria-label="pause">
-          <svg width="22" height="22" viewBox="0 0 14 14" aria-hidden="true"><rect x="2" y="1" width="4" height="12" fill="#f0e6d4"/><rect x="8" y="1" width="4" height="12" fill="#f0e6d4"/></svg>
-        </button>
-      </div>
-    </div>
+    <div id="hpPips" class="hud-item" aria-label="health"></div>
+    <span class="hud-item meta" id="flChip" title="floor">
+      <svg width="26" height="26" viewBox="0 0 14 14" aria-hidden="true"><rect x="1" y="8" width="12" height="5" rx="0.5" fill="#6a5a44" stroke="#c4b49a" stroke-width="1"/><rect x="3" y="4" width="8" height="5" rx="0.5" fill="#8a7a60" stroke="#e8dcc8" stroke-width="1"/><rect x="5" y="1" width="4" height="4" rx="0.5" fill="#c4a060" stroke="#f0e6d4" stroke-width="1"/></svg>
+      <b id="flNum">1</b>
+    </span>
+    <span class="hud-item meta" id="scChip" title="score">
+      <svg width="26" height="26" viewBox="0 0 14 14" aria-hidden="true"><polygon points="7,1 13,7 7,13 1,7" fill="#d0a040" stroke="#f0e0a0" stroke-width="1"/></svg>
+      <b id="scNum">0</b>
+    </span>
+    <span class="hud-item meta" id="frChip" title="fragments">
+      <svg width="22" height="26" viewBox="0 0 12 14" aria-hidden="true"><polygon points="6,1 11,6 8,13 4,13 1,6" fill="#70b0d0" stroke="#d0f0ff" stroke-width="1"/></svg>
+      <b id="frNum">0</b>
+    </span>
+    <div id="placePips" class="hud-item" aria-hidden="true"></div>
+    <button type="button" class="hud-item place-btn" id="btnBlock" aria-label="place me">
+      <svg class="place-svg" viewBox="0 0 80 88" aria-hidden="true">
+        <polygon class="iso-top" points="40,6 74,24 40,42 6,24" fill="rgba(248,228,180,0.22)" stroke="rgba(255,236,200,0.50)" stroke-width="1.6"/>
+        <polygon class="iso-left" points="6,24 40,42 40,76 6,58" fill="rgba(196,150,72,0.18)" stroke="rgba(255,220,150,0.38)" stroke-width="1.4"/>
+        <polygon class="iso-right" points="40,42 74,24 74,56 40,76" fill="rgba(140,96,40,0.18)" stroke="rgba(255,210,140,0.36)" stroke-width="1.4"/>
+      </svg>
+      <span class="place-words">place<br>me</span>
+    </button>
+    <button type="button" class="hud-item bb icon-btn" id="btnPause" aria-label="pause">
+      <svg width="22" height="22" viewBox="0 0 14 14" aria-hidden="true"><rect x="2" y="1" width="4" height="12" fill="#f0e6d4"/><rect x="8" y="1" width="4" height="12" fill="#f0e6d4"/></svg>
+    </button>
     <!-- CHIEF FIX BB-V6.7 — the bottom strip sat under both thumbs. BALL and SEED
          were read-only labels that belong on the pause card, not across the play
          field; BLOCK and UPGRADE are real controls and have moved up beside PAUSE,
@@ -2185,7 +2191,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      BB-V7.10 — landscape type fills the unused width; shop BUY buttons share
      a max-content right column per stack so neighbours line up exactly.
      BB-V7.11 — landscape copy right-justified so labels sit against their buttons. */
-  var BUILD = "v7.13";
+  var BUILD = "v7.14";
   var FEEL_DEF = { spd: 250, accel: 2600, brake: 3600, throwSpd: 620, aimMode: "drag", aimDead: 2, aimHold: 64 };
   var FEEL = (function () {
     var f = {};
@@ -3198,9 +3204,9 @@ g.beginPath(); g.arc(S.splits[sp].x, S.splits[sp].y, S.splits[sp].r, 0, 6.3); g.
       var need = placeHitsNeed();
       var pipHtml = "", slot, fill;
       var miniSvg = function (fillAmt, lit) {
-        var top = lit ? "rgba(248,228,180,0.95)" : "rgba(248,228,180," + (0.18 + fillAmt * 0.7) + ")";
-        var left = lit ? "rgba(210,160,70,0.92)" : "rgba(160,120,50," + (0.16 + fillAmt * 0.7) + ")";
-        var right = lit ? "rgba(140,96,40,0.92)" : "rgba(100,70,30," + (0.16 + fillAmt * 0.7) + ")";
+        var top = lit ? "rgba(248,228,180,0.50)" : "rgba(248,228,180," + (0.10 + fillAmt * 0.4) + ")";
+        var left = lit ? "rgba(210,160,70,0.42)" : "rgba(160,120,50," + (0.08 + fillAmt * 0.35) + ")";
+        var right = lit ? "rgba(140,96,40,0.42)" : "rgba(100,70,30," + (0.08 + fillAmt * 0.35) + ")";
         return '<svg viewBox="0 0 18 16"><polygon points="9,1 17,5.5 9,10 1,5.5" fill="' + top + '" stroke="#f0e0c0" stroke-width="0.7"/><polygon points="1,5.5 9,10 9,15 1,10.5" fill="' + left + '" stroke="#c4b49a" stroke-width="0.6"/><polygon points="9,10 17,5.5 17,10.5 9,15" fill="' + right + '" stroke="#c4b49a" stroke-width="0.6"/></svg>';
       };
       for (slot = 0; slot < max; slot++) {
@@ -3216,10 +3222,15 @@ g.beginPath(); g.arc(S.splits[sp].x, S.splits[sp].y, S.splits[sp].r, 0, 6.3); g.
     }
     var btn = document.getElementById("btnBlock");
     if (btn) {
-      btn.className = "place-btn" + (S.placeArmed ? " armed" : "") + ((player && player.blockStock <= 0) ? " empty" : "");
+      btn.className = "hud-item place-btn" + (S.placeArmed ? " armed" : "") + ((player && player.blockStock <= 0) ? " empty" : "");
     }
-    document.getElementById("topbar").style.display = play ? "flex" : "none";
-    document.getElementById("botbar").style.display = play ? "flex" : "none";
+    var hud = document.getElementById("hud");
+    if (hud) {
+      if (play) hud.classList.add("play");
+      else hud.classList.remove("play");
+    }
+    var bot = document.getElementById("botbar");
+    if (bot) bot.style.display = play ? "flex" : "none";
   }
 
   function toast(msg) {
@@ -3720,8 +3731,8 @@ function endRunToMenu() {
      never cancels the other. The old drag-anywhere aim is kept for the mouse. */
   function onDown(ev) {
     if (S.mode !== "play" || S.pause || S.portrait) return;
-    if (ev.target && ev.target.closest && ev.target.closest("#hud button, #placeCluster, #btnBlock, #btnPause")) return;
-    if (placeClusterHit(ev)) return;
+    if (ev.target && ev.target.closest && ev.target.closest("#hud button, #btnBlock, #btnPause, #placePips")) return;
+    if (hudChromeHit(ev)) return;
     ensureAudio();
     var c = canvasFromEvent(ev), G = stickGeom();
     var grab = G.rad * 1.5;
@@ -3870,11 +3881,13 @@ function endRunToMenu() {
     btn.addEventListener("click", function (ev) { ev.preventDefault(); ev.stopPropagation(); });
   })();
 
-  function placeClusterHit(ev) {
-    var el = document.getElementById("placeCluster");
+  function hudChromeHit(ev) {
+    return hitPad("btnBlock", ev, 10) || hitPad("btnPause", ev, 8) || hitPad("placePips", ev, 6);
+  }
+  function hitPad(id, ev, pad) {
+    var el = document.getElementById(id);
     if (!el) return false;
     var r = el.getBoundingClientRect();
-    var pad = 10;
     return ev.clientX >= r.left - pad && ev.clientX <= r.right + pad &&
            ev.clientY >= r.top - pad && ev.clientY <= r.bottom + pad;
   }
