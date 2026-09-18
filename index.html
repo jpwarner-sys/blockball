@@ -294,38 +294,54 @@
   .swatch { width: 28px; height: 28px; border: 2px solid #111; display: inline-block; }
   .landSplit { display: flex; flex-direction: column; gap: 8px; }
   .landBtns { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
-  .shopGrid { display: flex; flex-direction: column; }
-  .shopGrid .row { margin: 6px 0; }
-  /* BB-V7.9 — between-level cards (floor / upgrade / pause / pass) on a phone
-     held sideways: height is ~390px. Side-by-side copy+buttons and a two-column
-     shop so DESCEND / BUY are on screen without scrolling the dungeon away. */
+  .shopGrid { display: flex; flex-direction: column; gap: 8px; }
+  .shopCol { display: flex; flex-direction: column; gap: 8px; }
+  .shopRow {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 7.4em;
+    align-items: center;
+    gap: 12px;
+  }
+  .shopName {
+    font-weight: 700; font-size: 15px; min-width: 0;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .shopBuy {
+    width: 100%; min-width: 0; box-sizing: border-box;
+    text-align: center; justify-self: stretch;
+  }
+  /* BB-V7.10 — landscape type sized off the wide axis so copy fills the
+     unused width. Each shop stack is a two-track grid: names flex, BUY
+     sits in a fixed 7.4em column so neighbours share one vertical edge. */
   @media (orientation: landscape) and (max-height: 500px) {
-    .panel { padding: 6px 10px; }
+    .panel { padding: 8px 16px; }
     .card {
-      padding: 8px 12px 10px;
+      padding: 16px 22px 18px;
       width: min(980px, 98%);
       max-height: calc(100dvh - 12px);
     }
-    .card h1 { font-size: clamp(18px, 5.4vh, 24px); margin: 0 0 4px; }
-    .card h2 { margin: 4px 0 3px; font-size: 13px; }
-    .card p { margin: 3px 0; }
-    button.bb, .bb { padding: 7px 12px; font-size: 13px; }
+    .card h1 { font-size: clamp(34px, 5.2vw, 52px); margin: 0 0 10px; letter-spacing: 0.04em; }
+    .card h2 { margin: 8px 0 6px; font-size: clamp(16px, 2vw, 20px); }
+    .card p { margin: 6px 0; font-size: clamp(18px, 2.5vw, 24px); }
+    .card .muted { font-size: clamp(16px, 2.2vw, 22px); }
+    button.bb, .bb { padding: 11px 20px; font-size: clamp(16px, 2.1vw, 20px); }
     .landSplit {
       flex-direction: row;
       align-items: center;
       justify-content: space-between;
-      gap: 16px;
+      gap: 32px;
       flex-wrap: nowrap;
     }
     .landSplit .landCopy { flex: 1; min-width: 0; }
-    .landSplit .landBtns { flex: 0 0 auto; flex-direction: column; align-items: stretch; gap: 8px; }
+    .landSplit .landBtns { flex: 0 0 auto; flex-direction: column; align-items: stretch; gap: 10px; min-width: 220px; }
     .shopGrid {
       display: grid;
       grid-template-columns: 1fr 1fr;
-      gap: 2px 18px;
+      gap: 12px 40px;
+      align-items: start;
     }
-    .shopGrid .row { margin: 2px 0; }
-    .shopGrid .row span { min-width: 0 !important; font-size: 13px; }
+    .shopName { font-size: clamp(16px, 2.1vw, 20px); }
+    .shopBuy { font-size: clamp(16px, 2.1vw, 20px); }
   }
   #toasts {
     position: absolute; left: 50%; transform: translateX(-50%);
@@ -2148,8 +2164,10 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      Shipping at 235 was a 31% slowdown in the only unit that matters.
      BB-V7.8 — Joe: movement a bit too high. Default MOVE 340 → 290 (~15%). Aim pad,
      drag-to-shoot, power curve, and throwSpd stay locked.
-     BB-V7.9 — still a bit high on the live phone. 290 → 250. Throw/aim still locked. */
-  var BUILD = "v7.9";
+     BB-V7.9 — still a bit high on the live phone. 290 → 250. Throw/aim still locked.
+     BB-V7.10 — landscape type fills the unused width; shop BUY buttons share
+     a fixed right column per stack so neighbours line up exactly. */
+  var BUILD = "v7.10";
   var FEEL_DEF = { spd: 250, accel: 2600, brake: 3600, throwSpd: 620, aimMode: "drag", aimDead: 2, aimHold: 64 };
   var FEEL = (function () {
     var f = {};
@@ -3450,21 +3468,23 @@ function endRunToMenu() {
   function renderShop() {
     function row(name, lv, fn) {
       var cost = curveCost(lv);
-      return "<div class='row'><span style='min-width:160px'>" + name + " · lv " + lv + "</span>" +
-        "<button class='bb pri' data-up='" + fn + "'>BUY " + cost + "</button></div>";
+      return "<div class='shopRow'><span class='shopName'>" + name + " · lv " + lv + "</span>" +
+        "<button class='bb pri shopBuy' data-up='" + fn + "'>BUY " + cost + "</button></div>";
     }
     document.getElementById("shopCard").innerHTML =
       "<h1>UPGRADE</h1>" +
       "<p class='muted'>Costs double each buy. No caps. You have " + player.frag + " fragments.</p>" +
       "<div class='shopGrid'>" +
+      "<div class='shopCol'>" +
       row("HEART +1 max HP", player.hpBought, "hp") +
-      row("POWER throw damage", player.dmgLv, "dmg") +
       row("QUICK throw speed", player.spdLv, "spd") +
-      row("STOCK +1 place cap (max 6)", player.blkLv, "blk") +
       row("QUARRY fewer hits / place", player.placeRateLv || 0, "rate") +
+      "</div><div class='shopCol'>" +
+      row("POWER throw damage", player.dmgLv, "dmg") +
+      row("STOCK +1 place cap (max 6)", player.blkLv, "blk") +
       row("INFERNO permanent fire", player.fireLv, "fire") +
-      "</div>" +
-      "<div class='row' style='margin-top:8px'><button class='bb pri' id='btnShopX'>DONE</button></div>";
+      "</div></div>" +
+      "<div class='row' style='margin-top:10px'><button class='bb pri' id='btnShopX'>DONE</button></div>";
     document.getElementById("shopCard").onclick = function (ev) {
       var b = ev.target.closest("button");
       if (!b) return;
