@@ -298,21 +298,23 @@
   .shopCol { display: flex; flex-direction: column; gap: 8px; }
   .shopRow {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 7.4em;
+    grid-template-columns: minmax(0, 1fr) max-content;
     align-items: center;
     gap: 12px;
   }
   .shopName {
-    font-weight: 700; font-size: 15px; min-width: 0;
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    display: flex; flex-direction: column; justify-content: center;
+    min-width: 0; font-weight: 700; font-size: 15px; line-height: 1.15;
   }
+  .shopTitle { min-width: 0; }
+  .shopLv { font-weight: 600; font-size: 0.82em; color: #9a8c78; }
   .shopBuy {
-    width: 100%; min-width: 0; box-sizing: border-box;
+    min-width: 5.6em; box-sizing: border-box;
     text-align: center; justify-self: stretch;
   }
   /* BB-V7.10 — landscape type sized off the wide axis so copy fills the
-     unused width. Each shop stack is a two-track grid: names flex, BUY
-     sits in a fixed 7.4em column so neighbours share one vertical edge. */
+     unused width. Each shop stack is a two-track grid: names wrap, BUY
+     sits in a shared max-content column so neighbours share one vertical edge. */
   @media (orientation: landscape) and (max-height: 500px) {
     .panel { padding: 8px 16px; }
     .card {
@@ -320,10 +322,10 @@
       width: min(980px, 98%);
       max-height: calc(100dvh - 12px);
     }
-    .card h1 { font-size: clamp(34px, 5.2vw, 52px); margin: 0 0 10px; letter-spacing: 0.04em; }
+    .card h1 { font-size: clamp(36px, 6.2vw, 58px); margin: 0 0 10px; letter-spacing: 0.04em; line-height: 1.05; }
     .card h2 { margin: 8px 0 6px; font-size: clamp(16px, 2vw, 20px); }
-    .card p { margin: 6px 0; font-size: clamp(18px, 2.5vw, 24px); }
-    .card .muted { font-size: clamp(16px, 2.2vw, 22px); }
+    .card p { margin: 6px 0; font-size: clamp(18px, 2.6vw, 24px); }
+    .card .muted { font-size: clamp(17px, 2.4vw, 22px); }
     button.bb, .bb { padding: 11px 20px; font-size: clamp(16px, 2.1vw, 20px); }
     .landSplit {
       flex-direction: row;
@@ -334,14 +336,16 @@
     }
     .landSplit .landCopy { flex: 1; min-width: 0; }
     .landSplit .landBtns { flex: 0 0 auto; flex-direction: column; align-items: stretch; gap: 10px; min-width: 220px; }
+    #shopCard h1 { font-size: clamp(30px, 4.6vw, 44px); margin: 0 0 8px; }
     .shopGrid {
       display: grid;
       grid-template-columns: 1fr 1fr;
-      gap: 12px 40px;
+      gap: 10px 28px;
       align-items: start;
     }
-    .shopName { font-size: clamp(16px, 2.1vw, 20px); }
-    .shopBuy { font-size: clamp(16px, 2.1vw, 20px); }
+    .shopName { font-size: clamp(15px, 1.85vw, 18px); }
+    .shopTitle { white-space: nowrap; }
+    .shopBuy { font-size: clamp(15px, 1.9vw, 18px); min-width: 5.4em; }
   }
   #toasts {
     position: absolute; left: 50%; transform: translateX(-50%);
@@ -2166,7 +2170,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      drag-to-shoot, power curve, and throwSpd stay locked.
      BB-V7.9 — still a bit high on the live phone. 290 → 250. Throw/aim still locked.
      BB-V7.10 — landscape type fills the unused width; shop BUY buttons share
-     a fixed right column per stack so neighbours line up exactly. */
+     a max-content right column per stack so neighbours line up exactly. */
   var BUILD = "v7.10";
   var FEEL_DEF = { spd: 250, accel: 2600, brake: 3600, throwSpd: 620, aimMode: "drag", aimDead: 2, aimHold: 64 };
   var FEEL = (function () {
@@ -3468,7 +3472,8 @@ function endRunToMenu() {
   function renderShop() {
     function row(name, lv, fn) {
       var cost = curveCost(lv);
-      return "<div class='shopRow'><span class='shopName'>" + name + " · lv " + lv + "</span>" +
+      return "<div class='shopRow'><span class='shopName'><span class='shopTitle'>" + name + "</span>" +
+        "<span class='shopLv'>lv " + lv + "</span></span>" +
         "<button class='bb pri shopBuy' data-up='" + fn + "'>BUY " + cost + "</button></div>";
     }
     document.getElementById("shopCard").innerHTML =
