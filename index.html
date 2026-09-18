@@ -4580,6 +4580,28 @@ function endRunToMenu() {
       for (k in patch) e[k] = patch[k];
       return { type: e.type, name: e.name, atk: e.atk, atkT: e.atkT, hp: e.hp, maxHp: e.maxHp };
     },
+    clearTrash: function () {
+      if (!room) return 0;
+      var n = 0, i;
+      for (i = 0; i < room.enemies.length; i++) {
+        var e = room.enemies[i];
+        if (e.boss) continue;
+        if (e.alive) n++;
+        e.alive = false;
+        e.deadT = 0;
+      }
+      S.shots = [];
+      return n;
+    },
+    hideChrome: function () {
+      ["toast","hudLeft","hudRight","sticks","padAim","btnPause"].forEach(function (id) {
+        var el = document.getElementById(id);
+        if (el) el.style.visibility = "hidden";
+      });
+      document.querySelectorAll(".stick,.pad,#hint,#seedTag").forEach(function (el) {
+        el.style.visibility = "hidden";
+      });
+    },
     killBossCleanup: function () {
       if (!room) return null;
       var boss = null, i;
