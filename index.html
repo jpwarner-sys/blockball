@@ -300,11 +300,12 @@
     display: grid;
     grid-template-columns: minmax(0, 1fr) max-content;
     align-items: center;
-    gap: 12px;
+    gap: 10px;
   }
   .shopName {
-    display: flex; flex-direction: column; justify-content: center;
+    display: flex; flex-direction: column; justify-content: center; align-items: flex-end;
     min-width: 0; font-weight: 700; font-size: 15px; line-height: 1.15;
+    text-align: right;
   }
   .shopTitle { min-width: 0; }
   .shopLv { font-weight: 600; font-size: 0.82em; color: #9a8c78; }
@@ -334,7 +335,7 @@
       gap: 32px;
       flex-wrap: nowrap;
     }
-    .landSplit .landCopy { flex: 1; min-width: 0; }
+    .landSplit .landCopy { flex: 1; min-width: 0; text-align: right; }
     .landSplit .landBtns { flex: 0 0 auto; flex-direction: column; align-items: stretch; gap: 10px; min-width: 220px; }
     #shopCard h1 { font-size: clamp(30px, 4.6vw, 44px); margin: 0 0 8px; }
     .shopGrid {
@@ -2170,8 +2171,9 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      drag-to-shoot, power curve, and throwSpd stay locked.
      BB-V7.9 — still a bit high on the live phone. 290 → 250. Throw/aim still locked.
      BB-V7.10 — landscape type fills the unused width; shop BUY buttons share
-     a max-content right column per stack so neighbours line up exactly. */
-  var BUILD = "v7.10";
+     a max-content right column per stack so neighbours line up exactly.
+     BB-V7.11 — landscape copy right-justified so labels sit against their buttons. */
+  var BUILD = "v7.11";
   var FEEL_DEF = { spd: 250, accel: 2600, brake: 3600, throwSpd: 620, aimMode: "drag", aimDead: 2, aimHold: 64 };
   var FEEL = (function () {
     var f = {};
