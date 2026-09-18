@@ -474,7 +474,12 @@
      the on-screen target so cubes read on a phone (~30 CSS px, not the old
      hard 34px floor and not fit-only ~22px). */
   var TILE_CSS = 30;
-  var MOB_VIS = 0.76;
+  /* BB-V7.8 — Joe locked Bone Knight vs tiles. Trash mobs draw smaller than
+     that; knights / floor bosses keep the v7.7 0.76 visual. Hitboxes for trash
+     shrink a little so contact matches the smaller sprite. */
+  var MOB_VIS = 0.56;
+  var BOSS_VIS = 0.76;
+  function enemyVis(e) { return e && e.boss ? BOSS_VIS : MOB_VIS; }
   var DT = 1 / 60;
   var MAX_PART = 90;
   var DARK = "#14110e";
@@ -750,7 +755,7 @@
   function freshPlayer() {
     var p = store.profiles[activeProfile] || store.profiles[0];
     return {
-      x: 120, y: 270, r: 28,
+      x: 120, y: 270, r: 24,
       /* CHIEF BB-V6.3 — 158 px/s is the number from Joe's v3 build, the one LP
          played to floor 20 and then said "I like the controls, keep them". */
       /* CHIEF BB-V6.6 — 158 was right for the old sprite; at 2.15x the size the same
@@ -1090,9 +1095,11 @@
 
   /* CHIEF BB-V6.6 — a 48px creature moving at 41px/s covers less than one of its own
      bodies a second and reads as stationary. Pursuing kinds get a floor under their
-     speed; ranged and orbiting kinds are meant to hold position and keep theirs. */
+     speed; ranged and orbiting kinds are meant to hold position and keep theirs.
+     BB-V7.8 — Joe: movement a bit too high. Chase/swoop/charge ~15% off the v7.7
+     floor (78 → ~66) so rooms are readable, not sluggish. */
   function walkFloor(kind, spd) {
-    if (kind === "chase" || kind === "swoop" || kind === "charge") return Math.max(spd, 78);
+    if (kind === "chase" || kind === "swoop" || kind === "charge") return Math.round(Math.max(spd, 78) * 0.85);
     if (kind === "orbit") return Math.max(spd, 58);
     return spd;
   }
@@ -1103,7 +1110,7 @@
     return {
       type: type, name: d.name, x: x, y: y, r: d.r,       hp: hp, maxHp: hp,
       spd: walkFloor(d.kind, d.spd), kind: d.kind, col: d.col, boss: d.boss || null,
-      hitR: d.boss === "mini" ? Math.round(d.r * 2.05) : d.boss ? Math.round(d.r * 1.85) : d.r,
+      hitR: d.boss === "mini" ? Math.round(d.r * 2.05) : d.boss ? Math.round(d.r * 1.85) : Math.max(14, Math.round(d.r * 0.78)),
       hitLift: d.boss === "mini" ? Math.round(d.r * 1.15) : d.boss ? Math.round(d.r * 1.05) : 0,
       cd: rnd() * 1.2, stun: 0, burn: 0, alive: true, vx: 0, vy: 0,
       phase: 0, tell: 0, tellMax: 0, gap: 0, ringR: 0, ringOn: false, deadT: 0,
@@ -1739,7 +1746,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
         if (dist < 90) moveToward(e, -dx / dist, -dy / dist, e.spd, dt);
         if (e.cd <= 0) { fireShot(e.x, e.y, dx / dist, dy / dist, 160, 1); e.cd = 1.6 + rnd() * 0.6; }
       }
-      if (Math.hypot(e.x - player.x, e.y - player.y) < e.r + player.r - 2) {
+      if (Math.hypot(e.x - player.x, e.y - player.y) < (e.boss ? e.r : (e.hitR || e.r)) + player.r - 2) {
         hurtPlayer(1 + Math.floor(S.floor / 6));
         var px = player.x - e.x, py = player.y - e.y, pd = Math.hypot(px, py) || 1;
         /* CHIEF FIX BB-V6.10 — THE clipping cause, found by instrumenting rather
@@ -1800,7 +1807,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     var ax = (player ? player.x : sx + ux) - sx;
     var ay = (player ? player.y : sy + uy) - sy;
     var n = Math.hypot(ax, ay) || 1;
-    /* 160 px/s vs the hero's 340: walk-dodgeable on a phone, big enough to read. */
+    /* 160 px/s vs the hero's move: walk-dodgeable on a phone, big enough to read. */
     var s = fireShot(sx, sy, ax / n, ay / n, 160, 3, "weapon", {
       r: 13, life: 2.6, weap: k.weap, owner: e,
       col: k.trim, accent: k.accent, body: k.body
@@ -2057,23 +2064,34 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
   /* FEEL — live-tunable, persisted. Defaults are the v3-equivalent: that build ran
      158 px/s at 1.00x sprite scale and was the one that got "keep the controls";
      the sprite is now 2.15x, and speed is felt in body-lengths, so 158 * 2.15 = 340.
-     Shipping at 235 was a 31% slowdown in the only unit that matters. */
-  var BUILD = "v7.7";
-  var FEEL_DEF = { spd: 340, accel: 2600, brake: 3600, throwSpd: 620, aimMode: "drag", aimDead: 2, aimHold: 64 };
+     Shipping at 235 was a 31% slowdown in the only unit that matters.
+     BB-V7.8 — Joe: movement a bit too high. Default MOVE 340 → 290 (~15%). Aim pad,
+     drag-to-shoot, power curve, and throwSpd stay locked. */
+  var BUILD = "v7.8";
+  var FEEL_DEF = { spd: 290, accel: 2600, brake: 3600, throwSpd: 620, aimMode: "drag", aimDead: 2, aimHold: 64 };
   var FEEL = (function () {
     var f = {};
     for (var k in FEEL_DEF) f[k] = FEEL_DEF[k];
     try {
-      /* v2 bumped the key so the new DRAG default actually reaches a device that
-         already wrote a v1 blob. Slider tweaks carry over; aimMode deliberately
-         does not -- otherwise a stale "hybrid" would outrank the new default. */
-      var raw = lsGet("bb.feel.v2"), skipAim = false;
-      if (!raw) { raw = lsGet("bb.feel.v1"); skipAim = !!raw; }
-      if (raw) { var o = JSON.parse(raw); for (var j in o) if (j in f && !(skipAim && j === "aimMode")) f[j] = o[j]; }
+      /* v3 bumps MOVE so a device that already wrote 340 actually walks slower.
+         Aim/throw keys migrate so Joe's locked drag-aim-shoot is untouched.
+         v2 skipped aimMode from v1 so DRAG actually shipped. */
+      var raw = lsGet("bb.feel.v3"), skipSpd = false, skipAim = false;
+      if (!raw) { raw = lsGet("bb.feel.v2"); skipSpd = !!raw; }
+      if (!raw) { raw = lsGet("bb.feel.v1"); skipSpd = !!raw; skipAim = !!raw; }
+      if (raw) {
+        var o = JSON.parse(raw);
+        for (var j in o) {
+          if (!(j in f)) continue;
+          if (skipSpd && j === "spd") continue;
+          if (skipAim && j === "aimMode") continue;
+          f[j] = o[j];
+        }
+      }
     } catch (e) {}
     return f;
   })();
-  function saveFeel() { lsSet("bb.feel.v2", JSON.stringify(FEEL)); }
+  function saveFeel() { lsSet("bb.feel.v3", JSON.stringify(FEEL)); }
 
   var NUDGE = 8;
 
@@ -2220,8 +2238,8 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
        read on a phone. Not the old unbounded 34px floor on a fixed 32×18 world
        (almost no room visible). Small generated rooms fit whole at this zoom;
        larger ones follow the player, clamped to the room. Desktop/iPad already
-       above 30 CSS px keep whole-room fit. Hero/mobs are drawn smaller (HS /
-       MOB_VIS) so this zoom does not make the character huge. */
+       above 30 CSS px keep whole-room fit. Hero is smaller (HS); trash mobs use
+       MOB_VIS. Knights / floor bosses keep BOSS_VIS (Joe locked that vs tiles). */
     var want = (TILE_CSS * dpr) / TILE;
     var fit = Math.min(cw / ww, ch / hh);
     var scale = Math.max(fit, want);
@@ -2504,11 +2522,10 @@ g.beginPath(); g.arc(S.splits[sp].x, S.splits[sp].y, S.splits[sp].r, 0, 6.3); g.
      alternate as he walks, two arms, the blue gauntlet on the throwing side, a head
      with both eyes and an outline — and sized to fill the hitbox he actually has.
      Everything is derived from HS so one number changes his whole scale.
-     BB-V7.7 — HS 2.2 so the hero stays a familiar on-screen size after camera
-     zoom targeting ~30 CSS px tiles. v7.6 used HS 2.88 sized for three TILE-30
-     blocks under the sprite; at phone zoom that made him huge. Mobs use MOB_VIS
-     (draw-only). Two-stack is about chest-high; three still covers him. */
-  var HS = 2.2;
+     BB-V7.8 — HS 1.7 so the hero reads smaller than the Bone Knight vs the
+     same 30 CSS px tiles. v7.7 used 2.2, which matched the knight's height and
+     felt too big on Joe's phone. Knights stay on BOSS_VIS; trash on MOB_VIS. */
+  var HS = 1.7;
 
   /* CHIEF BB-V6.1 — lifted verbatim in behaviour from Joe's own v3 build
      (artifact 9c0196b1, `function cube`). This one function is why the old game
@@ -2889,11 +2906,13 @@ g.beginPath(); g.arc(S.splits[sp].x, S.splits[sp].y, S.splits[sp].r, 0, 6.3); g.
     if (!e.alive && e.deadT <= 0) return;
     var a = !e.alive ? Math.max(0, e.deadT) : 1;
     g.globalAlpha = a;
-    /* BB-V7.7 — shrink sprites under the ~30 CSS px tile zoom. Hitboxes (e.r /
-       e.hitR) stay the same so combat is unchanged. */
+    /* BB-V7.8 — trash sprites shrink toward knight-vs-tile scale. Knights /
+       floor bosses keep BOSS_VIS (Joe locked Bone Knight vs the map). Trash
+       hitboxes (hitR) are slightly tighter so contact isn't a halo around a
+       small cube. */
     g.save();
     g.translate(e.x, e.y);
-    g.scale(MOB_VIS, MOB_VIS);
+    g.scale(enemyVis(e), enemyVis(e));
     g.translate(-e.x, -e.y);
     /* CHIEF BB-V5.2 — boss art is drawn from fixed pixel offsets, so it is scaled
        about the boss's own centre to match the radius it now carries. */
@@ -2988,7 +3007,7 @@ g.beginPath(); g.arc(S.splits[sp].x, S.splits[sp].y, S.splits[sp].r, 0, 6.3); g.
     /* BB-V7.3 — anchored to e.r back when every sprite was a square the size of its
        own hitbox. A knight stands about 2.8r tall, so the bar and the name landed on
        his face. Sprites that draw taller than their hitbox now say so in e.artH. */
-    var topOff = (e.artH || e.r) * MOB_VIS;
+    var topOff = (e.artH || e.r) * enemyVis(e);
     if (e.alive) {
       var w = Math.max(20, e.r * 2);
       g.fillStyle = "#2a1810";
@@ -3794,7 +3813,7 @@ function endRunToMenu() {
     /* read-only probe for the headless harness: position and velocity, nothing else */
     pos: function () { return player ? { x: Math.round(player.x), y: Math.round(player.y), vx: Math.round(player.vx), vy: Math.round(player.vy) } : null; },
     ballState: function () { return ball ? { x: Math.round(ball.x), y: Math.round(ball.y), vx: Math.round(ball.vx), vy: Math.round(ball.vy), live: ball.live, bounces: ball.bounces, hits: ball.hits.length, pierced: !!ball.pierced } : null; },
-    enemies: function () { return room ? room.enemies.filter(function (e) { return e.alive; }).map(function (e) { return { x: Math.round(e.x), y: Math.round(e.y), r: e.r, hitR: e.hitR || e.r, hitLift: e.hitLift || 0, hp: e.hp, spd: e.spd, boss: e.boss || null }; }) : []; },
+    enemies: function () { return room ? room.enemies.filter(function (e) { return e.alive; }).map(function (e) { return { type: e.type, x: Math.round(e.x), y: Math.round(e.y), r: e.r, hitR: e.hitR || e.r, hitLift: e.hitLift || 0, hp: e.hp, spd: e.spd, kind: e.kind, vis: enemyVis(e), boss: e.boss || null }; }) : []; },
     fire: function (ang, pow) { throwBall(ang, pow); },
     resetBall: function () { if (ball) { ball.live = false; ball.ret = false; resetBallHome(); } },
     setAff: function (a) { player.ballAffix = a; ball.affix = a; },
@@ -3824,11 +3843,17 @@ function endRunToMenu() {
       var cam = cameraFit();
       var dpr = canvas.width / Math.max(1, window.innerWidth);
       return {
-        build: BUILD, hs: HS, mobVis: MOB_VIS, tileCssTarget: TILE_CSS,
+        build: BUILD, hs: HS, mobVis: MOB_VIS, bossVis: BOSS_VIS, tileCssTarget: TILE_CSS,
         scale: cam.scale, tileCss: TILE * cam.scale / dpr,
-        cols: playCols(), rows: playRows(), ww: playW(), hh: playH()
+        cols: playCols(), rows: playRows(), ww: playW(), hh: playH(),
+        playerR: player ? player.r : null, moveSpd: FEEL.spd, throwSpd: FEEL.throwSpd, aimMode: FEEL.aimMode
       };
     },
+    feel: function () {
+      return { spd: FEEL.spd, accel: FEEL.accel, brake: FEEL.brake, throwSpd: FEEL.throwSpd,
+        aimMode: FEEL.aimMode, aimDead: FEEL.aimDead, aimHold: FEEL.aimHold };
+    },
+    walkFloor: walkFloor,
     pathOk: function () {
       if (!room || !room.spec) return null;
       var spec = room.spec, g = spec.grid, spawn = spec.spawn || { tx: 2, ty: doorY(g) };
