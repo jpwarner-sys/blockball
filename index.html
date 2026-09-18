@@ -531,10 +531,12 @@
      hard 34px floor and not fit-only ~22px). */
   var TILE_CSS = 30;
   /* BB-V7.8 — Joe locked Bone Knight vs tiles. Trash mobs draw smaller than
-     that; knights / floor bosses keep the v7.7 0.76 visual. Hitboxes for trash
-     shrink a little so contact matches the smaller sprite. */
+     that; knights / floor bosses kept the v7.7 0.76 visual.
+     BB-V7.10 — BOSS_VIS 0.86 (~13% up from 0.76) so the knight reads larger
+     vs the HS 1.7 hero without shrinking the player further. Hitboxes for
+     trash still shrink a little so contact matches the smaller sprite. */
   var MOB_VIS = 0.56;
-  var BOSS_VIS = 0.76;
+  var BOSS_VIS = 0.86;
   function enemyVis(e) { return e && e.boss ? BOSS_VIS : MOB_VIS; }
   /* BB-V7.9 — ball sprite AND hitbox. 17 sat huge next to HS 1.7 / r 24. */
   var BALL_R = 14;
