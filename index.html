@@ -1917,14 +1917,9 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
 
   function cameraFit() {
     var cw = canvas.width, ch = canvas.height;
-    var cssW = Math.max(1, window.innerWidth);
-    var dpr = cw / cssW;
-    /* BB-V7.6 — phone tiles were ~22 CSS px when the whole 32×18 room was fitted.
-       Target ~34 CSS px so blocks read on iPhone; camera follows and clamps to the
-       dungeon so empty space does not spill. Desktop still fits the whole room. */
-    var want = (34 * dpr) / TILE;
+    // BB: whole-room fit; phone 34px floor removed (Joe 2026-09-17)
     var fit = Math.min(cw / WORLD_W, ch / WORLD_H);
-    var scale = Math.max(fit, want);
+    var scale = fit;
     var viewW = cw / scale, viewH = ch / scale;
     var px = (player && S.mode === "play") ? player.x : WORLD_W * 0.5;
     var py = (player && S.mode === "play") ? player.y : WORLD_H * 0.5;
@@ -2113,7 +2108,7 @@ g.beginPath(); g.arc(S.splits[sp].x, S.splits[sp].y, S.splits[sp].r, 0, 6.3); g.
     if (ball && !ball.live) drawBallObj(g, ball, false);
     if (player) drawPlayer(g);
     if (ball && ball.live) drawBallObj(g, ball, true);
-    if (S.mode === "play" && !S.pause) drawPlaceGhost(g, wz);
+    if (S.mode === "play" && !S.pause && S.placeArmed) drawPlaceGhost(g, wz);
     if (S.aim && !ball.live) {
       var pts = aimGuide(S.aim.ang, S.aim.pow);
       g.strokeStyle = "rgba(240,210,140,0.45)";
@@ -2171,14 +2166,15 @@ g.beginPath(); g.arc(S.splits[sp].x, S.splits[sp].y, S.splits[sp].r, 0, 6.3); g.
   }
 
   function drawPlaceGhost(g, wz) {
+    if (!S.placeArmed) return;
     var ghost = placeGhostCell();
     if (!ghost) return;
     var x = ghost.tx * TILE, y = ghost.ty * TILE;
     g.save();
-    g.globalAlpha = S.placeArmed ? 0.78 : 0.52;
+    g.globalAlpha = 0.78;
     cube(g, x, y - wz, TILE, TILE, wz, "#e8b84a", false);
     g.globalAlpha = 1;
-    g.strokeStyle = S.placeArmed ? "#fff3b0" : "#f0d070";
+    g.strokeStyle = "#fff3b0";
     g.lineWidth = 2.5;
     g.setLineDash([6, 4]);
     g.strokeRect(x + 1.5, y - wz + 1.5, TILE - 3, TILE - 3);
@@ -2748,7 +2744,11 @@ g.beginPath(); g.arc(S.splits[sp].x, S.splits[sp].y, S.splits[sp].r, 0, 6.3); g.
         fill = (!lit && slot === have) ? Math.max(0, Math.min(1, hits / need)) : 0;
         pipHtml += '<i class="mini-cube' + (lit ? " on" : (fill > 0 ? " partial" : "")) + '">' + miniSvg(fill, lit) + "</i>";
       }
-      pips.innerHTML = pipHtml;
+      var pipState = max + ":" + have + ":" + hits + ":" + need;
+      if (pips.__bbState !== pipState) {
+        pips.innerHTML = pipHtml;
+        pips.__bbState = pipState;
+      }
     }
     var btn = document.getElementById("btnBlock");
     if (btn) {
@@ -2768,6 +2768,8 @@ g.beginPath(); g.arc(S.splits[sp].x, S.splits[sp].y, S.splits[sp].r, 0, 6.3); g.
   }
 
   function hidePanels() {
+    S.placeArmed = false;
+    S.placeMode = false;
     ["splashPanel", "menuPanel", "pausePanel", "shopPanel", "passPanel", "floorPanel", "builderPanel", "feelPanel"].forEach(function (id) {
       document.getElementById(id).className = "panel";
     });
@@ -3387,6 +3389,8 @@ function endRunToMenu() {
     btn.addEventListener("pointerdown", arm);
     btn.addEventListener("pointerup", release);
     btn.addEventListener("pointercancel", cancel);
+    window.addEventListener("pointerup", release);
+    window.addEventListener("pointercancel", cancel);
     btn.addEventListener("lostpointercapture", function () {
       if (S.placeArmed) cancel();
     });
