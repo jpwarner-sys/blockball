@@ -292,6 +292,41 @@
   }
   .muted { color: #9a8c78; font-size: 13px; }
   .swatch { width: 28px; height: 28px; border: 2px solid #111; display: inline-block; }
+  .landSplit { display: flex; flex-direction: column; gap: 8px; }
+  .landBtns { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .shopGrid { display: flex; flex-direction: column; }
+  .shopGrid .row { margin: 6px 0; }
+  /* BB-V7.9 — between-level cards (floor / upgrade / pause / pass) on a phone
+     held sideways: height is ~390px. Side-by-side copy+buttons and a two-column
+     shop so DESCEND / BUY are on screen without scrolling the dungeon away. */
+  @media (orientation: landscape) and (max-height: 500px) {
+    .panel { padding: 6px 10px; }
+    .card {
+      padding: 8px 12px 10px;
+      width: min(980px, 98%);
+      max-height: calc(100dvh - 12px);
+    }
+    .card h1 { font-size: clamp(18px, 5.4vh, 24px); margin: 0 0 4px; }
+    .card h2 { margin: 4px 0 3px; font-size: 13px; }
+    .card p { margin: 3px 0; }
+    button.bb, .bb { padding: 7px 12px; font-size: 13px; }
+    .landSplit {
+      flex-direction: row;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      flex-wrap: nowrap;
+    }
+    .landSplit .landCopy { flex: 1; min-width: 0; }
+    .landSplit .landBtns { flex: 0 0 auto; flex-direction: column; align-items: stretch; gap: 8px; }
+    .shopGrid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 2px 18px;
+    }
+    .shopGrid .row { margin: 2px 0; }
+    .shopGrid .row span { min-width: 0 !important; font-size: 13px; }
+  }
   #toasts {
     position: absolute; left: 50%; transform: translateX(-50%);
     top: calc(56px + env(safe-area-inset-top));
@@ -480,6 +515,9 @@
   var MOB_VIS = 0.56;
   var BOSS_VIS = 0.76;
   function enemyVis(e) { return e && e.boss ? BOSS_VIS : MOB_VIS; }
+  /* BB-V7.9 — ball sprite AND hitbox. 17 sat huge next to HS 1.7 / r 24. */
+  var BALL_R = 14;
+  var BLOCK_LIFE = 4;
   var DT = 1 / 60;
   var MAX_PART = 90;
   var DARK = "#14110e";
@@ -782,7 +820,7 @@
 
   function resetBallHome() {
     ball = {
-      live: false, ret: false, x: player.x + 30, y: player.y - 8, vx: 0, vy: 0, r: 17, pierced: false,
+      live: false, ret: false, x: player.x + 30, y: player.y - 8, vx: 0, vy: 0, r: BALL_R, pierced: false,
       life: 0, bounces: 0, hits: [], dmg: 0, affix: player.ballAffix || [],
       trail: []
     };
@@ -1395,6 +1433,7 @@
     }
     S.floor += 1;
     S.rooms = buildFloor(S.floor);
+    S.floorHeal = healPlayer(wasBoss ? 2 : 1);
     showFloorCard(wasBoss);
   }
 
@@ -1414,6 +1453,16 @@
     }
   }
 
+  function healPlayer(n) {
+    if (!player || n <= 0) return 0;
+    var roomHp = player.maxHp - player.hp;
+    var got = Math.min(n, roomHp);
+    if (got <= 0) return 0;
+    player.hp += got;
+    syncHud();
+    return got;
+  }
+
   function killEnemy(en, trick) {
     en.alive = false;
     en.deadT = 1.2;
@@ -1422,6 +1471,7 @@
     sfx(trick ? "trick" : "kill");
     burst(en.x, en.y, en.col, trick ? 22 : 10);
     if (rnd() < 0.62 || en.boss) dropLoot(en.x, en.y, !!en.boss);
+    maybeDropHeart(en.x, en.y, en);
     if (en.boss === "mini") startMiniDeath(en);
     else if (en.boss === "ash" || en.boss === "bone" || en.boss === "thorn") startBossDeath(en);
   }
@@ -1468,6 +1518,19 @@
     sfx("loot");
   }
 
+  function dropHeart(x, y) {
+    S.loot.push({ kind: "heart", x: x, y: y, r: 10, vy: -52, life: 12, rar: "heart", n: 1, taken: false });
+    sfx("loot");
+  }
+
+  function maybeDropHeart(x, y, en) {
+    if (!player) return;
+    var p = 0.16;
+    if (en && en.boss) p = 1;
+    else if (player.hp >= player.maxHp) return;
+    if (rnd() < p) dropHeart(x, y);
+  }
+
   function takeLoot(it) {
     if (it.taken) return;
     it.taken = true;
@@ -1475,6 +1538,9 @@
     if (it.kind === "frag") {
       player.frag += it.n || 1;
       floatTxt(it.x, it.y, "+" + (it.n || 1) + " FRAG", "#f0d080");
+    } else if (it.kind === "heart") {
+      if (healPlayer(it.n || 1)) floatTxt(it.x, it.y, "+♥", "#e05040");
+      else { player.frag += 1; floatTxt(it.x, it.y, "+1 FRAG", "#f0d080"); }
     } else {
       player.ballAffix = it.affix.slice();
       store.stash.unshift({ affix: it.affix.slice(), rar: it.rar });
@@ -1921,6 +1987,21 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     }
   }
 
+  function updateBlocks(dt) {
+    if (!room || !room.blocks) return;
+    var bl = room.blocks, gone = false, i;
+    for (i = bl.length - 1; i >= 0; i--) {
+      if (bl[i].life == null) { bl[i].life = BLOCK_LIFE; bl[i].maxLife = BLOCK_LIFE; }
+      bl[i].life -= dt;
+      if (bl[i].life <= 0) {
+        burst(bl[i].x, bl[i].y, "#8a7a60", 7);
+        bl.splice(i, 1);
+        gone = true;
+      }
+    }
+    if (gone && S.rooms && S.rooms[S.roomI]) S.rooms[S.roomI].blocks = bl.slice();
+  }
+
   function updateLoot(dt) {
     for (var i = S.loot.length - 1; i >= 0; i--) {
       var it = S.loot[i];
@@ -2008,7 +2089,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     for (var i = 0; i < bl.length; i++) {
       if (bl[i].tx === tx && bl[i].ty === ty) return;
     }
-    room.blocks.push({ x: x, y: y, tx: tx, ty: ty });
+    room.blocks.push({ x: x, y: y, tx: tx, ty: ty, life: BLOCK_LIFE, maxLife: BLOCK_LIFE });
     S.rooms[S.roomI].blocks = room.blocks.slice();
     player.blockStock -= 1;
     sfx("place");
@@ -2066,17 +2147,18 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      the sprite is now 2.15x, and speed is felt in body-lengths, so 158 * 2.15 = 340.
      Shipping at 235 was a 31% slowdown in the only unit that matters.
      BB-V7.8 — Joe: movement a bit too high. Default MOVE 340 → 290 (~15%). Aim pad,
-     drag-to-shoot, power curve, and throwSpd stay locked. */
-  var BUILD = "v7.8";
-  var FEEL_DEF = { spd: 290, accel: 2600, brake: 3600, throwSpd: 620, aimMode: "drag", aimDead: 2, aimHold: 64 };
+     drag-to-shoot, power curve, and throwSpd stay locked.
+     BB-V7.9 — still a bit high on the live phone. 290 → 250. Throw/aim still locked. */
+  var BUILD = "v7.9";
+  var FEEL_DEF = { spd: 250, accel: 2600, brake: 3600, throwSpd: 620, aimMode: "drag", aimDead: 2, aimHold: 64 };
   var FEEL = (function () {
     var f = {};
     for (var k in FEEL_DEF) f[k] = FEEL_DEF[k];
     try {
-      /* v3 bumps MOVE so a device that already wrote 340 actually walks slower.
-         Aim/throw keys migrate so Joe's locked drag-aim-shoot is untouched.
-         v2 skipped aimMode from v1 so DRAG actually shipped. */
-      var raw = lsGet("bb.feel.v3"), skipSpd = false, skipAim = false;
+      /* v4 bumps MOVE so a device that already wrote 290 actually walks slower.
+         Aim/throw keys migrate so Joe's locked drag-aim-shoot is untouched. */
+      var raw = lsGet("bb.feel.v4"), skipSpd = false, skipAim = false;
+      if (!raw) { raw = lsGet("bb.feel.v3"); skipSpd = !!raw; }
       if (!raw) { raw = lsGet("bb.feel.v2"); skipSpd = !!raw; }
       if (!raw) { raw = lsGet("bb.feel.v1"); skipSpd = !!raw; skipAim = !!raw; }
       if (raw) {
@@ -2091,7 +2173,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     } catch (e) {}
     return f;
   })();
-  function saveFeel() { lsSet("bb.feel.v3", JSON.stringify(FEEL)); }
+  function saveFeel() { lsSet("bb.feel.v4", JSON.stringify(FEEL)); }
 
   var NUDGE = 8;
 
@@ -2417,7 +2499,12 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     if (room) {
       for (var b = 0; b < room.blocks.length; b++) {
         var bl = room.blocks[b];
-        cube(g, bl.x - TILE * 0.5, bl.y - TILE * 0.5 - wz, TILE, TILE, wz, "#6a5a44");
+        var t = bl.maxLife ? Math.max(0, bl.life / bl.maxLife) : 1;
+        var bh = TILE * (0.42 + 0.58 * t);
+        var bz = Math.round(wz * (0.35 + 0.65 * t));
+        g.globalAlpha = 0.38 + 0.62 * t;
+        cube(g, bl.x - TILE * 0.5, bl.y - TILE * 0.5 - bz + (TILE - bh), TILE, bh, bz, t < 0.35 ? "#5a4030" : "#6a5a44");
+        g.globalAlpha = 1;
       }
       if (S.scaleProbe && player) drawScaleProbe(g, wz);
       for (var c = 0; c < room.chests.length; c++) drawChest(g, room.chests[c]);
@@ -3033,7 +3120,14 @@ g.beginPath(); g.arc(S.splits[sp].x, S.splits[sp].y, S.splits[sp].r, 0, 6.3); g.
     g.globalAlpha = 0.25;
     g.fillRect(it.x - 3, it.y - 40, 6, 40);
     g.globalAlpha = 1;
-    if (it.kind === "ball") {
+    if (it.kind === "heart") {
+      g.fillStyle = "#e05040";
+      g.beginPath();
+      g.moveTo(it.x, it.y + 7);
+      g.bezierCurveTo(it.x - 11, it.y - 1, it.x - 6, it.y - 10, it.x, it.y - 4);
+      g.bezierCurveTo(it.x + 6, it.y - 10, it.x + 11, it.y - 1, it.x, it.y + 7);
+      g.fill();
+    } else if (it.kind === "ball") {
       g.fillStyle = RARITY[it.rar].c;
       g.beginPath(); g.arc(it.x, it.y, 8, 0, 6.3); g.fill();
     } else {
@@ -3223,18 +3317,16 @@ g.beginPath(); g.arc(S.splits[sp].x, S.splits[sp].y, S.splits[sp].r, 0, 6.3); g.
     hidePanels();                 /* same trap as showShop had */
     document.getElementById("pausePanel").className = "panel show";
     document.getElementById("pauseCard").innerHTML =
+      "<div class='landSplit'><div class='landCopy'>" +
       "<h1>PAUSE</h1>" +
       "<p class='muted'>" + S.seed + " · Floor " + S.floor + " · " + (player ? player.token : "") +
         " · BALL " + ((player && player.ballAffix && player.ballAffix.length) ? player.ballAffix.join("+") : (player && player.permaFire ? "FIRE" : "PLAIN")) + "</p>" +
-      /* CHIEF FIX BB-V6.9 — UPGRADE lives here and on the floor card now. It was on
-         the play HUD, where opening it did NOT pause: enemies kept moving and could
-         hit you while you shopped. Both of its new homes are already stopped. */
-      "<div class='row'>" +
+      "</div><div class='landBtns row'>" +
       "<button class='bb pri' id='btnRes'>RESUME</button>" +
       "<button class='bb' id='btnUpg'>UPGRADE · " + player.frag + "</button>" +
       "<button class='bb' id='btnFeel'>FEEL</button>" +
       "<button class='bb' id='btnMenu'>MENU</button>" +
-      "</div>";
+      "</div></div>";
     document.getElementById("btnFeel").onclick = function () { showFeel(); };
     document.getElementById("btnUpg").onclick = function () { showShop(); };
     document.getElementById("btnRes").onclick = function () { document.getElementById("pausePanel").className = "panel"; S.pause = false; };
@@ -3358,19 +3450,21 @@ function endRunToMenu() {
   function renderShop() {
     function row(name, lv, fn) {
       var cost = curveCost(lv);
-      return "<div class='row' style='margin:6px 0'><span style='min-width:160px'>" + name + " · lv " + lv + "</span>" +
+      return "<div class='row'><span style='min-width:160px'>" + name + " · lv " + lv + "</span>" +
         "<button class='bb pri' data-up='" + fn + "'>BUY " + cost + "</button></div>";
     }
     document.getElementById("shopCard").innerHTML =
       "<h1>UPGRADE</h1>" +
       "<p class='muted'>Costs double each buy. No caps. You have " + player.frag + " fragments.</p>" +
+      "<div class='shopGrid'>" +
       row("HEART +1 max HP", player.hpBought, "hp") +
       row("POWER throw damage", player.dmgLv, "dmg") +
       row("QUICK throw speed", player.spdLv, "spd") +
       row("STOCK +1 place cap (max 6)", player.blkLv, "blk") +
       row("QUARRY fewer hits / place", player.placeRateLv || 0, "rate") +
       row("INFERNO permanent fire", player.fireLv, "fire") +
-      "<div class='row'><button class='bb pri' id='btnShopX'>DONE</button></div>";
+      "</div>" +
+      "<div class='row' style='margin-top:8px'><button class='bb pri' id='btnShopX'>DONE</button></div>";
     document.getElementById("shopCard").onclick = function (ev) {
       var b = ev.target.closest("button");
       if (!b) return;
@@ -3408,10 +3502,13 @@ function endRunToMenu() {
   function showPassCard() {
     document.getElementById("passPanel").className = "panel show";
     document.getElementById("passCard").innerHTML =
+      "<div class='landSplit'><div class='landCopy'>" +
       "<h1>PASS THE DEVICE</h1>" +
       "<p>Player " + (S.passWho + 1) + " takes floor " + S.floor + ".</p>" +
       "<p class='muted'>Shared score " + fmt(S.score) + " · shared fragments " + player.frag + "</p>" +
-      "<button class='bb pri' id='btnPassGo'>READY</button>";
+      "</div><div class='landBtns'>" +
+      "<button class='bb pri' id='btnPassGo'>READY</button>" +
+      "</div></div>";
     document.getElementById("btnPassGo").onclick = function () {
       document.getElementById("passPanel").className = "panel";
     };
@@ -3422,14 +3519,17 @@ function endRunToMenu() {
     hidePanels();
     document.getElementById("floorPanel").className = "panel show";
     var bio = biomeOf(S.floor);
+    var healed = S.floorHeal || 0;
     document.getElementById("floorCard").innerHTML =
+      "<div class='landSplit'><div class='landCopy'>" +
       "<h1>" + (boss ? "BOSS DOWN" : "FLOOR " + (S.floor - 1) + " CLEAR") + "</h1>" +
-      "<p>Entering " + bio.name + " · Floor " + S.floor + "</p>" +
+      "<p>Entering " + bio.name + " · Floor " + S.floor +
+        (healed ? " · +" + healed + "♥" : "") + "</p>" +
       "<p class='muted'>Seed " + S.seed + " · Score " + fmt(S.score) + " · Tricks " + S.runTricks + "</p>" +
-      "<div class='row'>" +
+      "</div><div class='landBtns row'>" +
       "<button class='bb pri' id='btnFloorGo'>DESCEND</button>" +
       "<button class='bb' id='btnFloorUpg'>UPGRADE · " + player.frag + " FRAG</button>" +
-      "</div>";
+      "</div></div>";
     document.getElementById("btnFloorUpg").onclick = function () { showShop(); };
     document.getElementById("btnFloorGo").onclick = function () {
       hidePanels();               /* belt and braces: never start a room under an overlay */
@@ -3753,6 +3853,7 @@ function endRunToMenu() {
         ch.open = true;
         dropLoot(ch.x, ch.y - 10, S.floor >= 4);
         dropLoot(ch.x + 10, ch.y - 6, false);
+        if (player.hp < player.maxHp) dropHeart(ch.x - 10, ch.y - 8);
         player.frag += 2;
         sfx("loot");
       }
@@ -3773,6 +3874,7 @@ function endRunToMenu() {
     updateEnemies(dt);
     updateShots(dt);
     updateLoot(dt);
+    updateBlocks(dt);
     updateChests();
     updateFx(dt);
     if (S.t % 0.25 < dt) syncHud();
@@ -3812,7 +3914,7 @@ function endRunToMenu() {
   window.__BB_SELFTEST = {
     /* read-only probe for the headless harness: position and velocity, nothing else */
     pos: function () { return player ? { x: Math.round(player.x), y: Math.round(player.y), vx: Math.round(player.vx), vy: Math.round(player.vy) } : null; },
-    ballState: function () { return ball ? { x: Math.round(ball.x), y: Math.round(ball.y), vx: Math.round(ball.vx), vy: Math.round(ball.vy), live: ball.live, bounces: ball.bounces, hits: ball.hits.length, pierced: !!ball.pierced } : null; },
+    ballState: function () { return ball ? { x: Math.round(ball.x), y: Math.round(ball.y), vx: Math.round(ball.vx), vy: Math.round(ball.vy), live: ball.live, bounces: ball.bounces, hits: ball.hits.length, pierced: !!ball.pierced, r: ball.r } : null; },
     enemies: function () { return room ? room.enemies.filter(function (e) { return e.alive; }).map(function (e) { return { type: e.type, x: Math.round(e.x), y: Math.round(e.y), r: e.r, hitR: e.hitR || e.r, hitLift: e.hitLift || 0, hp: e.hp, spd: e.spd, kind: e.kind, vis: enemyVis(e), boss: e.boss || null }; }) : []; },
     fire: function (ang, pow) { throwBall(ang, pow); },
     resetBall: function () { if (ball) { ball.live = false; ball.ret = false; resetBallHome(); } },
@@ -3831,6 +3933,13 @@ function endRunToMenu() {
     },
     drive: function (dx, dy) { STK.L.dx = dx; STK.L.dy = dy; },
     giveFrag: function (n) { player.frag = n; },
+    heal: healPlayer,
+    setHp: function (n) { if (!player) return; player.hp = n; player.inv = 9; syncHud(); },
+    hurt: function (n) { if (player) player.inv = 0; hurtPlayer(n); },
+    dropHeart: dropHeart,
+    blocks: function () { return room ? room.blocks.map(function (b) { return { tx: b.tx, ty: b.ty, life: b.life, maxLife: b.maxLife }; }) : []; },
+    setBlockLife: function (t) { if (room && room.blocks[0]) room.blocks[0].life = t; },
+    placeAt: tryPlaceBlock,
     playerStats: function () { return { frag: player.frag, maxHp: player.maxHp, hp: player.hp, dmgLv: player.dmgLv, spdLv: player.spdLv, blkLv: player.blkLv, fireLv: player.fireLv, permaFire: !!player.permaFire, hpBought: player.hpBought, blockStock: player.blockStock, blockMax: player.blockMax, placeHits: player.placeHits || 0, placeRateLv: player.placeRateLv || 0 }; },
     paused: function () { return !!S.pause; },
     encode: encodeShare,
@@ -3846,7 +3955,7 @@ function endRunToMenu() {
         build: BUILD, hs: HS, mobVis: MOB_VIS, bossVis: BOSS_VIS, tileCssTarget: TILE_CSS,
         scale: cam.scale, tileCss: TILE * cam.scale / dpr,
         cols: playCols(), rows: playRows(), ww: playW(), hh: playH(),
-        playerR: player ? player.r : null, moveSpd: FEEL.spd, throwSpd: FEEL.throwSpd, aimMode: FEEL.aimMode
+        playerR: player ? player.r : null, ballR: ball ? ball.r : null, moveSpd: FEEL.spd, throwSpd: FEEL.throwSpd, aimMode: FEEL.aimMode, blockLife: BLOCK_LIFE
       };
     },
     feel: function () {
