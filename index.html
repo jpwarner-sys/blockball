@@ -468,6 +468,13 @@
 
   var WORLD_W = 960, WORLD_H = 540, TILE = 30;
   var COLS = 32, ROWS = 18;
+  /* BB-V7.7 — TILE stays 30 world px (one dungeon cube / place-block).
+     WORLD_W/H and COLS/ROWS are the builder ceiling (32×18). Generated rooms
+     choose their own cols×rows; cameraFit follows the live room. TILE_CSS is
+     the on-screen target so cubes read on a phone (~30 CSS px, not the old
+     hard 34px floor and not fit-only ~22px). */
+  var TILE_CSS = 30;
+  var MOB_VIS = 0.76;
   var DT = 1 / 60;
   var MAX_PART = 90;
   var DARK = "#14110e";
@@ -721,8 +728,10 @@
 
   function stickGeom() {
     var cw = canvas.width, ch = canvas.height;
-    var rad = Math.max(46, Math.min(cw, ch) * 0.145);
-    var inset = rad * 1.45;
+    /* BB-V7.7 — pads were ~29% of phone-landscape height (rad 0.145). Slightly
+       denser so they cover less of the field; still above a 44 CSS px thumb. */
+    var rad = Math.max(44, Math.min(cw, ch) * 0.118);
+    var inset = rad * 1.38;
     return {
       rad: rad,
       L: { cx: inset, cy: ch - inset },
@@ -774,74 +783,266 @@
     };
   }
 
-  /* ---------- room pieces (handmade) ---------- */
-  function blankGrid(v) {
+  /* ---------- room pieces (size-aware, generated) ----------
+     BB-V7.7 — rooms are no longer a fixed 32×18 stamp. Each layout reads the
+     grid's cols×rows. hallV always keeps a west–east aisle so sequential floors
+     (enter west, leave east) stay walkable. Hard invariant: flood-fill from
+     spawn must reach every carved door; else carve a tunnel or fall back to a
+     bordered arena. */
+  function gCols(g) { return (g && g[0]) ? g[0].length : COLS; }
+  function gRows(g) { return g ? g.length : ROWS; }
+  function playCols() { return (room && room.grid) ? gCols(room.grid) : COLS; }
+  function playRows() { return (room && room.grid) ? gRows(room.grid) : ROWS; }
+  function playW() { return playCols() * TILE; }
+  function playH() { return playRows() * TILE; }
+  function doorY(g) {
+    var rows = g ? gRows(g) : playRows();
+    return Math.max(2, Math.min(rows - 3, Math.floor(rows / 2)));
+  }
+  function blankGrid(v, cols, rows) {
+    cols = cols || COLS; rows = rows || ROWS;
     var g = [];
-    for (var y = 0; y < ROWS; y++) {
+    for (var y = 0; y < rows; y++) {
       g[y] = [];
-      for (var x = 0; x < COLS; x++) g[y][x] = v || 0;
+      for (var x = 0; x < cols; x++) g[y][x] = v || 0;
     }
     return g;
   }
   function stampBorder(g) {
-    for (var x = 0; x < COLS; x++) { g[0][x] = 1; g[ROWS - 1][x] = 1; }
-    for (var y = 0; y < ROWS; y++) { g[y][0] = 1; g[y][COLS - 1] = 1; }
+    var cols = gCols(g), rows = gRows(g), x, y;
+    for (x = 0; x < cols; x++) { g[0][x] = 1; g[rows - 1][x] = 1; }
+    for (y = 0; y < rows; y++) { g[y][0] = 1; g[y][cols - 1] = 1; }
   }
   function carveDoor(g, side) {
-    if (side === "e") { g[8][COLS - 1] = 0; g[9][COLS - 1] = 0; }
-    if (side === "w") { g[8][0] = 0; g[9][0] = 0; }
-    if (side === "n") { g[0][15] = 0; g[0][16] = 0; }
-    if (side === "s") { g[ROWS - 1][15] = 0; g[ROWS - 1][16] = 0; }
+    var cols = gCols(g), rows = gRows(g);
+    var y = doorY(g);
+    var y0 = Math.max(1, y - 1), y1 = Math.min(rows - 2, y);
+    if (y1 === y0) y1 = Math.min(rows - 2, y0 + 1);
+    var xMid = Math.floor(cols / 2);
+    var x0 = Math.max(1, xMid - 1), x1 = Math.min(cols - 2, xMid);
+    if (x1 === x0) x1 = Math.min(cols - 2, x0 + 1);
+    if (side === "e") { g[y0][cols - 1] = 0; g[y1][cols - 1] = 0; }
+    if (side === "w") { g[y0][0] = 0; g[y1][0] = 0; }
+    if (side === "n") { g[0][x0] = 0; g[0][x1] = 0; }
+    if (side === "s") { g[rows - 1][x0] = 0; g[rows - 1][x1] = 0; }
+  }
+  function collectDoors(g, sides) {
+    var cols = gCols(g), rows = gRows(g);
+    var y = doorY(g);
+    var y0 = Math.max(1, y - 1), y1 = Math.min(rows - 2, y);
+    if (y1 === y0) y1 = Math.min(rows - 2, y0 + 1);
+    var xMid = Math.floor(cols / 2);
+    var x0 = Math.max(1, xMid - 1), x1 = Math.min(cols - 2, xMid);
+    if (x1 === x0) x1 = Math.min(cols - 2, x0 + 1);
+    var out = [], i, side;
+    for (i = 0; i < sides.length; i++) {
+      side = sides[i];
+      if (side === "e") { out.push({ tx: cols - 1, ty: y0 }); out.push({ tx: cols - 1, ty: y1 }); }
+      if (side === "w") { out.push({ tx: 0, ty: y0 }); out.push({ tx: 0, ty: y1 }); }
+      if (side === "n") { out.push({ tx: x0, ty: 0 }); out.push({ tx: x1, ty: 0 }); }
+      if (side === "s") { out.push({ tx: x0, ty: rows - 1 }); out.push({ tx: x1, ty: rows - 1 }); }
+    }
+    return out;
   }
   function rectWall(g, x, y, w, h) {
-    for (var j = y; j < y + h; j++) for (var i = x; i < x + w; i++) if (g[j] && g[j][i] !== undefined) g[j][i] = 1;
+    var cols = gCols(g), rows = gRows(g), j, i;
+    for (j = y; j < y + h; j++) {
+      if (j <= 0 || j >= rows - 1) continue;
+      for (i = x; i < x + w; i++) {
+        if (i <= 0 || i >= cols - 1) continue;
+        g[j][i] = 1;
+      }
+    }
+  }
+  function floodFloor(g, sx, sy) {
+    var cols = gCols(g), rows = gRows(g);
+    var seen = {}, q, p, i, nx, ny, k;
+    var dirs = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+    if (sy < 0 || sx < 0 || sy >= rows || sx >= cols || g[sy][sx]) return seen;
+    q = [[sx, sy]];
+    seen[sy * cols + sx] = true;
+    while (q.length) {
+      p = q.pop();
+      for (i = 0; i < 4; i++) {
+        nx = p[0] + dirs[i][0]; ny = p[1] + dirs[i][1];
+        if (nx < 0 || ny < 0 || nx >= cols || ny >= rows) continue;
+        if (g[ny][nx]) continue;
+        k = ny * cols + nx;
+        if (seen[k]) continue;
+        seen[k] = true;
+        q.push([nx, ny]);
+      }
+    }
+    return seen;
+  }
+  function roomPathOk(g, spawn, doors) {
+    var cols = gCols(g);
+    var seen = floodFloor(g, spawn.tx, spawn.ty);
+    var i, d;
+    for (i = 0; i < doors.length; i++) {
+      d = doors[i];
+      if (!seen[d.ty * cols + d.tx]) return false;
+    }
+    return true;
+  }
+  function carveTunnel(g, x0, y0, x1, y1) {
+    var cols = gCols(g), rows = gRows(g);
+    function open(x, y) {
+      if (y < 0 || x < 0 || y >= rows || x >= cols) return;
+      var border = (x === 0 || y === 0 || x === cols - 1 || y === rows - 1);
+      var end = (x === x0 && y === y0) || (x === x1 && y === y1);
+      if (border && !end) return;
+      g[y][x] = 0;
+      if (!border && y - 1 > 0 && g[y - 1]) g[y - 1][x] = 0;
+      if (!border && y + 1 < rows - 1 && g[y + 1]) g[y + 1][x] = 0;
+    }
+    var x = x0, y = y0;
+    open(x, y);
+    while (x !== x1) { x += x < x1 ? 1 : -1; open(x, y); }
+    while (y !== y1) { y += y < y1 ? 1 : -1; open(x, y); }
+  }
+  function ensureConnected(g, spawn, doors) {
+    var cols = gCols(g), i, d;
+    if (g[spawn.ty]) g[spawn.ty][spawn.tx] = 0;
+    for (i = 0; i < doors.length; i++) {
+      d = doors[i];
+      if (g[d.ty]) g[d.ty][d.tx] = 0;
+    }
+    if (roomPathOk(g, spawn, doors)) return true;
+    for (i = 0; i < doors.length; i++) {
+      carveTunnel(g, spawn.tx, spawn.ty, doors[i].tx, doors[i].ty);
+    }
+    stampBorder(g);
+    if (g[spawn.ty]) g[spawn.ty][spawn.tx] = 0;
+    for (i = 0; i < doors.length; i++) {
+      d = doors[i];
+      if (g[d.ty]) g[d.ty][d.tx] = 0;
+    }
+    return roomPathOk(g, spawn, doors);
+  }
+  function pickRoomSize(kind, piece) {
+    if (piece === "hallH") return { cols: irnd(20, 32), rows: irnd(8, 11) };
+    if (piece === "hallV") return { cols: irnd(12, 16), rows: irnd(14, 18) };
+    if (kind === "boss" || piece === "boss") return { cols: irnd(18, 24), rows: irnd(12, 15) };
+    var roll = rnd();
+    if (roll < 0.38) return { cols: irnd(16, 20), rows: irnd(10, 13) };
+    if (roll < 0.78) return { cols: irnd(20, 26), rows: irnd(12, 15) };
+    return { cols: irnd(26, 32), rows: irnd(14, 18) };
   }
 
   var PIECES = {
     arena: function (g) { stampBorder(g); },
     pillars: function (g) {
       stampBorder(g);
-      rectWall(g, 8, 5, 2, 2); rectWall(g, 22, 5, 2, 2);
-      rectWall(g, 8, 11, 2, 2); rectWall(g, 22, 11, 2, 2);
+      var c = gCols(g), r = gRows(g);
+      var pw = Math.max(2, Math.round(c / 16)), ph = Math.max(2, Math.round(r / 9));
+      rectWall(g, Math.round(c * 0.25), Math.round(r * 0.28), pw, ph);
+      rectWall(g, Math.round(c * 0.68), Math.round(r * 0.28), pw, ph);
+      rectWall(g, Math.round(c * 0.25), Math.round(r * 0.61), pw, ph);
+      rectWall(g, Math.round(c * 0.68), Math.round(r * 0.61), pw, ph);
     },
     aisle: function (g) {
       stampBorder(g);
-      rectWall(g, 10, 1, 2, 7); rectWall(g, 20, 10, 2, 7);
+      var c = gCols(g), r = gRows(g);
+      var h = Math.max(3, Math.floor(r * 0.4));
+      rectWall(g, Math.round(c * 0.32), 1, 2, h);
+      rectWall(g, Math.round(c * 0.62), r - 1 - h, 2, h);
     },
     corners: function (g) {
       stampBorder(g);
-      rectWall(g, 1, 1, 6, 4); rectWall(g, 25, 1, 6, 4);
-      rectWall(g, 1, 13, 6, 4); rectWall(g, 25, 13, 6, 4);
+      var c = gCols(g), r = gRows(g);
+      var w = Math.max(3, Math.round(c * 0.18)), h = Math.max(2, Math.round(r * 0.22));
+      rectWall(g, 1, 1, w, h);
+      rectWall(g, c - 1 - w, 1, w, h);
+      rectWall(g, 1, r - 1 - h, w, h);
+      rectWall(g, c - 1 - w, r - 1 - h, w, h);
     },
     diamond: function (g) {
       stampBorder(g);
-      rectWall(g, 14, 4, 4, 2); rectWall(g, 14, 12, 4, 2);
-      rectWall(g, 10, 8, 3, 2); rectWall(g, 19, 8, 3, 2);
+      var c = gCols(g), r = gRows(g), cx = Math.floor(c / 2), cy = Math.floor(r / 2);
+      rectWall(g, cx - 2, Math.max(2, cy - 4), 4, 2);
+      rectWall(g, cx - 2, Math.min(r - 4, cy + 2), 4, 2);
+      rectWall(g, Math.max(2, cx - 6), cy - 1, 3, 2);
+      rectWall(g, Math.min(c - 5, cx + 3), cy - 1, 3, 2);
     },
     teeth: function (g) {
       stampBorder(g);
-      for (var i = 4; i < 28; i += 5) rectWall(g, i, i % 10 < 5 ? 4 : 12, 2, 2);
+      var c = gCols(g), r = gRows(g), i, step = Math.max(4, Math.floor(c / 7));
+      for (i = 3; i < c - 4; i += step) rectWall(g, i, (i % 8) < 4 ? 3 : r - 5, 2, 2);
     },
     hallH: function (g) {
-      for (var y = 0; y < ROWS; y++) for (var x = 0; x < COLS; x++) g[y][x] = (y < 6 || y > 11) ? 1 : 0;
+      var c = gCols(g), r = gRows(g), y, x;
+      var y0 = Math.max(2, Math.floor(r * 0.32));
+      var y1 = Math.min(r - 3, Math.floor(r * 0.68));
+      for (y = 0; y < r; y++) for (x = 0; x < c; x++) g[y][x] = (y < y0 || y > y1) ? 1 : 0;
       stampBorder(g);
-      for (var x2 = 1; x2 < COLS - 1; x2++) { g[6][x2] = 1; g[11][x2] = 1; }
-      for (var x3 = 1; x3 < COLS - 1; x3++) { g[7][x3] = 0; g[8][x3] = 0; g[9][x3] = 0; g[10][x3] = 0; }
     },
     hallV: function (g) {
-      for (var y = 0; y < ROWS; y++) for (var x = 0; x < COLS; x++) g[y][x] = (x < 12 || x > 19) ? 1 : 0;
+      /* vertical nave PLUS a 2-tile belt at door height so spawn→east door holds */
+      var c = gCols(g), r = gRows(g), y, x;
+      var x0 = Math.max(3, Math.floor(c * 0.32));
+      var x1 = Math.min(c - 4, Math.floor(c * 0.68));
+      var dy = doorY(g);
+      for (y = 0; y < r; y++) for (x = 0; x < c; x++) g[y][x] = (x < x0 || x > x1) ? 1 : 0;
+      for (x = 1; x < c - 1; x++) { g[dy][x] = 0; g[Math.max(1, dy - 1)][x] = 0; }
       stampBorder(g);
-      for (var y2 = 1; y2 < ROWS - 1; y2++) { g[y2][12] = 1; g[y2][19] = 1; g[y2][13] = 0; g[y2][14] = 0; g[y2][15] = 0; g[y2][16] = 0; g[y2][17] = 0; g[y2][18] = 0; }
     },
     choke: function (g) {
       stampBorder(g);
-      rectWall(g, 1, 1, 13, 6); rectWall(g, 18, 11, 13, 6);
-      g[8][14] = 0; g[9][14] = 0; g[8][15] = 0; g[9][15] = 0; g[8][16] = 0; g[9][16] = 0; g[8][17] = 0; g[9][17] = 0;
+      var c = gCols(g), r = gRows(g);
+      var hw = Math.max(3, Math.floor(c * 0.38)), hh = Math.max(2, Math.floor(r * 0.36));
+      rectWall(g, 1, 1, hw, hh);
+      rectWall(g, c - 1 - hw, r - 1 - hh, hw, hh);
+      var my = doorY(g), x;
+      for (x = hw; x < c - hw; x++) { if (g[my]) g[my][x] = 0; if (g[my - 1]) g[my - 1][x] = 0; }
     },
     boss: function (g) {
       stampBorder(g);
-      rectWall(g, 3, 3, 2, 2); rectWall(g, 27, 3, 2, 2);
-      rectWall(g, 3, 13, 2, 2); rectWall(g, 27, 13, 2, 2);
+      var c = gCols(g), r = gRows(g);
+      rectWall(g, 2, 2, 2, 2); rectWall(g, c - 4, 2, 2, 2);
+      rectWall(g, 2, r - 4, 2, 2); rectWall(g, c - 4, r - 4, 2, 2);
+    },
+    chambers: function (g) {
+      stampBorder(g);
+      var c = gCols(g), r = gRows(g), mid = Math.floor(c / 2), y, my = doorY(g);
+      for (y = 1; y < r - 1; y++) g[y][mid] = 1;
+      g[my][mid] = 0; g[Math.max(1, my - 1)][mid] = 0;
+    },
+    lbend: function (g) {
+      stampBorder(g);
+      var c = gCols(g), r = gRows(g);
+      rectWall(g, Math.floor(c * 0.55), 1, c - 1 - Math.floor(c * 0.55), Math.floor(r * 0.52) - 1);
+    },
+    ring: function (g) {
+      stampBorder(g);
+      var c = gCols(g), r = gRows(g);
+      var ix = Math.max(3, Math.floor(c * 0.28)), iy = Math.max(3, Math.floor(r * 0.28));
+      var iw = c - 2 * ix, ih = r - 2 * iy, my = doorY(g);
+      if (iw >= 3 && ih >= 3) rectWall(g, ix, iy, iw, ih);
+      if (g[my]) g[my][ix] = 0;
+      if (g[my - 1]) g[my - 1][ix] = 0;
+      if (g[my]) g[my][ix + iw - 1] = 0;
+      if (g[my - 1]) g[my - 1][ix + iw - 1] = 0;
+    },
+    plus: function (g) {
+      stampBorder(g);
+      var c = gCols(g), r = gRows(g), y, x, my = doorY(g), mx = Math.floor(c / 2);
+      for (y = 1; y < r - 1; y++) for (x = 1; x < c - 1; x++) g[y][x] = 1;
+      var hw = Math.max(1, Math.floor(r * 0.18)), vw = Math.max(1, Math.floor(c * 0.18));
+      for (x = 1; x < c - 1; x++) for (y = my - hw; y <= my + hw; y++) if (g[y]) g[y][x] = 0;
+      for (y = 1; y < r - 1; y++) for (x = mx - vw; x <= mx + vw; x++) if (g[y] && x > 0 && x < c - 1) g[y][x] = 0;
+    },
+    stagger: function (g) {
+      stampBorder(g);
+      var c = gCols(g), r = gRows(g), y = 3, left = true, my = doorY(g);
+      while (y < r - 4) {
+        if (y !== my && y !== my - 1) {
+          if (left) rectWall(g, 1, y, Math.floor(c * 0.58), 1);
+          else rectWall(g, Math.floor(c * 0.42), y, c - 1 - Math.floor(c * 0.42), 1);
+        }
+        y += 3;
+        left = !left;
+      }
     }
   };
 
@@ -910,53 +1111,142 @@
     };
   }
 
+  function shuffleInPlace(arr) {
+    var i, j, t;
+    for (i = arr.length - 1; i > 0; i--) {
+      j = Math.floor(rnd() * (i + 1));
+      t = arr[i]; arr[i] = arr[j]; arr[j] = t;
+    }
+    return arr;
+  }
+  function reachableTiles(g, spawn, minX) {
+    var cols = gCols(g), rows = gRows(g);
+    var seen = floodFloor(g, spawn.tx, spawn.ty);
+    var tiles = [], y, x;
+    for (y = 1; y < rows - 1; y++) {
+      for (x = Math.max(2, minX || 2); x < cols - 1; x++) {
+        if (seen[y * cols + x] && g[y][x] === 0) tiles.push({ tx: x, ty: y });
+      }
+    }
+    return shuffleInPlace(tiles);
+  }
+  function makeRoomGrid(kind, piece, doors) {
+    var tries = 0, size, g, spawn, doorCells;
+    while (tries++ < 8) {
+      size = pickRoomSize(kind, piece);
+      g = blankGrid(0, size.cols, size.rows);
+      (PIECES[piece] || PIECES.arena)(g);
+      for (var d = 0; d < doors.length; d++) carveDoor(g, doors[d]);
+      spawn = { tx: 1, ty: doorY(g) };
+      if (g[spawn.ty]) g[spawn.ty][spawn.tx] = 0;
+      if (g[spawn.ty] && spawn.tx + 1 < gCols(g) - 1) g[spawn.ty][spawn.tx + 1] = 0;
+      doorCells = collectDoors(g, doors);
+      if (ensureConnected(g, spawn, doorCells)) {
+        return { grid: g, spawn: spawn, cols: size.cols, rows: size.rows, pathOk: true };
+      }
+    }
+    size = pickRoomSize(kind, piece);
+    g = blankGrid(0, size.cols, size.rows);
+    stampBorder(g);
+    for (d = 0; d < doors.length; d++) carveDoor(g, doors[d]);
+    spawn = { tx: 1, ty: doorY(g) };
+    if (g[spawn.ty]) g[spawn.ty][spawn.tx] = 0;
+    doorCells = collectDoors(g, doors);
+    ensureConnected(g, spawn, doorCells);
+    return { grid: g, spawn: spawn, cols: size.cols, rows: size.rows, pathOk: roomPathOk(g, spawn, doorCells) };
+  }
+
   function buildFloor(fl) {
     seedRng("F" + fl);
     var bio = biomeOf(fl);
     var isBossFloor = fl % 5 === 0;
     var nRooms = isBossFloor ? irnd(3, 4) : irnd(3, 5);
     var list = [];
-    var roomPool = ["arena", "pillars", "aisle", "corners", "diamond", "teeth", "choke"];
+    var roomPool = ["arena", "pillars", "aisle", "corners", "diamond", "teeth", "choke", "chambers", "lbend", "ring", "plus", "stagger"];
     var hallPool = ["hallH", "hallV"];
     for (var i = 0; i < nRooms; i++) {
       var last = i === nRooms - 1;
-      var kind, piece;
+      var kind, piece, doors;
       if (last && isBossFloor) { kind = "boss"; piece = "boss"; }
-      else if (last) { kind = "mini"; piece = pick(["arena", "pillars", "boss"]); }
+      else if (last) { kind = "mini"; piece = pick(["arena", "pillars", "boss", "chambers"]); }
       else if (i > 0 && i < nRooms - 1 && rnd() < 0.42) { kind = "corridor"; piece = pick(hallPool); }
       else { kind = "room"; piece = pick(roomPool); }
-      var g = blankGrid(0);
-      PIECES[piece](g);
-      if (i === 0) carveDoor(g, "e");
-      else if (last) carveDoor(g, "w");
-      else { carveDoor(g, "w"); carveDoor(g, "e"); }
+      if (i === 0) doors = ["e"];
+      else if (last) doors = ["w"];
+      else doors = ["w", "e"];
+      var made = makeRoomGrid(kind, piece, doors);
+      var g = made.grid, spawn = made.spawn;
+      var cols = made.cols, open = reachableTiles(g, spawn, 4);
       var ents = [];
+      function takeTile() {
+        while (open.length) {
+          var t = open.pop();
+          if (Math.abs(t.tx - spawn.tx) + Math.abs(t.ty - spawn.ty) < 3) continue;
+          return t;
+        }
+        return null;
+      }
+      function takeTileEast() {
+        var i, t;
+        for (i = open.length - 1; i >= 0; i--) {
+          t = open[i];
+          if (t.tx >= cols * 0.5 && Math.abs(t.tx - spawn.tx) + Math.abs(t.ty - spawn.ty) >= 3) {
+            open.splice(i, 1);
+            return t;
+          }
+        }
+        return takeTile();
+      }
+      function forceTile() {
+        var t = takeTileEast();
+        if (t) return t;
+        t = { tx: Math.min(cols - 3, Math.max(3, Math.floor(cols * 0.65))), ty: spawn.ty };
+        if (g[t.ty]) g[t.ty][t.tx] = 0;
+        return t;
+      }
       if (kind === "boss") {
         var btype = fl % 15 === 0 ? "thornqueen" : fl % 10 === 0 ? "ashtitan" : "boneking";
-        ents.push({ kind: "enemy", type: btype, tx: 22, ty: 9 });
+        var bt = forceTile();
+        ents.push({ kind: "enemy", type: btype, tx: bt.tx, ty: bt.ty });
       } else if (kind === "mini") {
         var mt = bio.id === "crypt" ? "minibone" : bio.id === "forge" ? "miniforge" : bio.id === "ash" ? "miniash" : "minithorn";
-        ents.push({ kind: "enemy", type: mt, tx: 20, ty: 9 });
-        if (rnd() < 0.5) ents.push({ kind: "chest", tx: 26, ty: 9 });
+        var kt = forceTile();
+        ents.push({ kind: "enemy", type: mt, tx: kt.tx, ty: kt.ty });
+        if (rnd() < 0.5) {
+          var ct = takeTile();
+          if (ct) ents.push({ kind: "chest", tx: ct.tx, ty: ct.ty });
+        }
       } else if (kind === "corridor") {
-        var cN = 1 + (fl > 4 ? 1 : 0);
-        for (var c = 0; c < cN; c++) ents.push({ kind: "enemy", type: pick(bio.roster), tx: irnd(6, 26), ty: piece === "hallH" ? irnd(7, 10) : irnd(3, 14) });
+        var cN = 1 + (fl > 4 ? 1 : 0), c;
+        for (c = 0; c < cN; c++) {
+          var et = takeTile();
+          if (et) ents.push({ kind: "enemy", type: pick(bio.roster), tx: et.tx, ty: et.ty });
+        }
       } else {
         var budget = 2 + Math.min(4, Math.floor(fl / 3));
-        if (piece === "choke") budget = Math.max(2, budget - 1);
-        for (var e = 0; e < budget; e++) {
-          ents.push({ kind: "enemy", type: pick(bio.roster), tx: irnd(10, 28), ty: irnd(3, 14) });
+        if (piece === "choke" || piece === "plus") budget = Math.max(2, budget - 1);
+        var e;
+        for (e = 0; e < budget; e++) {
+          var rt = takeTile();
+          if (rt) ents.push({ kind: "enemy", type: pick(bio.roster), tx: rt.tx, ty: rt.ty });
         }
-        if (rnd() < 0.45) ents.push({ kind: "chest", tx: irnd(20, 28), ty: irnd(3, 14) });
+        if (rnd() < 0.45) {
+          var ch = takeTile();
+          if (ch) ents.push({ kind: "chest", tx: ch.tx, ty: ch.ty });
+        }
       }
-      list.push({ piece: piece, kind: kind, grid: g, ents: ents, cleared: false, blocks: [] });
+      list.push({
+        piece: piece, kind: kind, grid: g, ents: ents, cleared: false, blocks: [],
+        spawn: spawn, cols: cols, rows: made.rows, pathOk: made.pathOk
+      });
     }
     return list;
   }
 
   function tileAt(g, x, y) {
     var tx = Math.floor(x / TILE), ty = Math.floor(y / TILE);
-    if (ty < 0 || tx < 0 || ty >= ROWS || tx >= COLS) return 1;
+    var rows = gRows(g), cols = gCols(g);
+    if (ty < 0 || tx < 0 || ty >= rows || tx >= cols) return 1;
     return g[ty][tx];
   }
   function circleBlocked(g, blocks, x, y, r) {
@@ -1009,8 +1299,8 @@
       kind: spec.kind,
       cleared: spec.cleared,
       doorReady: spec.cleared,
-      spawnX: spec.kind === "corridor" && spec.piece === "hallV" ? 16 * TILE : 3.5 * TILE,
-      spawnY: spec.piece === "hallH" ? 9 * TILE : 9 * TILE
+      spawnX: spec.spawn ? (spec.spawn.tx + 0.5) * TILE : 1.5 * TILE,
+      spawnY: spec.spawn ? (spec.spawn.ty + 0.5) * TILE : (doorY(spec.grid) + 0.5) * TILE
     };
     var spawnEnt = spec.ents.filter(function (e) { return e.kind === "spawn"; })[0];
     if (spawnEnt) {
@@ -1066,7 +1356,11 @@
     (lv.e || []).forEach(function (e) {
       ents.push(e);
     });
-    return { piece: "custom", kind: "room", grid: g, ents: ents, cleared: false, blocks: [], name: lv.n || "CUSTOM" };
+    return {
+      piece: "custom", kind: "room", grid: g, ents: ents, cleared: false, blocks: [],
+      name: lv.n || "CUSTOM", cols: COLS, rows: ROWS,
+      spawn: { tx: 1, ty: doorY(g) }, pathOk: true
+    };
   }
 
   function nextRoomOrFloor() {
@@ -1622,7 +1916,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     for (var i = S.loot.length - 1; i >= 0; i--) {
       var it = S.loot[i];
       it.life -= dt; it.vy += 80 * dt; it.y += it.vy * dt;
-      if (it.y > WORLD_H - 40) { it.y = WORLD_H - 40; it.vy *= -0.3; }
+      if (it.y > playH() - 40) { it.y = playH() - 40; it.vy *= -0.3; }
       if (!it.taken && Math.hypot(it.x - player.x, it.y - player.y) < 28) takeLoot(it);
       if (it.life <= 0 || it.taken) S.loot.splice(i, 1);
     }
@@ -1670,7 +1964,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     var cand = [[ptx + dx, pty], [ptx + dx, pty - 1], [ptx + dx, pty + 1], [ptx, pty - 1], [ptx, pty + 1], [ptx - dx, pty]];
     for (var i = 0; i < cand.length; i++) {
       var tx = cand[i][0], ty = cand[i][1];
-      if (ty <= 0 || tx <= 0 || ty >= ROWS - 1 || tx >= COLS - 1) continue;
+      if (ty <= 0 || tx <= 0 || ty >= playRows() - 1 || tx >= playCols() - 1) continue;
       if (room.grid[ty] && room.grid[ty][tx]) continue;
       if (tx === ptx && ty === pty) continue;
       var occupied = false;
@@ -1696,7 +1990,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
   function tryPlaceBlock(wx, wy) {
     if (player.blockStock <= 0) { toast("NO BLOCKS"); return; }
     var tx = Math.floor(wx / TILE), ty = Math.floor(wy / TILE);
-    if (ty <= 0 || tx <= 0 || ty >= ROWS - 1 || tx >= COLS - 1) return;
+    if (ty <= 0 || tx <= 0 || ty >= playRows() - 1 || tx >= playCols() - 1) return;
     if (room.grid[ty][tx]) return;
     var ptx = Math.floor(player.x / TILE), pty = Math.floor(player.y / TILE);
     if (tx === ptx && ty === pty) return;
@@ -1718,7 +2012,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
   function solidAt(x, y) {
     if (!room) return true;
     var tx = Math.floor(x / TILE), ty = Math.floor(y / TILE);
-    if (tx < 0 || ty < 0 || tx >= COLS || ty >= ROWS) return true;
+    if (tx < 0 || ty < 0 || tx >= playCols() || ty >= playRows()) return true;
     if (room.grid[ty] && room.grid[ty][tx]) return true;
     var bl = room.blocks || [];
     for (var i = 0; i < bl.length; i++) {
@@ -1762,7 +2056,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      158 px/s at 1.00x sprite scale and was the one that got "keep the controls";
      the sprite is now 2.15x, and speed is felt in body-lengths, so 158 * 2.15 = 340.
      Shipping at 235 was a 31% slowdown in the only unit that matters. */
-  var BUILD = "v7.6";
+  var BUILD = "v7.7";
   var FEEL_DEF = { spd: 340, accel: 2600, brake: 3600, throwSpd: 620, aimMode: "drag", aimDead: 2, aimHold: 64 };
   var FEEL = (function () {
     var f = {};
@@ -1818,8 +2112,8 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       }
     }
     /* nothing within sixty pixels: fall back to the middle of the nearest open tile */
-    for (var ty2 = 1; ty2 < ROWS - 1; ty2++) {
-      for (var tx2 = 1; tx2 < COLS - 1; tx2++) {
+    for (var ty2 = 1; ty2 < playRows() - 1; ty2++) {
+      for (var tx2 = 1; tx2 < playCols() - 1; tx2++) {
         var cx = (tx2 + 0.5) * TILE, cy = (ty2 + 0.5) * TILE;
         if (freeAt(cx, cy, r)) { player.x = cx; player.y = cy; player.vx = player.vy = 0; return true; }
       }
@@ -1869,7 +2163,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       else {
         /* CHIEF FIX BB-V6.8 — the exit walk used to move him straight through stone. */
         slide("x", 200 * dt, player.r * 0.6);
-        if (player.x > (COLS - 2) * TILE - 10) nextRoomOrFloor();
+        if (player.x > (playCols() - 2) * TILE - 10) nextRoomOrFloor();
       }
     }
   }
@@ -1917,14 +2211,23 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
 
   function cameraFit() {
     var cw = canvas.width, ch = canvas.height;
-    // BB: whole-room fit; phone 34px floor removed (Joe 2026-09-17)
-    var fit = Math.min(cw / WORLD_W, ch / WORLD_H);
-    var scale = fit;
+    var cssW = Math.max(1, window.innerWidth);
+    var dpr = cw / cssW;
+    var ww = playW(), hh = playH();
+    /* BB-V7.7 — zoom so a TILE is ~TILE_CSS (30) CSS px: cubes and place-blocks
+       read on a phone. Not the old unbounded 34px floor on a fixed 32×18 world
+       (almost no room visible). Small generated rooms fit whole at this zoom;
+       larger ones follow the player, clamped to the room. Desktop/iPad already
+       above 30 CSS px keep whole-room fit. Hero/mobs are drawn smaller (HS /
+       MOB_VIS) so this zoom does not make the character huge. */
+    var want = (TILE_CSS * dpr) / TILE;
+    var fit = Math.min(cw / ww, ch / hh);
+    var scale = Math.max(fit, want);
     var viewW = cw / scale, viewH = ch / scale;
-    var px = (player && S.mode === "play") ? player.x : WORLD_W * 0.5;
-    var py = (player && S.mode === "play") ? player.y : WORLD_H * 0.5;
-    var camX = viewW >= WORLD_W ? (WORLD_W - viewW) * 0.5 : Math.max(0, Math.min(WORLD_W - viewW, px - viewW * 0.5));
-    var camY = viewH >= WORLD_H ? (WORLD_H - viewH) * 0.5 : Math.max(0, Math.min(WORLD_H - viewH, py - viewH * 0.5));
+    var px = (player && S.mode === "play") ? player.x : ww * 0.5;
+    var py = (player && S.mode === "play") ? player.y : hh * 0.5;
+    var camX = viewW >= ww ? (ww - viewW) * 0.5 : Math.max(0, Math.min(ww - viewW, px - viewW * 0.5));
+    var camY = viewH >= hh ? (hh - viewH) * 0.5 : Math.max(0, Math.min(hh - viewH, py - viewH * 0.5));
     return { scale: scale, ox: -camX * scale, oy: -camY * scale };
   }
 
@@ -2069,18 +2372,19 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
   function drawWorld(g) {
     var bio = biomeOf(S.floor);
     var wz = Math.round(TILE * WALL_Z);
+    var rows = playRows(), cols = playCols();
     var y, x, wall;
     /* floor for EVERY tile first, or a wall's lifted top is painted over by the
        floor of the tile above it. */
-    for (y = 0; y < ROWS; y++) {
-      for (x = 0; x < COLS; x++) {
+    for (y = 0; y < rows; y++) {
+      for (x = 0; x < cols; x++) {
         g.fillStyle = bio.floor[(x + y) & 1];
         g.fillRect(x * TILE, y * TILE, TILE, TILE);
       }
     }
     /* then walls as blocks, top row first so a lower wall occludes the one above it */
-    for (y = 0; y < ROWS; y++) {
-      for (x = 0; x < COLS; x++) {
+    for (y = 0; y < rows; y++) {
+      for (x = 0; x < cols; x++) {
         wall = room ? room.grid[y][x] : 1;
         if (!wall) continue;
         cube(g, x * TILE, y * TILE - wz, TILE, TILE, wz, bio.walls[(x + y) & 1]);
@@ -2088,7 +2392,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     }
     if (room && room.cleared) {
       g.fillStyle = "#d0a040";
-      g.fillRect((COLS - 1) * TILE + 6, 8 * TILE, 10, 2 * TILE);
+      g.fillRect((cols - 1) * TILE + 6, (doorY(room.grid) - 1) * TILE, 10, 2 * TILE);
     }
     if (room) {
       for (var b = 0; b < room.blocks.length; b++) {
@@ -2141,7 +2445,7 @@ g.beginPath(); g.arc(S.splits[sp].x, S.splits[sp].y, S.splits[sp].r, 0, 6.3); g.
     }
     if (S.placeArmed) {
       g.fillStyle = "rgba(240,176,60,0.08)";
-      g.fillRect(0, 0, WORLD_W, WORLD_H);
+      g.fillRect(0, 0, playW(), playH());
     }
   }
 
@@ -2198,9 +2502,11 @@ g.beginPath(); g.arc(S.splits[sp].x, S.splits[sp].y, S.splits[sp].r, 0, 6.3); g.
      alternate as he walks, two arms, the blue gauntlet on the throwing side, a head
      with both eyes and an outline — and sized to fill the hitbox he actually has.
      Everything is derived from HS so one number changes his whole scale.
-     BB-V7.6 — HS 2.88 so three stacked TILE-30 blocks (~90px) sit just under the
-     unhatted sprite (~102px). Two-stack is waist-high; three is cover-height. */
-  var HS = 2.88;
+     BB-V7.7 — HS 2.2 so the hero stays a familiar on-screen size after camera
+     zoom targeting ~30 CSS px tiles. v7.6 used HS 2.88 sized for three TILE-30
+     blocks under the sprite; at phone zoom that made him huge. Mobs use MOB_VIS
+     (draw-only). Two-stack is about chest-high; three still covers him. */
+  var HS = 2.2;
 
   /* CHIEF BB-V6.1 — lifted verbatim in behaviour from Joe's own v3 build
      (artifact 9c0196b1, `function cube`). This one function is why the old game
@@ -2581,6 +2887,12 @@ g.beginPath(); g.arc(S.splits[sp].x, S.splits[sp].y, S.splits[sp].r, 0, 6.3); g.
     if (!e.alive && e.deadT <= 0) return;
     var a = !e.alive ? Math.max(0, e.deadT) : 1;
     g.globalAlpha = a;
+    /* BB-V7.7 — shrink sprites under the ~30 CSS px tile zoom. Hitboxes (e.r /
+       e.hitR) stay the same so combat is unchanged. */
+    g.save();
+    g.translate(e.x, e.y);
+    g.scale(MOB_VIS, MOB_VIS);
+    g.translate(-e.x, -e.y);
     /* CHIEF BB-V5.2 — boss art is drawn from fixed pixel offsets, so it is scaled
        about the boss's own centre to match the radius it now carries. */
     var bossScale = e.boss === "ash" ? 1.2 : e.boss === "mini" ? 1 : e.boss ? 1.35 : 1;
@@ -2670,10 +2982,11 @@ g.beginPath(); g.arc(S.splits[sp].x, S.splits[sp].y, S.splits[sp].r, 0, 6.3); g.
       g.fillRect(x + r * 0.22 + eo, y - r * 0.5 + bob, ez, ez);
     }
     if (bossScale !== 1) g.restore();
+    g.restore();
     /* BB-V7.3 — anchored to e.r back when every sprite was a square the size of its
        own hitbox. A knight stands about 2.8r tall, so the bar and the name landed on
        his face. Sprites that draw taller than their hitbox now say so in e.artH. */
-    var topOff = e.artH || e.r;
+    var topOff = (e.artH || e.r) * MOB_VIS;
     if (e.alive) {
       var w = Math.max(20, e.r * 2);
       g.fillStyle = "#2a1810";
@@ -3504,6 +3817,47 @@ function endRunToMenu() {
     hash: hashStr,
     buildFloor: buildFloor,
     parseSeed: parseSeed,
+    startRun: startRun,
+    camera: function () {
+      var cam = cameraFit();
+      var dpr = canvas.width / Math.max(1, window.innerWidth);
+      return {
+        build: BUILD, hs: HS, mobVis: MOB_VIS, tileCssTarget: TILE_CSS,
+        scale: cam.scale, tileCss: TILE * cam.scale / dpr,
+        cols: playCols(), rows: playRows(), ww: playW(), hh: playH()
+      };
+    },
+    pathOk: function () {
+      if (!room || !room.spec) return null;
+      var spec = room.spec, g = spec.grid, spawn = spec.spawn || { tx: 1, ty: doorY(g) };
+      var cols = gCols(g), rows = gRows(g), doors = [], y;
+      for (y = 0; y < rows; y++) {
+        if (!g[y][0]) doors.push({ tx: 0, ty: y });
+        if (!g[y][cols - 1]) doors.push({ tx: cols - 1, ty: y });
+      }
+      return { ok: roomPathOk(g, spawn, doors), spawn: spawn, doors: doors.length, cols: cols, rows: rows, piece: spec.piece, pathOk: spec.pathOk };
+    },
+    auditGen: function (floors) {
+      var saved = S.seed, fails = 0, roomsN = 0, sizes = {}, pieces = {}, f, i, list, spec, g, spawn, cols, rows, y, doors;
+      S.seed = "AUDIT-77";
+      for (f = 1; f <= (floors || 24); f++) {
+        list = buildFloor(f);
+        for (i = 0; i < list.length; i++) {
+          roomsN++;
+          spec = list[i];
+          g = spec.grid; spawn = spec.spawn; cols = gCols(g); rows = gRows(g); doors = [];
+          for (y = 0; y < rows; y++) {
+            if (!g[y][0]) doors.push({ tx: 0, ty: y });
+            if (!g[y][cols - 1]) doors.push({ tx: cols - 1, ty: y });
+          }
+          if (!roomPathOk(g, spawn, doors) || !spec.pathOk) fails++;
+          sizes[spec.cols + "x" + spec.rows] = (sizes[spec.cols + "x" + spec.rows] || 0) + 1;
+          pieces[spec.piece] = (pieces[spec.piece] || 0) + 1;
+        }
+      }
+      S.seed = saved;
+      return { rooms: roomsN, fails: fails, sizes: sizes, pieces: pieces };
+    },
     scaleProbe: function (on) { S.scaleProbe = !!on; },
     placeGhost: placeGhostCell,
     placeNow: tryPlaceAtGhost,
