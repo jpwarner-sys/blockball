@@ -538,11 +538,12 @@
   function enemyVis(e) { return e && e.boss ? BOSS_VIS : MOB_VIS; }
   /* BB-V7.9 — ball sprite AND hitbox. 17 sat huge next to HS 1.7 / r 24. */
   var BALL_R = 14;
-  /* BB-V7.12 — placed cubes are temporary cover: crumble on a timer AND break
-     when the ball / a split / an enemy shot hits them. Permanent dungeon walls
+  /* BB-V7.12 — placed cubes are temporary cover: crumble on a timer AND take
+     hits. HP is 2: a normal mob needs two, a knight / floor boss one-shots.
+     The hero ball still clears a cube in one bounce. Permanent dungeon walls
      stay in room.grid; only room.blocks are soft. */
   var BLOCK_LIFE = 4;
-  var BLOCK_HITS = 1;
+  var BLOCK_HITS = 2;
   var DT = 1 / 60;
   var MAX_PART = 90;
   var DARK = "#14110e";
@@ -1366,6 +1367,16 @@
     syncRoomBlocks();
     return true;
   }
+  /* Knight (boss:"mini") and floor bosses one-shot; trash mobs chip for 1. */
+  function blockDmgFromEnemy(e) {
+    if (e && e.boss) return BLOCK_HITS;
+    return 1;
+  }
+  function blockDmgFromShot(s) {
+    if (s && s.owner) return blockDmgFromEnemy(s.owner);
+    if (s && s.kind === "weapon") return BLOCK_HITS;
+    return 1;
+  }
   /* Hit a placed cube. Returns true if it shattered. Wall tiles are not soft. */
   function hurtBlockAt(i, hits) {
     if (!room || !room.blocks || i < 0 || i >= room.blocks.length) return false;
@@ -1377,6 +1388,15 @@
     burst(b.x, b.y, "#8a7a60", 4);
     sfx("bounce");
     return false;
+  }
+  /* Melee bump into a soft cube. Cooldown so chase AI cannot shred at 60fps. */
+  function enemyBumpBlock(e, bi) {
+    if (!room || !e) return;
+    if ((e.blockHitCd || 0) > 0) return;
+    if (bi == null) bi = blockAt(room.blocks, e.x, e.y, e.r);
+    if (bi < 0) return;
+    hurtBlockAt(bi, blockDmgFromEnemy(e));
+    e.blockHitCd = 0.42;
   }
 
   function loadRoom(idx) {
@@ -1741,7 +1761,7 @@
     if (resolveCircle(room.grid, room.blocks, ball)) {
       ball.bounces += 1;
       sfx("bounce");
-      if (ballBlock >= 0) hurtBlockAt(ballBlock, 1);
+      if (ballBlock >= 0) hurtBlockAt(ballBlock, BLOCK_HITS);
       if (hasAff("Split") && ball.bounces === 1) spawnSplit();
     }
     for (var i = 0; i < room.enemies.length; i++) {
@@ -1794,7 +1814,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       var s = S.splits[i];
       s.x += s.vx * dt; s.y += s.vy * dt; s.life -= dt;
       var splitBlock = blockAt(room.blocks, s.x, s.y, s.r);
-      if (resolveCircle(room.grid, room.blocks, s) && splitBlock >= 0) hurtBlockAt(splitBlock, 1);
+      if (resolveCircle(room.grid, room.blocks, s) && splitBlock >= 0) hurtBlockAt(splitBlock, BLOCK_HITS);
       for (var j = 0; j < room.enemies.length; j++) {
         var e = room.enemies[j];
         var box = enemyHurtBox(e);
@@ -1847,6 +1867,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       }
       if (e.stun > 0) { e.stun -= dt; continue; }
       e.cd -= dt;
+      if (e.blockHitCd > 0) e.blockHitCd -= dt;
       var dx = player.x - e.x, dy = player.y - e.y;
       var dist = Math.hypot(dx, dy) || 1;
       e.facing = dx < 0 ? -1 : 1;
@@ -1863,10 +1884,15 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
         if (e.cd <= 0) { e.vx = dx / dist * e.spd * 3; e.vy = dy / dist * e.spd * 3; e.cd = 1.8; }
         e.x += e.vx * dt; e.y += e.vy * dt;
         e.vx *= 0.98; e.vy *= 0.98;
+        var chargeBlock = blockAt(room.blocks, e.x, e.y, e.r);
         resolveCircle(room.grid, room.blocks, e);
+        if (chargeBlock >= 0) enemyBumpBlock(e, chargeBlock);
       } else if (e.kind === "range") {
         if (dist < 90) moveToward(e, -dx / dist, -dy / dist, e.spd, dt);
-        if (e.cd <= 0) { fireShot(e.x, e.y, dx / dist, dy / dist, 160, 1); e.cd = 1.6 + rnd() * 0.6; }
+        if (e.cd <= 0) {
+          fireShot(e.x, e.y, dx / dist, dy / dist, 160, 1, "knife", { owner: e });
+          e.cd = 1.6 + rnd() * 0.6;
+        }
       }
       if (Math.hypot(e.x - player.x, e.y - player.y) < (e.boss ? e.r : (e.hitR || e.r)) + player.r - 2) {
         hurtPlayer(1 + Math.floor(S.floor / 6));
@@ -1895,7 +1921,9 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
   function moveToward(e, ux, uy, spd, dt) {
     e.vx = ux * spd; e.vy = uy * spd;
     e.x += e.vx * dt; e.y += e.vy * dt;
+    var bi = blockAt(room.blocks, e.x, e.y, e.r);
     resolveCircle(room.grid, room.blocks, e);
+    if (bi >= 0) enemyBumpBlock(e, bi);
   }
 
   function fireShot(x, y, ux, uy, spd, dmg, kind, extra) {
@@ -1972,20 +2000,24 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
         if (e.ringR >= 196) { e.ringOn = false; e.ringHit = false; e.cd = 2.2; }
       } else if (e.cd <= 0) {
         if (rnd() < 0.55) { e.tell = 1.35; e.ringHit = false; }
-        else { fireShot(e.x, e.y, dx / dist, dy / dist, 200, 2); fireShot(e.x, e.y, dx / dist + 0.2, dy / dist, 180, 2); e.cd = 1.4; }
+        else {
+          fireShot(e.x, e.y, dx / dist, dy / dist, 200, 2, "knife", { owner: e });
+          fireShot(e.x, e.y, dx / dist + 0.2, dy / dist, 180, 2, "knife", { owner: e });
+          e.cd = 1.4;
+        }
       }
     } else if (e.boss === "bone") {
       if (e.cd <= 0) {
         for (var k = 0; k < 6; k++) {
           var a = k * Math.PI / 3 + e.phase;
-          fireShot(e.x, e.y, Math.cos(a), Math.sin(a), 170, 1);
+          fireShot(e.x, e.y, Math.cos(a), Math.sin(a), 170, 1, "knife", { owner: e });
         }
         e.cd = 2.0;
       }
       moveToward(e, dx / dist * 0.3, dy / dist * 0.3, e.spd, dt);
     } else if (e.boss === "thorn") {
       if (e.cd <= 0) {
-        fireShot(e.x, e.y, dx / dist, dy / dist, 210, 2);
+        fireShot(e.x, e.y, dx / dist, dy / dist, 210, 2, "knife", { owner: e });
         e.cd = 0.7;
       }
       if (Math.floor(e.phase) % 4 === 0 && e.tell <= 0) e.tell = 0.01;
@@ -2014,7 +2046,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
         if (e.disarm) {
           /* hold fire while the weapon is in the air */
         } else if (e.knivesLeft > 0) {
-          fireShot(e.x, e.y, dx / dist, dy / dist, 210, 1, "knife");
+          fireShot(e.x, e.y, dx / dist, dy / dist, 210, 1, "knife", { owner: e });
           e.knivesLeft--;
           e.cd = 0.48;
         } else {
@@ -2037,7 +2069,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       s.x += s.vx * dt; s.y += s.vy * dt; s.life -= dt;
       var shotBlock = blockAt(room.blocks, s.x, s.y, s.r);
       if (tileAt(room.grid, s.x, s.y) || shotBlock >= 0) {
-        if (shotBlock >= 0) hurtBlockAt(shotBlock, 1);
+        if (shotBlock >= 0) hurtBlockAt(shotBlock, blockDmgFromShot(s));
         killShot(i); continue;
       }
       if (Math.hypot(s.x - player.x, s.y - player.y) < player.r + s.r) {
@@ -2217,7 +2249,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      BB-V7.10 — landscape type fills the unused width; shop BUY buttons share
      a max-content right column per stack so neighbours line up exactly.
      BB-V7.11 — landscape copy right-justified so labels sit against their buttons.
-     BB-V7.12 — placed cubes break on ball/shot hit and still crumble after BLOCK_LIFE. */
+     BB-V7.12 — placed cubes: 2 HP, normal mob chips, knight+ one-shots, ball clears. */
   var BUILD = "v7.12";
   var FEEL_DEF = { spd: 250, accel: 2600, brake: 3600, throwSpd: 620, aimMode: "drag", aimDead: 2, aimHold: 64 };
   var FEEL = (function () {
@@ -4014,6 +4046,11 @@ function endRunToMenu() {
     blocks: function () { return room ? room.blocks.map(function (b) { return { tx: b.tx, ty: b.ty, life: b.life, maxLife: b.maxLife, hp: b.hp, maxHp: b.maxHp }; }) : []; },
     setBlockLife: function (t) { if (room && room.blocks[0]) room.blocks[0].life = t; },
     hurtBlock: function (i, n) { return hurtBlockAt(i == null ? 0 : i, n == null ? 1 : n); },
+    blockDmgFrom: function (who) {
+      if (!who) return 1;
+      if (who === "knight" || who === "boss" || who === "mini") return BLOCK_HITS;
+      return blockDmgFromEnemy({ boss: who === true ? "mini" : who });
+    },
     placeAt: tryPlaceBlock,
     playerStats: function () { return { frag: player.frag, maxHp: player.maxHp, hp: player.hp, dmgLv: player.dmgLv, spdLv: player.spdLv, blkLv: player.blkLv, fireLv: player.fireLv, permaFire: !!player.permaFire, hpBought: player.hpBought, blockStock: player.blockStock, blockMax: player.blockMax, placeHits: player.placeHits || 0, placeRateLv: player.placeRateLv || 0 }; },
     paused: function () { return !!S.pause; },
