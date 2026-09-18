@@ -3357,28 +3357,40 @@ g.beginPath(); g.arc(S.splits[sp].x, S.splits[sp].y, S.splits[sp].r, 0, 6.3); g.
     }
     if (e.atk === "lunge" && e.atkT < e.atkWind) {
       var lw = e.atkT / e.atkWind;
-      var lx = x + e.aimX * u * 0.4, ly = e.y + e.aimY * u * 0.2;
+      var lx = x + e.aimX * u * 0.55, ly = e.y + e.aimY * u * 0.15;
+      var len = u * (3.6 + lw * 1.4);
       g.save();
-      g.globalAlpha = 0.15 + lw * 0.35;
-      g.strokeStyle = "#e8dcc0";
-      g.lineWidth = 3 + lw * 4;
+      /* dashed lane so the charge reads as a corridor, not a smear */
+      g.globalAlpha = 0.22 + lw * 0.45;
+      g.strokeStyle = "#f0e0b0";
+      g.lineWidth = 5 + lw * 5;
+      g.setLineDash([10, 8]);
       g.beginPath();
       g.moveTo(lx, ly);
-      g.lineTo(lx + e.aimX * u * 4.2, ly + e.aimY * u * 4.2);
+      g.lineTo(lx + e.aimX * len, ly + e.aimY * len);
       g.stroke();
-      g.fillStyle = "rgba(232,220,192," + (0.08 + lw * 0.18) + ")";
+      g.setLineDash([]);
+      g.fillStyle = "rgba(255,122,42," + (0.10 + lw * 0.22) + ")";
       g.beginPath();
-      g.moveTo(lx - e.aimY * u * 0.35, ly + e.aimX * u * 0.35);
-      g.lineTo(lx + e.aimX * u * 4.2, ly + e.aimY * u * 4.2);
-      g.lineTo(lx + e.aimY * u * 0.35, ly - e.aimX * u * 0.35);
+      g.moveTo(lx - e.aimY * u * 0.42, ly + e.aimX * u * 0.42);
+      g.lineTo(lx + e.aimX * len, ly + e.aimY * len);
+      g.lineTo(lx + e.aimY * u * 0.42, ly - e.aimX * u * 0.42);
       g.closePath();
       g.fill();
-      /* pulsing tip marker */
-      var tipX = lx + e.aimX * u * (2.2 + Math.sin(S.t * 18) * 0.15);
-      var tipY = ly + e.aimY * u * (2.2 + Math.sin(S.t * 18) * 0.15);
-      g.globalAlpha = 0.4 + lw * 0.5;
-      g.fillStyle = EMBER;
-      g.fillRect(tipX - 3, tipY - 3, 6, 6);
+      /* chevrons marching along the lane during wind */
+      for (var ch = 0; ch < 4; ch++) {
+        var ct = ((lw * 3 + ch * 0.22 + S.t * 1.8) % 1);
+        var cx = lx + e.aimX * len * ct;
+        var cy = ly + e.aimY * len * ct;
+        g.globalAlpha = 0.35 + lw * 0.45;
+        g.fillStyle = "#ffb060";
+        g.beginPath();
+        g.moveTo(cx + e.aimX * 8, cy + e.aimY * 8);
+        g.lineTo(cx - e.aimY * 7 - e.aimX * 3, cy + e.aimX * 7 - e.aimY * 3);
+        g.lineTo(cx + e.aimY * 7 - e.aimX * 3, cy - e.aimX * 7 - e.aimY * 3);
+        g.closePath();
+        g.fill();
+      }
       g.restore();
     }
 
@@ -4560,6 +4572,40 @@ function endRunToMenu() {
       e.spd = 0; e.cd = 99; e.tell = 0; e.knivesLeft = 0;
       room.enemies.push(e);
       return { x: Math.round(e.x), y: Math.round(e.y), r: e.r, hitR: e.hitR || e.r, hitLift: e.hitLift || 0, boss: e.boss };
+    },
+    /* harness-only: mutate the most recently spawned live enemy (for pose screenshots) */
+    mutLast: function (patch) {
+      if (!room || !room.enemies.length) return null;
+      var e = room.enemies[room.enemies.length - 1], k;
+      for (k in patch) e[k] = patch[k];
+      return { type: e.type, name: e.name, atk: e.atk, atkT: e.atkT, hp: e.hp, maxHp: e.maxHp };
+    },
+    killBossCleanup: function () {
+      if (!room) return null;
+      var boss = null, i;
+      for (i = 0; i < room.enemies.length; i++) if (room.enemies[i].boss === "bone" && room.enemies[i].alive) boss = room.enemies[i];
+      if (!boss) return null;
+      /* plant a dummy shot then run the real death path */
+      S.shots.push({ x: boss.x, y: boss.y, vx: 40, vy: 0, r: 4, life: 2, dmg: 1, kind: "knife" });
+      var trashBefore = room.enemies.filter(function (e) { return e.alive && !e.boss; }).length;
+      var shotsBefore = S.shots.length;
+      killEnemy(boss, false);
+      return {
+        trashBefore: trashBefore,
+        trashAlive: room.enemies.filter(function (e) { return e.alive && !e.boss; }).length,
+        shots: S.shots.map(function (s) { return { inert: !!s.inert, dmg: s.dmg, vx: s.vx }; }),
+        bossBeat: S.bossBeat
+      };
+    },
+    triggerWave: function (ratio) {
+      if (!room) return null;
+      var e = null, i;
+      for (i = 0; i < room.enemies.length; i++) if (room.enemies[i].boss === "bone" && room.enemies[i].alive) e = room.enemies[i];
+      if (!e) return null;
+      ensureSkullLord(e);
+      e.hp = Math.floor(e.maxHp * ratio);
+      skullLordWaves(e);
+      return { hp: e.hp, maxHp: e.maxHp, flags: e.waveFlags.slice(), alive: room.enemies.filter(function (o) { return o.alive; }).length };
     }
   };
 })();
