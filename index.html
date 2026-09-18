@@ -371,15 +371,20 @@
     pointer-events: none;
   }
   #hpPips { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; max-width: 48vw; }
-  #hpPips svg.heart { display: block; width: 30px; height: 26px; filter: drop-shadow(0 1px 0 #1a120c); }
+  #hpPips svg.heart {
+    display: block;
+    width: clamp(24px, 7vh, 36px);
+    height: clamp(21px, 6.1vh, 32px);
+    filter: drop-shadow(0 1px 0 #1a120c);
+  }
   #hudMeta { display: flex; gap: 14px; align-items: center; }
   .meta {
     display: inline-flex; align-items: center; gap: 6px;
-    font-weight: 800; font-size: 24px; color: #f0e6d4;
+    font-weight: 800; font-size: clamp(18px, 5.4vh, 28px); color: #f0e6d4;
     text-shadow: 0 1px 0 #1a120c;
     letter-spacing: 0.02em;
   }
-  .meta svg { display: block; flex: 0 0 auto; width: 26px; height: 26px; }
+  .meta svg { display: block; flex: 0 0 auto; width: clamp(20px, 6vh, 30px); height: clamp(20px, 6vh, 30px); }
   .meta b { font-weight: 800; }
   #hudRight {
     display: flex; align-items: flex-start; gap: 12px;
@@ -391,23 +396,23 @@
   }
   #placePips {
     display: grid;
-    grid-template-columns: repeat(3, 32px);
-    grid-auto-rows: 28px;
+    grid-template-columns: repeat(3, clamp(22px, 6.4vh, 34px));
+    grid-auto-rows: clamp(20px, 5.6vh, 30px);
     gap: 5px 5px;
     pointer-events: none;
     margin-top: 16px;
   }
   .mini-cube {
-    width: 32px; height: 28px;
+    width: clamp(22px, 6.4vh, 34px); height: clamp(20px, 5.6vh, 30px);
     position: relative;
     opacity: 0.28;
   }
-  .mini-cube svg { display: block; width: 32px; height: 28px; }
+  .mini-cube svg { display: block; width: 100%; height: 100%; }
   .mini-cube.on { opacity: 1; filter: drop-shadow(0 0 3px rgba(240,176,64,0.85)); }
   .mini-cube.partial { opacity: 0.85; }
   .place-btn {
     position: relative;
-    width: 136px; height: 150px;
+    width: clamp(104px, 28vh, 148px); height: clamp(114px, 31vh, 164px);
     padding: 0; margin: 0;
     border: 0; background: transparent;
     cursor: pointer;
@@ -415,11 +420,11 @@
     -webkit-tap-highlight-color: transparent;
     filter: drop-shadow(0 2px 0 #1a120c);
   }
-  .place-btn .place-svg { display: block; width: 136px; height: 150px; pointer-events: none; }
+  .place-btn .place-svg { display: block; width: 100%; height: 100%; pointer-events: none; }
   .place-btn .place-words {
     position: absolute; left: 0; right: 0; top: 30%;
     text-align: center; pointer-events: none;
-    font-weight: 800; font-size: 22px; line-height: 1.05;
+    font-weight: 800; font-size: clamp(16px, 4.6vh, 24px); line-height: 1.05;
     letter-spacing: 0.04em; color: #1a120c;
     text-shadow: 0 1px 0 rgba(255,236,200,0.35);
   }
@@ -433,9 +438,10 @@
   .place-btn.armed .iso-right { fill: rgba(190,130,48,0.58); }
   .place-btn.armed .place-words { color: #3a1808; }
   .icon-btn {
-    width: 56px; height: 56px; padding: 10px;
+    width: clamp(44px, 11vh, 60px); height: clamp(44px, 11vh, 60px); padding: 10px;
     display: flex; align-items: center; justify-content: center;
   }
+  .icon-btn svg { width: 70%; height: 70%; }
   #botbar .row { min-height: 0; }
   #botbar { position: absolute; left: 0; right: 0; bottom: 0;
     padding: 8px 10px calc(8px + env(safe-area-inset-bottom));
@@ -457,15 +463,15 @@
         <div id="hpPips" aria-label="health"></div>
         <div id="hudMeta">
           <span class="meta" id="flChip" title="floor">
-            <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><rect x="1" y="8" width="12" height="5" rx="0.5" fill="#6a5a44" stroke="#c4b49a" stroke-width="1"/><rect x="3" y="4" width="8" height="5" rx="0.5" fill="#8a7a60" stroke="#e8dcc8" stroke-width="1"/><rect x="5" y="1" width="4" height="4" rx="0.5" fill="#c4a060" stroke="#f0e6d4" stroke-width="1"/></svg>
+            <svg width="26" height="26" viewBox="0 0 14 14" aria-hidden="true"><rect x="1" y="8" width="12" height="5" rx="0.5" fill="#6a5a44" stroke="#c4b49a" stroke-width="1"/><rect x="3" y="4" width="8" height="5" rx="0.5" fill="#8a7a60" stroke="#e8dcc8" stroke-width="1"/><rect x="5" y="1" width="4" height="4" rx="0.5" fill="#c4a060" stroke="#f0e6d4" stroke-width="1"/></svg>
             <b id="flNum">1</b>
           </span>
           <span class="meta" id="scChip" title="score">
-            <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true"><polygon points="7,1 13,7 7,13 1,7" fill="#d0a040" stroke="#f0e0a0" stroke-width="1"/></svg>
+            <svg width="26" height="26" viewBox="0 0 14 14" aria-hidden="true"><polygon points="7,1 13,7 7,13 1,7" fill="#d0a040" stroke="#f0e0a0" stroke-width="1"/></svg>
             <b id="scNum">0</b>
           </span>
           <span class="meta" id="frChip" title="fragments">
-            <svg width="12" height="14" viewBox="0 0 12 14" aria-hidden="true"><polygon points="6,1 11,6 8,13 4,13 1,6" fill="#70b0d0" stroke="#d0f0ff" stroke-width="1"/></svg>
+            <svg width="22" height="26" viewBox="0 0 12 14" aria-hidden="true"><polygon points="6,1 11,6 8,13 4,13 1,6" fill="#70b0d0" stroke="#d0f0ff" stroke-width="1"/></svg>
             <b id="frNum">0</b>
           </span>
         </div>
