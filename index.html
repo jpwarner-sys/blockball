@@ -793,9 +793,15 @@
   function stickGeom() {
     var cw = canvas.width, ch = canvas.height;
     /* BB-V7.7 — pads were ~29% of phone-landscape height (rad 0.145). Slightly
-       denser so they cover less of the field; still above a 44 CSS px thumb. */
-    var rad = Math.max(44, Math.min(cw, ch) * 0.118);
-    var inset = rad * 1.38;
+       denser so they cover less of the field; still above a 44 CSS px thumb.
+       BB-V7.12 — +20% on that radius. Old inset was 1.38R, so the gap from the
+       screen edge to the circumference was 0.38R. Keep that gap; grow the disc
+       and slide the midpoint up and in by 0.2R so thumbs get a bigger target
+       without crowding the bezel. */
+    var rad0 = Math.max(44, Math.min(cw, ch) * 0.118);
+    var gap = rad0 * 0.38;
+    var rad = rad0 * 1.2;
+    var inset = rad + gap;
     return {
       rad: rad,
       L: { cx: inset, cy: ch - inset },
@@ -2173,7 +2179,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      BB-V7.10 — landscape type fills the unused width; shop BUY buttons share
      a max-content right column per stack so neighbours line up exactly.
      BB-V7.11 — landscape copy right-justified so labels sit against their buttons. */
-  var BUILD = "v7.11";
+  var BUILD = "v7.12";
   var FEEL_DEF = { spd: 250, accel: 2600, brake: 3600, throwSpd: 620, aimMode: "drag", aimDead: 2, aimHold: 64 };
   var FEEL = (function () {
     var f = {};
@@ -2385,10 +2391,10 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     var pal = (player && player.cos && PALETTES[player.cos.pal]) || PALETTES.ember;
 
     function ring(cx, cy, dx, dy, live) {
-      g.globalAlpha = live ? 0.30 : 0.18;
+      g.globalAlpha = live ? 0.14 : 0.08;
       g.fillStyle = "#f0e6d4";
       g.beginPath(); g.arc(cx, cy, rad, 0, 6.3); g.fill();
-      g.globalAlpha = live ? 0.85 : 0.5;
+      g.globalAlpha = live ? 0.42 : 0.26;
       g.strokeStyle = "#f0e6d4"; g.lineWidth = Math.max(2, rad * 0.05);
       g.beginPath(); g.arc(cx, cy, rad, 0, 6.3); g.stroke();
       g.globalAlpha = 1;
@@ -2396,12 +2402,12 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     }
 
     var k = ring(G.L.cx, G.L.cy, STK.L.dx, STK.L.dy, STK.L.id !== null);
-    g.globalAlpha = 0.9;
+    g.globalAlpha = 0.45;
     g.fillStyle = "#f4ead6";
     g.beginPath(); g.arc(k.kx, k.ky, rad * 0.4, 0, 6.3); g.fill();
     g.strokeStyle = "#1a120c"; g.lineWidth = Math.max(2, rad * 0.05);
     g.beginPath(); g.arc(k.kx, k.ky, rad * 0.4, 0, 6.3); g.stroke();
-    g.globalAlpha = 0.55;
+    g.globalAlpha = 0.28;
     g.fillStyle = "#1a120c";
     g.beginPath();
     g.moveTo(k.kx, k.ky - rad * 0.2); g.lineTo(k.kx + rad * 0.14, k.ky); g.lineTo(k.kx - rad * 0.14, k.ky);
@@ -2418,19 +2424,19 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       /* the signature horseshoe from the key art: the ball sweeps round, banks, and
          comes back. One loop says "throw it at a wall" better than a sentence does. */
       var a0 = 2.35, a1 = -1.15, rr = rad * 0.6;
-      g.globalAlpha = 0.45;
+      g.globalAlpha = 0.25;
       g.strokeStyle = "#f0a050";
       g.lineWidth = Math.max(3, rad * 0.1);
       g.lineCap = "round";
       g.beginPath(); g.arc(cx, cy, rr, a0, a1, true); g.stroke();
-      g.globalAlpha = 0.9;
+      g.globalAlpha = 0.45;
       g.strokeStyle = "#6a5a44";
       g.lineWidth = Math.max(3, rad * 0.085);
       g.beginPath();
       g.moveTo(cx + Math.cos(a1) * rr * 1.5, cy + Math.sin(a1) * rr * 1.5 - rad * 0.16);
       g.lineTo(cx + Math.cos(a1) * rr * 1.5, cy + Math.sin(a1) * rr * 1.5 + rad * 0.16);
       g.stroke();
-      g.globalAlpha = 1;
+      g.globalAlpha = 0.55;
       var tt = (S.t * 0.7) % 1;
       var ang2 = a0 + (a1 - a0 - 6.283) * tt;
       var hx = cx + Math.cos(ang2) * rr, hy = cy + Math.sin(ang2) * rr;
@@ -2438,14 +2444,14 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       g.beginPath(); g.arc(hx, hy, rad * 0.19, 0, 6.3); g.fill();
       g.strokeStyle = "#1a120c"; g.lineWidth = Math.max(1.5, rad * 0.04);
       g.beginPath(); g.arc(hx, hy, rad * 0.19, 0, 6.3); g.stroke();
-      g.globalAlpha = 0.8;
+      g.globalAlpha = 0.45;
       g.fillStyle = "#f0e6d4";
       g.font = "bold " + Math.round(rad * 0.21) + "px -apple-system, sans-serif";
       g.textAlign = "center";
       g.fillText("DRAG ANYWHERE", cx, cy - rad * 1.22);
       g.globalAlpha = 1;
     } else {
-      g.globalAlpha = inHand ? 1 : 0.3;
+      g.globalAlpha = inHand ? 0.55 : 0.18;
       g.fillStyle = ballColour();
       g.beginPath(); g.arc(cx, cy, rad * 0.5, 0, 6.3); g.fill();
       g.strokeStyle = "#1a120c"; g.lineWidth = Math.max(2, rad * 0.07);
