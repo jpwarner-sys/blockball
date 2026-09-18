@@ -4048,8 +4048,12 @@ function endRunToMenu() {
     hurtBlock: function (i, n) { return hurtBlockAt(i == null ? 0 : i, n == null ? 1 : n); },
     blockDmgFrom: function (who) {
       if (!who) return 1;
-      if (who === "knight" || who === "boss" || who === "mini") return BLOCK_HITS;
-      return blockDmgFromEnemy({ boss: who === true ? "mini" : who });
+      if (typeof who === "object") return blockDmgFromEnemy(who);
+      if (who === "knight" || who === "boss" || who === "mini" ||
+          who === "bone" || who === "ash" || who === "thorn") {
+        return blockDmgFromEnemy({ boss: who === "knight" || who === "boss" ? "mini" : who });
+      }
+      return 1;
     },
     placeAt: tryPlaceBlock,
     playerStats: function () { return { frag: player.frag, maxHp: player.maxHp, hp: player.hp, dmgLv: player.dmgLv, spdLv: player.spdLv, blkLv: player.blkLv, fireLv: player.fireLv, permaFire: !!player.permaFire, hpBought: player.hpBought, blockStock: player.blockStock, blockMax: player.blockMax, placeHits: player.placeHits || 0, placeRateLv: player.placeRateLv || 0 }; },
