@@ -622,8 +622,14 @@
 
   function stickGeom() {
     var cw = canvas.width, ch = canvas.height;
-    var rad = Math.max(46, Math.min(cw, ch) * 0.145);
-    var inset = rad * 1.45;
+    /* BB-V7.5 — rings +20%. Old radius R sat inset 1.45R, so the gap from the
+       screen edge to the circumference was 0.45R. Keep that gap; grow the disc
+       and slide the midpoint up and in by 0.2R so thumbs get a bigger target
+       without crowding the bezel. */
+    var rad0 = Math.max(46, Math.min(cw, ch) * 0.145);
+    var gap = rad0 * 0.45;
+    var rad = rad0 * 1.2;
+    var inset = rad + gap;
     return {
       rad: rad,
       L: { cx: inset, cy: ch - inset },
