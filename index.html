@@ -2664,8 +2664,11 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     if (S.shake > 0) S.shake -= dt;
     if (S.muteFx > 0) S.muteFx -= dt;
     if (S.bossBeat > 0) {
-      /* don't advance the floor while a swish cinematic is still running */
-      if (!(S.cine && S.cine.active)) S.bossBeat -= dt;
+      /* don't advance the floor while a swish cinematic is still running,
+         or while the post-boss hoop window is still open waiting for a shot */
+      var holdBeat = (S.cine && S.cine.active) ||
+        (S.hoopReady && room && room.hoop && !room.hoop.swished);
+      if (!holdBeat) S.bossBeat -= dt;
       if (S.bossBeat <= 0 && room && room.cleared) {
         S.hoopReady = false;
         nextRoomOrFloor();
@@ -5021,9 +5024,12 @@ function endRunToMenu() {
       if (!room.hoop) room.hoop = makeBossHoop(room.spec || { cols: playCols(), grid: room.grid });
       S.hoopReady = true;
       room.cleared = true;
+      S.bossBeat = Math.max(S.bossBeat, 8);
+      S.pause = false;
       if (ball) { ball.live = false; ball.ret = false; resetBallHome(); }
       return this.hoop();
     },
+    setPause: function (v) { S.pause = !!v; return S.pause; },
     forceSwish: function () {
       if (!room || !room.hoop) return null;
       S.hoopReady = true;
@@ -5040,18 +5046,43 @@ function endRunToMenu() {
         hold: Math.round((S.cine.hold || 0) * 100) / 100
       } : null;
     },
-    throwAtHoop: function () {
-      if (!room || !room.hoop || !player || !ball) return null;
+    throwAtHoop: function (opts) {
+      /* harness: opts.spd, opts.aimX/aimY (world aim point), opts.lead (px past rim) */
+      if (!room) return { err: "no-room" };
+      if (!room.hoop) return { err: "no-hoop" };
+      if (!player) return { err: "no-player" };
+      if (!ball) return { err: "no-ball" };
+      opts = opts || {};
       S.hoopReady = true;
+      S.bossBeat = Math.max(S.bossBeat, 6);
       var h = room.hoop;
+      h.swished = false; h.netT = 0; h.beamT = 0;
       ball.live = true; ball.ret = false;
       ball.x = player.x; ball.y = player.y - 8;
-      var dx = h.x - ball.x, dy = h.y - ball.y;
+      var tx = opts.aimX != null ? opts.aimX : h.x;
+      var ty = opts.aimY != null ? opts.aimY : h.y;
+      var dx = tx - ball.x, dy = ty - ball.y;
       var d = Math.hypot(dx, dy) || 1;
-      var spd = 520;
+      if (opts.lead) { dx += (dx / d) * opts.lead; dy += (dy / d) * opts.lead; d = Math.hypot(dx, dy) || 1; }
+      var spd = opts.spd != null ? opts.spd : 520;
       ball.vx = dx / d * spd; ball.vy = dy / d * spd;
-      ball.life = 2.5; ball.trail = [];
-      return { ball: this.ballState(), hoop: this.hoop() };
+      ball.life = opts.life != null ? opts.life : 2.8;
+      ball.trail = []; ball.bounces = 0; ball.hits = []; ball.ret = false;
+      return { ball: this.ballState(), hoop: this.hoop(), spd: spd };
+    },
+    /* sprinkle post-boss loot / residual shake for celebration previews */
+    dressAftermath: function () {
+      if (!room || !player) return 0;
+      S.shake = Math.max(S.shake, 0.25);
+      S.bossBeat = Math.max(S.bossBeat, 5);
+      var n = 0, i, a, r;
+      for (i = 0; i < 8; i++) {
+        a = (i / 8) * Math.PI * 2;
+        r = 40 + (i % 3) * 28;
+        dropLoot(player.x + Math.cos(a) * r, player.y + Math.sin(a) * r * 0.55, i % 2 === 0);
+        n++;
+      }
+      return n;
     },
     killBossCleanup: function () {
       if (!room) return null;
