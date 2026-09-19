@@ -3176,7 +3176,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      BB-V7.16 — Skull Lord hall ~2.3× the v7.12 lair; cleave/lunge ease,
      real dash travel, blade sweeps the telegraph fan.
      BB-V7.17 — no auto exit-pull on clear; closed/open east door.
-     BB-V7.18 — paint-only back-wall HEIGHT via front-face extrusion (not thickness). */
+     BB-V7.18 — paint-only back-wall HEIGHT 1–4 (half/wall/high/deep); solid walls. */
   var BUILD = "v7.18";
   var FEEL_DEF = { spd: 250, accel: 2600, brake: 3600, throwSpd: 620, aimMode: "drag", aimDead: 2, aimHold: 64 };
   var FEEL = (function () {
@@ -3530,18 +3530,44 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      the difference between a room and a grid.
      BB-V7.18 — visual HEIGHT is paint-only (grid stays 0/1). In this projection,
      height is the cube front-face (z), not extra top-face rows — stacking tops
-     reads as wall thickness. BACK_WALL_H is north-border height in block units;
-     interior/side/south keep WALL_Z. */
+     reads as wall thickness. BACK_WALL_H is north-border height in block units
+     (1 half · 2 wall · 3 high · 4 deep). Interior/side/south keep WALL_Z.
+     Walls use one solid biome colour; only the floor checkerboards. */
   var WALL_Z = 0.48;
-  var BACK_WALL_H = 3;
+  var BACK_WALL_H = 2;
+  var WALL_H_MIN = 1, WALL_H_MAX = 4;
+  var WALL_H_NAME = { 1: "half", 2: "wall", 3: "high", 4: "deep" };
+  var WALL_H_FROM_NAME = {
+    half: 1, halfwall: 1,
+    wall: 2,
+    high: 3, highwall: 3,
+    deep: 4, deeproom: 4, deeproomhigh: 4, deeproomhighwall: 4
+  };
+
+  function clampWallH(n) {
+    n = n | 0;
+    if (n < WALL_H_MIN) n = WALL_H_MIN;
+    if (n > WALL_H_MAX) n = WALL_H_MAX;
+    return n;
+  }
+
+  function setBackWallH(n) {
+    if (typeof n === "string") {
+      var key = String(n).toLowerCase().replace(/[\s_-]+/g, "");
+      if (WALL_H_FROM_NAME[key] != null) n = WALL_H_FROM_NAME[key];
+      else n = parseInt(n, 10);
+    }
+    BACK_WALL_H = clampWallH(n);
+    return BACK_WALL_H;
+  }
 
   function wallHeightPx(x, y, cols, rows) {
-    if (y === 0) return Math.max(1, BACK_WALL_H | 0) * TILE;
+    if (y === 0) return clampWallH(BACK_WALL_H) * TILE;
     return Math.round(TILE * WALL_Z);
   }
 
   function wallVisualPad() {
-    var h = Math.max(1, BACK_WALL_H | 0) * TILE;
+    var h = clampWallH(BACK_WALL_H) * TILE;
     var base = Math.round(TILE * WALL_Z);
     return Math.max(0, h - base);
   }
@@ -3737,35 +3763,39 @@ g.beginPath(); g.arc(S.splits[sp].x, S.splits[sp].y, S.splits[sp].r, 0, 6.3); g.
   }
 
   function drawScaleProbe(g, wz) {
-    /* Same metaphor as the back wall: one footprint, taller front face — not stacked tops. */
-    var x2 = player.x + 70;
-    var x3 = player.x + 70 + TILE + 10;
+    /* 1–4 block height ladder: half · wall · high · deep (same extrusion metaphor). */
     var baseY = player.y;
-    var h2 = 2 * TILE, h3 = 3 * TILE;
     var foot = baseY - TILE * 0.5;
-    cube(g, x2 - TILE * 0.5, foot - h2, TILE, TILE, h2, "#6a5a44");
-    cube(g, x3 - TILE * 0.5, foot - h3, TILE, TILE, h3, "#6a5a44");
-    g.strokeStyle = shade("#6a5a44", 0.42);
-    g.lineWidth = 1;
-    g.beginPath();
-    g.moveTo(x2 - TILE * 0.5 + 1.5, foot - h2 + TILE + TILE);
-    g.lineTo(x2 + TILE * 0.5 - 1.5, foot - h2 + TILE + TILE);
-    g.stroke();
-    g.beginPath();
-    g.moveTo(x3 - TILE * 0.5 + 1.5, foot - h3 + TILE + TILE);
-    g.lineTo(x3 + TILE * 0.5 - 1.5, foot - h3 + TILE + TILE);
-    g.stroke();
-    g.beginPath();
-    g.moveTo(x3 - TILE * 0.5 + 1.5, foot - h3 + TILE + 2 * TILE);
-    g.lineTo(x3 + TILE * 0.5 - 1.5, foot - h3 + TILE + 2 * TILE);
-    g.stroke();
-    g.fillStyle = "#c4a060";
-    g.fillRect(x3 - TILE * 0.5, foot - h3, TILE, 4);
-    g.fillStyle = "#f0e6d4";
-    g.font = "bold 11px -apple-system, sans-serif";
-    g.textAlign = "center";
-    g.fillText("2", x2, baseY + 22);
-    g.fillText("3", x3, baseY + 22);
+    var gap = TILE + 8;
+    var x0 = player.x + 56;
+    var i, h, x, s, frontTop;
+    for (i = 1; i <= 4; i++) {
+      h = i * TILE;
+      x = x0 + (i - 1) * gap;
+      cube(g, x - TILE * 0.5, foot - h, TILE, TILE, h, "#6a5a44");
+      if (h > TILE + 1) {
+        frontTop = foot - h + TILE;
+        g.strokeStyle = shade("#6a5a44", 0.42);
+        g.lineWidth = 1;
+        for (s = TILE; s < h; s += TILE) {
+          g.beginPath();
+          g.moveTo(x - TILE * 0.5 + 1.5, frontTop + s);
+          g.lineTo(x + TILE * 0.5 - 1.5, frontTop + s);
+          g.stroke();
+        }
+      }
+      if (i === clampWallH(BACK_WALL_H)) {
+        g.fillStyle = "#c4a060";
+        g.fillRect(x - TILE * 0.5, foot - h, TILE, 4);
+      }
+      g.fillStyle = "#f0e6d4";
+      g.font = "bold 10px -apple-system, sans-serif";
+      g.textAlign = "center";
+      g.fillText(String(i), x, baseY + 18);
+      g.font = "bold 8px -apple-system, sans-serif";
+      g.fillStyle = "#c4b49a";
+      g.fillText(WALL_H_NAME[i], x, baseY + 28);
+    }
   }
 
   function drawPlaceGhost(g, wz) {
@@ -5534,14 +5564,14 @@ function endRunToMenu() {
       return { rooms: roomsN, fails: fails, sizes: sizes, pieces: pieces };
     },
     scaleProbe: function (on) { S.scaleProbe = !!on; },
-    /* Paint-only back-wall HEIGHT in block units (front-face extrusion, not thickness). */
-    wallBackStack: function (n) {
-      if (n != null) BACK_WALL_H = Math.max(1, n | 0);
-      return BACK_WALL_H;
-    },
+    /* Paint-only back-wall HEIGHT: 1 half · 2 wall · 3 high · 4 deep (or name string). */
+    wallBackStack: function (n) { return setBackWallH(n == null ? BACK_WALL_H : n); },
     wallBackH: function (n) {
-      if (n != null) BACK_WALL_H = Math.max(1, n | 0);
-      return BACK_WALL_H;
+      if (n != null) setBackWallH(n);
+      return { h: BACK_WALL_H, name: WALL_H_NAME[BACK_WALL_H] };
+    },
+    wallHeights: function () {
+      return { min: WALL_H_MIN, max: WALL_H_MAX, current: BACK_WALL_H, names: WALL_H_NAME };
     },
     placeGhost: placeGhostCell,
     placeNow: tryPlaceAtGhost,
