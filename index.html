@@ -3063,10 +3063,9 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
 
   function walkPlayer(dt) {
     var rr = player.r * 0.6;
-    /* Not while the room is clearing: the exit walk deliberately carries him into
-       the doorway, and the doorway reads as out of bounds. Rescuing him there would
-       be fighting the game. One toast a second at most — a rescue that fires every
-       frame is a spinner, not a message. */
+    /* Not while standing in a cleared doorway: the exit tile reads as out of
+       bounds, and rescuing him there would fight walking through. One toast a
+       second at most — a rescue that fires every frame is a spinner, not a message. */
     if (!(room && room.cleared) && unstick(rr)) {
       if (!(S.placeCd > 0) && S.t - (S.lastUnstick || -9) > 1) { S.lastUnstick = S.t; toast("UNSTUCK"); }
     }
@@ -3098,12 +3097,15 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     if (!(room && room.cleared)) unstick(player.r * 0.6);
     if (S.aim && S.aim.x < player.x - 8) player.facing = -1;
     else if (S.aim && S.aim.x > player.x + 8) player.facing = 1;
+    /* Room clear opens the exit; do not auto-pull toward it. Advance only once
+       the hero walks close to the right-hand doorway on their own. */
     if (room && room.cleared && room.doorReady && S.bossBeat <= 0 && room.kind !== "boss") {
       if (room.clearWait > 0) room.clearWait -= dt;
       else {
-        /* CHIEF FIX BB-V6.8 — the exit walk used to move him straight through stone. */
-        slide("x", 200 * dt, player.r * 0.6);
-        if (player.x > (playCols() - 2) * TILE - 10) nextRoomOrFloor();
+        var exitCy = (doorY(room.grid) + 0.5) * TILE;
+        var nearExit = player.x > (playCols() - 2) * TILE - 10 &&
+          Math.abs(player.y - exitCy) < TILE * 1.25;
+        if (nearExit) nextRoomOrFloor();
       }
     }
   }
