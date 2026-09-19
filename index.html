@@ -2351,7 +2351,7 @@
   }
 
   function throwBall(ang, pow) {
-    if (ball.live) return;
+    if (ball.live || S.downed) return;
     S.throws = (S.throws || 0) + 1;
     var spd = throwSpeed() * pow;
     ball.live = true; ball.ret = false; ball.pierced = false;
@@ -3064,7 +3064,10 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      each at 75/50/25% of max HP.
      BB-V7.16 — blade sweeps the telegraph fan; lunge actually covers the
      dashed lane (was ~40px of travel vs a 400px tell). Ease-in slash, ease-out
-     dash, stride/cape on the pose clock. */
+     dash, stride/cape on the pose clock.
+     BB-V7.21 — lunge telegraph: longer wind + early aim lock so the dashed
+     lane freezes with enough time to walk-dodge (was tracking until 78%);
+     attack pick mixes cleave walk-ins and caps lunge streaks. */
   var SKULL_CLEAVE_BACK = 1.32;
   var SKULL_CLEAVE_FWD = 1.18;
 
@@ -3116,6 +3119,8 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     e.dashCommit = false;
     e.prevX = e.x;
     e.prevY = e.y;
+    e.lastAtk = null;
+    e.lungeStreak = 0;
   }
 
   function spawnSkullAdds(boss, n) {
@@ -3167,6 +3172,18 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     }
   }
 
+  /* Big hall made pure dist>135 → almost always lunge. Mix in walk-ins and
+     cleaves; never chain more than one lunge without a close-range beat. */
+  function pickSkullAtk(e, dist) {
+    if (e.lastAtk === "lunge" || (e.lungeStreak || 0) >= 1) {
+      if (dist < 160) return "cleave";
+      return null; /* keep chasing into cleave range */
+    }
+    if (dist < 150) return "cleave";
+    if (dist < 220) return rnd() < 0.22 ? "lunge" : null;
+    return "lunge";
+  }
+
   function startSkullAtk(e, kind, dx, dy, dist) {
     e.atk = kind;
     e.atkT = 0;
@@ -3187,8 +3204,11 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       e.atkRecover = 0.50;
       e.bladeAng = skullBladeBang(skullAimAng(e), e.face * -SKULL_CLEAVE_BACK * 0.2);
     } else {
-      e.atkWind = 0.80;
-      e.atkActive = 0.34;
+      /* square up briefly, then freeze the lane — knight charge locks from
+         start; lord gets a short track so the tell still finds you, then
+         ~0.7s of committed dashed lane to sidestep off. */
+      e.atkWind = 1.20;
+      e.atkActive = 0.38;
       e.atkRecover = 0.62;
       e.bladeAng = e.face * -0.35;
     }
@@ -3318,14 +3338,18 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
           e.shieldFwd = coil * 1.05;
           e.dustT = 0.25;
           e.stride = coil * 0.22;
-          if (dist > 50) moveToward(e, dx / dist * 0.08, dy / dist * 0.08, e.spd * 0.22, dt);
-          if (lw < 0.78 && dist > 1) {
+          /* creep only while still tracking; freeze feet once the lane locks */
+          if (!e.dashCommit && dist > 50) {
+            moveToward(e, dx / dist * 0.08, dy / dist * 0.08, e.spd * 0.22, dt);
+          }
+          /* lock aim ~42% in so the dashed lane is readable before the dash */
+          if (lw < 0.42 && dist > 1) {
             e.aimX = dx / dist;
             e.aimY = dy / dist;
             e.face = e.aimX < 0 ? -1 : 1;
             e.dashLen = skullDashLen(e, dist);
           }
-          if (lw >= 0.78 && !e.dashCommit) {
+          if (lw >= 0.42 && !e.dashCommit) {
             e.dashCommit = true;
             e.dashFromX = e.x;
             e.dashFromY = e.y;
@@ -3380,7 +3404,11 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
         var finished = e.atk;
         e.atk = null;
         e.atkT = 0;
-        e.cd = (finished === "lunge" ? 1.05 : 0.92) + rnd() * 0.38;
+        e.lastAtk = finished;
+        if (finished === "lunge") e.lungeStreak = (e.lungeStreak || 0) + 1;
+        else e.lungeStreak = 0;
+        /* longer post-lunge rest so the next beat is walk/cleave, not spam */
+        e.cd = (finished === "lunge" ? 1.55 : 1.05) + rnd() * 0.4;
         e.bladeLift = 0;
         e.bladeAng = e.face * -0.45;
         e.lean = 0;
@@ -3393,8 +3421,11 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       return;
     }
 
-    /* idle chase — close for cleave; lunge is the gap-closer in the big hall */
+    /* idle chase — after a lunge, press in for cleave instead of re-charging */
     var chase = dist > 240 ? 1.25 : dist > 150 ? 0.9 : dist > 90 ? 0.55 : 0.32;
+    if (e.lastAtk === "lunge" || (e.lungeStreak || 0) >= 1) {
+      chase = Math.max(chase, dist > 160 ? 1.35 : 0.95);
+    }
     moveToward(e, dx / dist * chase, dy / dist * chase, e.spd, dt);
     e.face = dx < 0 ? -1 : 1;
     e.bladeAng = e.face * -0.45;
@@ -3402,12 +3433,12 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     e.stridePhase = (e.stridePhase || 0) + dt * (dist > 50 ? 9 : 3.5);
     e.stride = Math.sin(e.stridePhase) * 0.14;
     if (e.cd <= 0) {
-      if (dist < 135) {
-        startSkullAtk(e, "cleave", dx, dy, dist);
-        sfx("cleave");
+      var pick = pickSkullAtk(e, dist);
+      if (pick) {
+        startSkullAtk(e, pick, dx, dy, dist);
+        sfx(pick);
       } else {
-        startSkullAtk(e, "lunge", dx, dy, dist);
-        sfx("lunge");
+        e.cd = 0.28 + rnd() * 0.22;
       }
     }
   }
@@ -3708,7 +3739,9 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      BB-V7.19 — row-sort walls with actors so south cubes occlude feet; softer
      hero bob/shadow against a south wall so he stops floating on the block.
      BB-V7.20 — paint-only back-wall HEIGHT 1–4 (half/wall/high/deep); solid
-     walls; per-room wallH from procedural/curated rules + builder share. */
+     walls; per-room wallH from procedural/curated rules + builder share.
+     BB-V7.21 — soft DOWN beat before room reset; Skull Lord lunge longer
+     telegraph + early lane lock, attack mix stops lunge spam. */
   var BUILD = "v7.21";
   var FEEL_DEF = { spd: 250, accel: 2600, brake: 3600, throwSpd: 620, aimMode: "drag", aimDead: 2, aimHold: 64 };
   var FEEL = (function () {
@@ -5066,6 +5099,8 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       var lw = e.atkT / e.atkWind;
       var lx = x + e.aimX * u * 0.6, ly = e.y + e.aimY * u * 0.12;
       var len = e.dashLen || skullDashLen(e, 0);
+      var tx = e.dashCommit ? e.dashToX : (lx + e.aimX * len);
+      var ty = e.dashCommit ? e.dashToY : (ly + e.aimY * len);
       g.save();
       g.globalAlpha = 0.24 + lw * 0.48;
       g.strokeStyle = "#f0e0b0";
@@ -5073,20 +5108,20 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       g.setLineDash([12, 9]);
       g.beginPath();
       g.moveTo(lx, ly);
-      g.lineTo(lx + e.aimX * len, ly + e.aimY * len);
+      g.lineTo(tx, ty);
       g.stroke();
       g.setLineDash([]);
       g.fillStyle = "rgba(255,122,42," + (0.12 + lw * 0.24) + ")";
       g.beginPath();
       g.moveTo(lx - e.aimY * u * 0.48, ly + e.aimX * u * 0.48);
-      g.lineTo(lx + e.aimX * len, ly + e.aimY * len);
+      g.lineTo(tx, ty);
       g.lineTo(lx + e.aimY * u * 0.48, ly - e.aimX * u * 0.48);
       g.closePath();
       g.fill();
       for (var ch = 0; ch < 5; ch++) {
         var ct = ((lw * 3 + ch * 0.18 + S.t * 1.8) % 1);
-        var cx = lx + e.aimX * len * ct;
-        var cy = ly + e.aimY * len * ct;
+        var cx = lx + (tx - lx) * ct;
+        var cy = ly + (ty - ly) * ct;
         g.globalAlpha = 0.4 + lw * 0.45;
         g.fillStyle = "#ffb060";
         g.beginPath();
@@ -6089,7 +6124,7 @@ function endRunToMenu() {
     STK.FIELD.id = null;
     if (!S.pointer.down) return;
     S.pointer.down = false;
-    if (S.mode === "play" && S.aim && !ball.live) throwBall(S.aim.ang, S.aim.pow);
+    if (S.mode === "play" && S.aim && !ball.live && !S.downed) throwBall(S.aim.ang, S.aim.pow);
     S.aim = null;
   }
 
