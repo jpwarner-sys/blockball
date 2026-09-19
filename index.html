@@ -2200,9 +2200,18 @@
   function updateBall(dt) {
     if (!ball.live) {
       /* CHIEF BB-V5.3 — the ball at rest used to be drawn over the hero's face.
-         It now sits in the throwing hand, out to the side and low. */
+         It now sits in the throwing hand, out to the side and low.
+         BB-V7.16 — match the hero's south-wall ground bias so the held ball
+         does not sit on the wall's lifted top while he stands on the floor. */
+      var handBias = 0;
+      if (room && room.grid) {
+        var ptx = Math.floor(player.x / TILE), pty = Math.floor(player.y / TILE);
+        if (pty + 1 < playRows() && room.grid[pty + 1] && room.grid[pty + 1][ptx]) {
+          handBias = -Math.round(TILE * WALL_Z);
+        }
+      }
       ball.x = player.x + player.facing * 30;
-      ball.y = player.y - 8;
+      ball.y = player.y - 8 + handBias;
       return;
     }
     if (ball.ret) {
@@ -3623,9 +3632,11 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     /* Joe's own offsets, unchanged: head at 0, body at 0.55, legs at 1.15, all
        measured down from py = y - s*1.55. Only `sc` is ours, so he is the size
        Joe asked for while standing in exactly the proportions that worked.
-       BB-V7.16 — near a south wall the idle/walk bob + high shadow read as a
-       hover on the wall top; pin the ellipse under the foot cubes and soften
-       bob/step when the next tile south is stone. */
+       BB-V7.16 — near a south wall the cube top overhangs onto the floor tile
+       (lifted by WALL_Z). Row-sort hides feet under that lip, but bob + a low
+       shadow still read as standing on the block. Soften bob, park the ellipse
+       on the real floor north of the lip, and bias the paint a few px north so
+       the soles clear the overhang without changing the hitbox. */
     var sc = 22 * HS;
     var moving = Math.hypot(player.vx || 0, player.vy || 0) > 12;
     var nearSouth = false;
@@ -3637,15 +3648,18 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     var bob = Math.sin(S.t * 7) * bobAmp;
     var step = moving ? Math.sin(player.walk) : 0;
     var lift = Math.abs(step) * sc * (nearSouth ? 0.04 : 0.09);
+    /* Full WALL_Z: the cube top overhangs exactly that far onto the floor. */
+    var groundBias = nearSouth ? -Math.round(TILE * WALL_Z) : 0;
 
     var bw = cos.body === "tall" ? 0.72 : cos.body === "round" ? 0.98 : cos.body === "swift" ? 0.7 : 0.84;
     var bh = cos.body === "tall" ? 0.86 : cos.body === "round" ? 0.56 : cos.body === "swift" ? 0.64 : 0.7;
 
     var x = player.x, f = player.facing;
-    var pxl = x - sc * 0.5, pyt = player.y - sc * 1.55 + bob;
+    var pxl = x - sc * 0.5, pyt = player.y - sc * 1.55 + bob + groundBias;
+    var shadowY = player.y + sc * 0.08 + groundBias;
 
     g.fillStyle = "rgba(10,8,6,0.34)";
-    g.beginPath(); g.ellipse(x, player.y + sc * 0.1, sc * 0.42, sc * 0.13, 0, 0, 6.3); g.fill();
+    g.beginPath(); g.ellipse(x, shadowY, sc * 0.42, sc * 0.13, 0, 0, 6.3); g.fill();
 
     cube(g, pxl + sc * 0.12, pyt + sc * 1.15 - (step > 0 ? lift : 0), sc * 0.28, sc * 0.28, sc * 0.18, pal.b);
     cube(g, pxl + sc * 0.58, pyt + sc * 1.15 - (step < 0 ? lift : 0), sc * 0.28, sc * 0.28, sc * 0.18, pal.b);
