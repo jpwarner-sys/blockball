@@ -3742,7 +3742,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      walls; per-room wallH from procedural/curated rules + builder share.
      BB-V7.21 — soft DOWN beat before room reset; Skull Lord lunge longer
      telegraph + early lane lock, attack mix stops lunge spam. */
-  var BUILD = "v7.21";
+  var BUILD = "v7.22";
   var FEEL_DEF = { spd: 250, accel: 2600, brake: 3600, throwSpd: 620, aimMode: "drag", aimDead: 2, aimHold: 64 };
   var FEEL = (function () {
     var f = {};
@@ -5586,8 +5586,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       "<img class=\"splashArt\" alt=\"\" src=\"" + TITLE_ART + "\">" +
       "<h1 class=\"splashTitle\">DUNGEON</h1>" +
       "<div class=\"splashGo\">TAP TO START</div>" +
-      "<div class='muted' style='margin-top:10px;font-size:12px'>" + BUILD +
-        " · aim " + FEEL.aimMode.toUpperCase() + "</div>";
+      "<div class='muted' style='margin-top:10px;font-size:12px'>" + BUILD + "</div>";
     var panel = document.getElementById("splashPanel");
     panel.className = "panel splash show";
     panel.onclick = function () { ensureAudio(); showMenu(); };
@@ -5613,12 +5612,8 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       "<div class='row'>" +
       "<button class='bb pri' id='btnPlay'>PLAY</button>" +
       "<button class='bb' id='btnBuilder'>DUNGEON BUILDER</button>" +
-      /* FEEL lives here as well as on the pause card — you should not have to be
-         mid-fight to change how the game feels */
-      "<button class='bb' id='btnFeelMenu'>FEEL · " + FEEL.aimMode.toUpperCase() + "</button>" +
       "</div>" +
-      "<p class='muted' style='margin:2px 0 0'>" + BUILD + " · move " + FEEL.spd +
-        " · throw " + FEEL.throwSpd + "</p>" +
+      "<p class='muted' style='margin:2px 0 0'>" + BUILD + "</p>" +
       "<h2>PROFILE</h2><div class='row' id='profRow'>" + profs + "</div>" +
       /* CHIEF FIX BB-V4.10 — five rows of dress-up pushed SEED and SHARE CODE two
          screens down on a phone. They are a once-a-week choice, not a per-run one,
@@ -5645,7 +5640,6 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       activeProfile = +b.getAttribute("data-p");
       showMenu();
     };
-    document.getElementById("btnFeelMenu").onclick = function () { showFeel(); };
     document.getElementById("btnPlay").onclick = function () { startRun(makeSeed(), null); };
     document.getElementById("btnBuilder").onclick = function () { openBuilder(null); };
     document.getElementById("btnSeed").onclick = function () { startRun(document.getElementById("seedIn").value, null); };
@@ -5694,10 +5688,8 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       "</div><div class='landBtns row'>" +
       "<button class='bb pri' id='btnRes'>RESUME</button>" +
       "<button class='bb' id='btnUpg'>UPGRADE · " + player.frag + "</button>" +
-      "<button class='bb' id='btnFeel'>FEEL</button>" +
       "<button class='bb' id='btnMenu'>MENU</button>" +
       "</div></div>";
-    document.getElementById("btnFeel").onclick = function () { showFeel(); };
     document.getElementById("btnUpg").onclick = function () { showShop(); };
     document.getElementById("btnRes").onclick = function () { document.getElementById("pausePanel").className = "panel"; S.pause = false; };
     document.getElementById("btnMenu").onclick = function () { S.pause = false; endRunToMenu(); };
