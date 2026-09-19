@@ -159,6 +159,21 @@
        BB-V7.19 — floor/score/frag ride in one flex row (#metaRow) so growing
        digit counts never clip the next icon; only the row origin is absolute. */
     --hud-pad: 8px;
+    --hud-heart: clamp(24px, 7vh, 36px);
+    --hud-heart-h: clamp(21px, 6.1vh, 32px);
+    --hud-hp-bar-w: clamp(110px, 28vh, 160px);
+    --hud-hp-bar-h: clamp(14px, 3.6vh, 20px);
+    --hud-hp-num: clamp(13px, 3.6vh, 18px);
+    --hud-meta-gap: clamp(10px, 2.4vh, 16px);
+    --hud-meta-fs: clamp(18px, 5.4vh, 28px);
+    --hud-meta-ico: clamp(20px, 6vh, 30px);
+    --hud-pip: clamp(16px, 4.2vh, 22px);
+    --hud-pip-h: clamp(14px, 3.6vh, 20px);
+    --hud-place-w: clamp(80px, 18vh, 100px);
+    --hud-place-h: clamp(88px, 20vh, 110px);
+    --hud-place-fs: clamp(13px, 3.4vh, 18px);
+    --hud-pause: clamp(44px, 11vh, 60px);
+    --hud-pause-slot: clamp(52px, 13vh, 72px);
     --hud-hp-t: var(--hud-pad);
     --hud-hp-l: var(--hud-pad);
     --hud-meta-t: calc(var(--hud-pad) + clamp(28px, 7.8vh, 42px));
@@ -166,9 +181,32 @@
     --hud-pause-t: var(--hud-pad);
     --hud-pause-r: var(--hud-pad);
     --hud-place-t: var(--hud-pad);
-    --hud-place-r: calc(var(--hud-pad) + clamp(52px, 13vh, 72px));
+    --hud-place-r: calc(var(--hud-pad) + var(--hud-pause-slot));
     --hud-pips-t: calc(var(--hud-pad) + 10px);
-    --hud-pips-r: calc(var(--hud-place-r) + clamp(80px, 18vh, 100px) + 8px);
+    --hud-pips-r: calc(var(--hud-place-r) + var(--hud-place-w) + 8px);
+  }
+  /* BB-V7.25 — tablet/iPad bolt-on: same HUD nodes, phone-scale chrome.
+     Short CSS side ≥ 600px (iPad mini+) gets tighter pad + capped clamps so
+     hearts/meta/place/pause stop eating the field. Class set in resize(). */
+  html.ui-pad #hud {
+    --hud-pad: 6px;
+    --hud-heart: clamp(18px, 3.2vh, 26px);
+    --hud-heart-h: clamp(16px, 2.8vh, 23px);
+    --hud-hp-bar-w: clamp(96px, 14vh, 132px);
+    --hud-hp-bar-h: clamp(12px, 1.8vh, 16px);
+    --hud-hp-num: clamp(12px, 1.9vh, 15px);
+    --hud-meta-gap: clamp(8px, 1.4vh, 12px);
+    --hud-meta-fs: clamp(15px, 2.4vh, 20px);
+    --hud-meta-ico: clamp(16px, 2.2vh, 22px);
+    --hud-pip: clamp(12px, 1.8vh, 16px);
+    --hud-pip-h: clamp(11px, 1.6vh, 14px);
+    --hud-place-w: clamp(64px, 9.5vh, 78px);
+    --hud-place-h: clamp(70px, 10.5vh, 86px);
+    --hud-place-fs: clamp(11px, 1.7vh, 14px);
+    --hud-pause: clamp(36px, 5.2vh, 46px);
+    --hud-pause-slot: clamp(40px, 5.8vh, 52px);
+    --hud-meta-t: calc(var(--hud-pad) + clamp(22px, 3.6vh, 30px));
+    --hud-pips-t: calc(var(--hud-pad) + 6px);
   }
   #hud button, #hud input, #hud textarea, #hud .hit {
     pointer-events: auto;
@@ -405,8 +443,8 @@
   }
   #hpPips svg.heart {
     display: block;
-    width: clamp(24px, 7vh, 36px);
-    height: clamp(21px, 6.1vh, 32px);
+    width: var(--hud-heart);
+    height: var(--hud-heart-h);
     filter: drop-shadow(0 1px 0 #1a120c);
   }
   /* BB-V7.13 — hearts stay individual through 8 HP; after that a compact meter.
@@ -418,7 +456,7 @@
   .hpMeter svg.heart { flex: 0 0 auto; }
   .hpBar {
     position: relative;
-    width: clamp(110px, 28vh, 160px); height: clamp(14px, 3.6vh, 20px);
+    width: var(--hud-hp-bar-w); height: var(--hud-hp-bar-h);
     background: #2a1814;
     border: 2px solid #8a5048;
     box-sizing: border-box;
@@ -431,7 +469,7 @@
     box-shadow: 0 0 6px rgba(208,64,56,0.45);
   }
   .hpNum {
-    font-weight: 800; font-size: clamp(13px, 3.6vh, 18px); color: #f0e6d4;
+    font-weight: 800; font-size: var(--hud-hp-num); color: #f0e6d4;
     text-shadow: 0 1px 0 #1a120c;
     font-variant-numeric: tabular-nums;
     letter-spacing: 0.02em;
@@ -439,29 +477,29 @@
   }
   #metaRow {
     top: var(--hud-meta-t); left: var(--hud-meta-l);
-    align-items: center; gap: clamp(10px, 2.4vh, 16px);
-    max-width: calc(100% - var(--hud-place-r) - clamp(80px, 18vh, 100px) - 16px);
+    align-items: center; gap: var(--hud-meta-gap);
+    max-width: calc(100% - var(--hud-place-r) - var(--hud-place-w) - 16px);
     flex-wrap: wrap;
   }
   .meta {
     display: inline-flex; align-items: center; gap: 6px;
-    font-weight: 800; font-size: clamp(18px, 5.4vh, 28px); color: #f0e6d4;
+    font-weight: 800; font-size: var(--hud-meta-fs); color: #f0e6d4;
     text-shadow: 0 1px 0 #1a120c;
     letter-spacing: 0.02em;
     font-variant-numeric: tabular-nums;
     flex: 0 0 auto;
   }
-  .meta svg { display: block; flex: 0 0 auto; width: clamp(20px, 6vh, 30px); height: clamp(20px, 6vh, 30px); }
+  .meta svg { display: block; flex: 0 0 auto; width: var(--hud-meta-ico); height: var(--hud-meta-ico); }
   .meta b { font-weight: 800; }
   #placePips {
     top: var(--hud-pips-t); right: var(--hud-pips-r);
-    grid-template-columns: repeat(3, clamp(16px, 4.2vh, 22px));
-    grid-auto-rows: clamp(14px, 3.6vh, 20px);
+    grid-template-columns: repeat(3, var(--hud-pip));
+    grid-auto-rows: var(--hud-pip-h);
     gap: 4px 4px;
     pointer-events: none;
   }
   .mini-cube {
-    width: clamp(16px, 4.2vh, 22px); height: clamp(14px, 3.6vh, 20px);
+    width: var(--hud-pip); height: var(--hud-pip-h);
     position: relative;
     opacity: 0.16;
   }
@@ -472,7 +510,7 @@
     top: var(--hud-place-t); right: var(--hud-place-r);
   }
   .place-btn {
-    width: clamp(80px, 18vh, 100px); height: clamp(88px, 20vh, 110px);
+    width: var(--hud-place-w); height: var(--hud-place-h);
     padding: 0; margin: 0;
     border: 0; background: transparent;
     cursor: pointer;
@@ -484,7 +522,7 @@
   .place-btn .place-words {
     position: absolute; left: 0; right: 0; top: 30%;
     text-align: center; pointer-events: none;
-    font-weight: 800; font-size: clamp(13px, 3.4vh, 18px); line-height: 1.05;
+    font-weight: 800; font-size: var(--hud-place-fs); line-height: 1.05;
     letter-spacing: 0.04em; color: #f0e6d4;
     opacity: 0.72;
     text-shadow: 0 1px 0 #1a120c;
@@ -502,8 +540,8 @@
     top: var(--hud-pause-t); right: var(--hud-pause-r);
   }
   #hud button.bb.icon-btn {
-    width: clamp(44px, 11vh, 60px);
-    height: clamp(44px, 11vh, 60px);
+    width: var(--hud-pause);
+    height: var(--hud-pause);
     padding: 8px;
     box-sizing: border-box;
     align-items: center; justify-content: center;
@@ -644,6 +682,7 @@
     portrait: false,
     standalone: false,
     ios: false,
+    uiPad: false,
     t: 0,
     acc: 0,
     last: 0,
@@ -973,18 +1012,51 @@
 
   function stickGeom() {
     var cw = canvas.width, ch = canvas.height;
-    /* BB-V7.12 — +20% vs the v7.5 playtest rings (rad 0.145, inset 1.45R).
-       That inset left a 0.45R gap from the screen edge to the circumference.
-       Keep the gap; grow the disc and slide the midpoint up and in by 0.2R. */
-    var rad0 = Math.max(46, Math.min(cw, ch) * 0.145);
-    var gap = rad0 * 0.45;
-    var rad = rad0 * 1.2;
-    var inset = rad + gap;
+    var cssW = Math.max(1, window.innerWidth);
+    var dpr = cw / cssW;
+    var shortCss = Math.min(window.innerWidth, window.innerHeight);
+    var pad = uiPad();
+    /* BB-V7.12 — phone: +20% vs v7.5 (rad 0.145, inset 1.45R), keep 0.45R edge gap.
+       BB-V7.25 — tablet/iPad: cap physical ring size near phone landscape and tuck
+       toward the corners. Same left-walk / field-aim scheme; no second input path. */
+    var radCss, gapCss;
+    if (pad) {
+      /* Phone-like disc (~52–62 CSS px). Edge gap ~0.12R so the ring almost
+         kisses the corner — iPad thumbs rest nearer the bezel than phone. */
+      radCss = Math.min(62, Math.max(52, shortCss * 0.068));
+      gapCss = Math.max(6, radCss * 0.12);
+    } else {
+      var rad0Css = Math.max(46, shortCss * 0.145);
+      gapCss = rad0Css * 0.45;
+      radCss = rad0Css * 1.2;
+    }
+    var rad = radCss * dpr;
+    var inset = (radCss + gapCss) * dpr;
+    /* feelRad: full deflection travels feelRad canvas px. On pad, a slightly
+       smaller feel radius than the drawn disc makes the stick snappier without
+       growing the grab zone. */
+    var feelRad = pad ? rad * 0.78 : rad;
     return {
       rad: rad,
+      feelRad: feelRad,
+      pad: pad,
       L: { cx: inset, cy: ch - inset },
       R: { cx: cw - inset, cy: ch - inset }
     };
+  }
+
+  /* BB-V7.25 — form-factor bolt-on. Short CSS side ≥ 600 covers iPad mini+ in
+     either orientation without UA sniffing (desktop wide windows stay phone
+     formula unless the window is actually tablet-shaped). */
+  function uiPad() {
+    return Math.min(window.innerWidth, window.innerHeight) >= 600;
+  }
+
+  function syncUiForm() {
+    var pad = uiPad();
+    document.documentElement.classList.toggle("ui-pad", pad);
+    S.uiPad = pad;
+    return pad;
   }
 
   function canvasFromEvent(ev) {
@@ -4067,8 +4139,10 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      BB-V7.23 — boss-lair hoop mounts on the implied wallH-3 north face;
      end-of-floor knight chambers get the same hoop + optional swish window.
      BB-V7.24 — large rooms zoom out toward TILE_CSS_MIN + smoothed cam pan.
-     BB-V7.24 — track→punch→ease camera on every hoop swish (boss + knight). */
-  var BUILD = "v7.24";
+     BB-V7.24 — track→punch→ease camera on every hoop swish (boss + knight).
+     BB-V7.25 — iPad/tablet bolt-on: capped sticks nearer corners, denser HUD,
+     screen-space aim power; same control scheme, no separate iPad fork. */
+  var BUILD = "v7.25";
   var FEEL_DEF = { spd: 250, accel: 2600, brake: 3600, throwSpd: 620, aimMode: "drag", aimDead: 2, aimHold: 64 };
   var FEEL = (function () {
     var f = {};
@@ -4200,6 +4274,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     canvas.style.height = h + "px";
     var port = h > w * 1.05;
     S.portrait = port;
+    syncUiForm();
     syncRotate();
   }
 
@@ -6517,6 +6592,7 @@ function endRunToMenu() {
        the drag STARTED, which makes the swing the same speed everywhere on the
        screen, and one screen-width of travel covers a full sweep. */
     S.dragFrom = { x: w.x, y: w.y };
+    S.dragFromCss = { x: c.x, y: c.y };
     if (!ball.live) {
       var dx0 = w.x - player.x, dy0 = w.y - player.y;
       S.aim = { ang: Math.atan2(dy0, dx0), pow: 0.6, x: w.x, y: w.y };
@@ -6528,8 +6604,8 @@ function endRunToMenu() {
     var G = stickGeom();
     if (ev.pointerId === STK.L.id) {
       var c = canvasFromEvent(ev);
-      STK.L.dx = (c.x - G.L.cx) / G.rad;
-      STK.L.dy = (c.y - G.L.cy) / G.rad;
+      STK.L.dx = (c.x - G.L.cx) / G.feelRad;
+      STK.L.dy = (c.y - G.L.cy) / G.feelRad;
       var m = Math.hypot(STK.L.dx, STK.L.dy);
       if (m > 1) { STK.L.dx /= m; STK.L.dy /= m; }
       return;
@@ -6556,7 +6632,17 @@ function endRunToMenu() {
         m = dragM;
       }
       {
-        S.aim.pow = Math.max(0.4, Math.min(1, 0.4 + m / 150));
+        /* BB-V7.25 — power from screen drag so whole-room iPad zoom is not sluggish.
+           Phone keeps the locked world-space /150 curve. */
+        var powM = m, powDiv = 150;
+        if (uiPad() && S.dragFromCss) {
+          var c2 = canvasFromEvent(ev);
+          var cssW = Math.max(1, window.innerWidth);
+          var dpr = canvas.width / cssW;
+          powM = Math.hypot(c2.x - S.dragFromCss.x, c2.y - S.dragFromCss.y) / dpr;
+          powDiv = 88;
+        }
+        S.aim.pow = Math.max(0.4, Math.min(1, 0.4 + powM / powDiv));
       }
       S.aim.x = player.x + Math.cos(S.aim.ang) * 200;
       S.aim.y = player.y + Math.sin(S.aim.ang) * 200;
@@ -6571,6 +6657,7 @@ function endRunToMenu() {
     S.pointer.down = false;
     if (S.mode === "play" && S.aim && !ball.live && !S.downed) throwBall(S.aim.ang, S.aim.pow);
     S.aim = null;
+    S.dragFromCss = null;
   }
 
   function clearSticks() {
@@ -6578,7 +6665,7 @@ function endRunToMenu() {
     if (player) { player.vx = 0; player.vy = 0; }
     STK.L.id = null; STK.L.dx = 0; STK.L.dy = 0;
     STK.R.id = null; STK.R.dx = 0; STK.R.dy = 0;
-    STK.FIELD.id = null; S.pointer.down = false; S.aim = null;
+    STK.FIELD.id = null; S.pointer.down = false; S.aim = null; S.dragFromCss = null;
   }
 
   var KEYMAP = {
@@ -6802,6 +6889,7 @@ function endRunToMenu() {
       var cam = cameraFit();
       var t = cameraTarget();
       var dpr = canvas.width / Math.max(1, window.innerWidth);
+      var G = stickGeom();
       return {
         build: BUILD, hs: HS, mobVis: MOB_VIS, knightVis: KNIGHT_VIS, lordVis: LORD_VIS, bossVis: BOSS_VIS,
         tileCssTarget: TILE_CSS, tileCssMin: TILE_CSS_MIN, camPanRate: CAM_PAN_RATE,
@@ -6810,7 +6898,12 @@ function endRunToMenu() {
         camX: cam.camX, camY: cam.camY, follow: S.camFollow ? { x: S.camFollow.x, y: S.camFollow.y, on: !!S.camFollow.on } : null,
         cols: playCols(), rows: playRows(), ww: playW(), hh: playH(),
         playerR: player ? player.r : null, ballR: ball ? ball.r : null, moveSpd: FEEL.spd, throwSpd: FEEL.throwSpd, aimMode: FEEL.aimMode, blockLife: BLOCK_LIFE, blockHits: BLOCK_HITS,
-        difficulty: S.difficulty || store.difficulty || "easy"
+        difficulty: S.difficulty || store.difficulty || "easy",
+        uiPad: uiPad(),
+        stick: {
+          radCss: G.rad / dpr, feelRadCss: G.feelRad / dpr,
+          insetCss: G.L.cx / dpr, gapCss: (G.L.cx - G.rad) / dpr
+        }
       };
     },
     /* Harness: teleport the hero (keeps follow smooth unless snap). */
