@@ -713,7 +713,10 @@
       { token: "RIFT", cos: { body: "swift", hat: "bow", ball: "midnight", trail: "ribbon", pal: "lilac" } }
     ],
     installHide: false,
-    aimHelp: false
+    aimHelp: false,
+    /* BB-V7.22 — difficulty schema (easy / normal / hard). Persisted with the
+       rest of the book so the main-menu pick survives a reload. */
+    diff: "normal"
   };
 
   function lsGet(k) {
@@ -740,6 +743,7 @@
       if (o.profiles) store.profiles = o.profiles;
       if (o.installHide) store.installHide = true;
       if (o.aimHelp) store.aimHelp = true;
+      if (o.diff === "easy" || o.diff === "normal" || o.diff === "hard") store.diff = o.diff;
       S.seenAimHelp = !!o.aimHelp;
     } catch (e) {}
   }
@@ -772,7 +776,8 @@
         stash: store.stash.slice(0, 8),
         profiles: store.profiles,
         installHide: store.installHide,
-        aimHelp: store.aimHelp
+        aimHelp: store.aimHelp,
+        diff: store.diff || "normal"
       }));
     } catch (e) {}
   }
@@ -930,6 +935,7 @@
 
   function freshPlayer() {
     var p = store.profiles[activeProfile] || store.profiles[0];
+    var df = diff();
     return {
       x: 120, y: 270, r: PLAYER_R,
       /* CHIEF BB-V6.3 — 158 px/s is the number from Joe's v3 build, the one LP
@@ -937,11 +943,11 @@
       /* CHIEF BB-V6.6 — 158 was right for the old sprite; at 2.15x the size the same
          px/s reads as a crawl, because speed is felt in body-lengths, not pixels. */
       spd: FEEL.spd, walk: 0, vx: 0, vy: 0,
-      hp: 5, maxHp: 5,
+      hp: df.hearts, maxHp: df.hearts,
       frag: 0,
       dmgLv: 0, spdLv: 0, blkLv: 0, hpBought: 0, fireLv: 0, placeRateLv: 0,
       permaFire: false,
-      blockStock: 3, blockMax: 3, placeHits: 0,
+      blockStock: df.blocks, blockMax: df.blocks, placeHits: 0,
       inv: 0,
       facing: 1,
       cos: JSON.parse(JSON.stringify(p.cos || defaultCos())),
@@ -1309,13 +1315,14 @@
 
   function spawnEnemy(type, x, y, fl, isBoss) {
     var d = enemyDef(type);
-    var hp = scaleStat(d.hp, fl);
+    var df = diff();
+    var hp = Math.max(1, Math.floor(scaleStat(d.hp, fl) * df.hp));
     var e = {
       type: type, name: d.name, x: x, y: y,
       /* artR locks the sprite size; fitSilhouette then sets body/hurt from paint */
       artR: d.r, r: d.r,
       hp: hp, maxHp: hp,
-      spd: walkFloor(d.kind, d.spd), kind: d.kind, col: d.col, boss: d.boss || null,
+      spd: walkFloor(d.kind, Math.round(d.spd * df.spd)), kind: d.kind, col: d.col, boss: d.boss || null,
       hitR: d.r, hitLift: 0, bodyR: d.r,
       cd: rnd() * 1.2, stun: 0, burn: 0, alive: true, vx: 0, vy: 0,
       phase: 0, tell: 0, tellMax: 0, gap: 0, ringR: 0, ringOn: false, deadT: 0,
@@ -1934,6 +1941,17 @@
       if (e.kind === "enemy") ents.push(spawnEnemy(e.type, x, y, S.floor, spec.kind === "boss"));
       else if (e.kind === "chest") chests.push({ x: x, y: y, open: false, r: 14 });
     }
+    /* BB-V7.22 — difficulty spawn bite: easy drops one trash, hard adds extras.
+       Boss / mini rooms keep their authored cast. */
+    if (spec.kind !== "boss" && spec.kind !== "mini") {
+      var dfSpawn = diff();
+      if (dfSpawn.spawn < 0 && ents.length > 3) ents.pop();
+      var extra = Math.max(0, dfSpawn.spawn);
+      for (var ei = 0; ei < extra && ents.length; ei++) {
+        var src = ents[ei % ents.length];
+        ents.push(spawnEnemy(src.type, src.x + 28 + ei * 10, src.y + 16, S.floor, false));
+      }
+    }
     room = {
       spec: spec,
       grid: spec.grid,
@@ -2550,7 +2568,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
         (e.boss === "bone" || e.atk === "reap" || e.atk === "charge" ||
          e.atk === "blink" || e.atk === "slam" || e.atk === "briar");
       if (!authoredAtk && Math.hypot(e.x - player.x, e.y - player.y) < bodyR(e) + player.r - 2) {
-        hurtPlayer(1 + Math.floor(S.floor / 6));
+        hurtPlayer(1 + Math.floor(S.floor / 6) + diff().dmgAdd);
         var px = player.x - e.x, py = player.y - e.y, pd = Math.hypot(px, py) || 1;
         /* CHIEF FIX BB-V6.10 — THE clipping cause, found by instrumenting rather
            than by theory. This knock-back from an enemy hit moved the player 18px
@@ -3741,8 +3759,26 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      BB-V7.20 — paint-only back-wall HEIGHT 1–4 (half/wall/high/deep); solid
      walls; per-room wallH from procedural/curated rules + builder share.
      BB-V7.21 — soft DOWN beat before room reset; Skull Lord lunge longer
-     telegraph + early lane lock, attack mix stops lunge spam. */
-  var BUILD = "v7.21";
+     telegraph + early lane lock, attack mix stops lunge spam.
+     BB-V7.22 — DIFFS schema on the main menu (easy / normal / hard): hearts,
+     blocks, enemy hp/spd, contact bite, and trash spawn count. */
+  var BUILD = "v7.22";
+  /* data/difficulty — restored from the v4 rebuild. Hard must bite (PROTOCOL
+     rule 6); easy forgives without deleting the game. */
+  var DIFFS = {
+    easy:   { label: "EASY",   hp: 0.72, spd: 0.86, dmgAdd: 0, hearts: 6, blocks: 4, spawn: -1 },
+    normal: { label: "NORMAL", hp: 1.00, spd: 1.00, dmgAdd: 0, hearts: 5, blocks: 3, spawn: 0 },
+    hard:   { label: "HARD",   hp: 1.85, spd: 1.28, dmgAdd: 1, hearts: 4, blocks: 3, spawn: 2 }
+  };
+  var DIFF_KEYS = ["easy", "normal", "hard"];
+  function diff() {
+    return DIFFS[store.diff] || DIFFS.normal;
+  }
+  function setDiff(id) {
+    if (!DIFFS[id]) return;
+    store.diff = id;
+    saveStore();
+  }
   var FEEL_DEF = { spd: 250, accel: 2600, brake: 3600, throwSpd: 620, aimMode: "drag", aimDead: 2, aimHold: 64 };
   var FEEL = (function () {
     var f = {};
@@ -5587,7 +5623,8 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       "<h1 class=\"splashTitle\">DUNGEON</h1>" +
       "<div class=\"splashGo\">TAP TO START</div>" +
       "<div class='muted' style='margin-top:10px;font-size:12px'>" + BUILD +
-        " · aim " + FEEL.aimMode.toUpperCase() + "</div>";
+        " · aim " + FEEL.aimMode.toUpperCase() +
+        " · " + diff().label + "</div>";
     var panel = document.getElementById("splashPanel");
     panel.className = "panel splash show";
     panel.onclick = function () { ensureAudio(); showMenu(); };
@@ -5617,8 +5654,18 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
          mid-fight to change how the game feels */
       "<button class='bb' id='btnFeelMenu'>FEEL · " + FEEL.aimMode.toUpperCase() + "</button>" +
       "</div>" +
+      /* BB-V7.22 — difficulty is a run pick, not a mid-fight slider. Three tiers
+         from the v4 DIFFS schema, visible before PLAY. */
+      "<h2>DIFFICULTY</h2>" +
+      "<div class='row' id='diffRow'>" +
+      DIFF_KEYS.map(function (k) {
+        return "<button class='bb" + (store.diff === k ? " on" : "") +
+          (k === "hard" ? " warn" : "") + "' data-diff='" + k + "'>" +
+          DIFFS[k].label + "</button>";
+      }).join("") +
+      "</div>" +
       "<p class='muted' style='margin:2px 0 0'>" + BUILD + " · move " + FEEL.spd +
-        " · throw " + FEEL.throwSpd + "</p>" +
+        " · throw " + FEEL.throwSpd + " · " + diff().label + "</p>" +
       "<h2>PROFILE</h2><div class='row' id='profRow'>" + profs + "</div>" +
       /* CHIEF FIX BB-V4.10 — five rows of dress-up pushed SEED and SHARE CODE two
          screens down on a phone. They are a once-a-week choice, not a per-run one,
@@ -5646,6 +5693,12 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       showMenu();
     };
     document.getElementById("btnFeelMenu").onclick = function () { showFeel(); };
+    document.getElementById("diffRow").onclick = function (ev) {
+      var b = ev.target.closest("button");
+      if (!b) return;
+      setDiff(b.getAttribute("data-diff"));
+      showMenu();
+    };
     document.getElementById("btnPlay").onclick = function () { startRun(makeSeed(), null); };
     document.getElementById("btnBuilder").onclick = function () { openBuilder(null); };
     document.getElementById("btnSeed").onclick = function () { startRun(document.getElementById("seedIn").value, null); };
@@ -5690,6 +5743,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       "<div class='landSplit'><div class='landCopy'>" +
       "<h1>PAUSE</h1>" +
       "<p class='muted'>" + S.seed + " · Floor " + S.floor + " · " + (player ? player.token : "") +
+        " · " + diff().label +
         " · BALL " + ((player && player.ballAffix && player.ballAffix.length) ? player.ballAffix.join("+") : (player && player.permaFire ? "FIRE" : "PLAIN")) + "</p>" +
       "</div><div class='landBtns row'>" +
       "<button class='bb pri' id='btnRes'>RESUME</button>" +
@@ -6343,6 +6397,7 @@ function endRunToMenu() {
     buildFloor: buildFloor,
     parseSeed: parseSeed,
     startRun: startRun,
+    showMenu: showMenu,
     camera: function () {
       var cam = cameraFit();
       var dpr = canvas.width / Math.max(1, window.innerWidth);
@@ -6357,6 +6412,11 @@ function endRunToMenu() {
       return { spd: FEEL.spd, accel: FEEL.accel, brake: FEEL.brake, throwSpd: FEEL.throwSpd,
         aimMode: FEEL.aimMode, aimDead: FEEL.aimDead, aimHold: FEEL.aimHold };
     },
+    diff: function () {
+      return { id: store.diff || "normal", label: diff().label, hp: diff().hp, spd: diff().spd,
+        dmgAdd: diff().dmgAdd, hearts: diff().hearts, blocks: diff().blocks, spawn: diff().spawn };
+    },
+    setDiff: setDiff,
     walkFloor: walkFloor,
     pathOk: function () {
       if (!room || !room.spec) return null;
