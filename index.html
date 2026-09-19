@@ -5612,7 +5612,6 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       "<h2>RUN</h2>" +
       "<div class='row'>" +
       "<button class='bb pri' id='btnPlay'>PLAY</button>" +
-      "<button class='bb' id='btnBuilder'>DUNGEON BUILDER</button>" +
       /* FEEL lives here as well as on the pause card — you should not have to be
          mid-fight to change how the game feels */
       "<button class='bb' id='btnFeelMenu'>FEEL · " + FEEL.aimMode.toUpperCase() + "</button>" +
@@ -5647,7 +5646,6 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     };
     document.getElementById("btnFeelMenu").onclick = function () { showFeel(); };
     document.getElementById("btnPlay").onclick = function () { startRun(makeSeed(), null); };
-    document.getElementById("btnBuilder").onclick = function () { openBuilder(null); };
     document.getElementById("btnSeed").onclick = function () { startRun(document.getElementById("seedIn").value, null); };
     document.getElementById("btnRand").onclick = function () { S.seed = makeSeed(); showMenu(); };
     document.getElementById("btnLoadCode").onclick = function () {
