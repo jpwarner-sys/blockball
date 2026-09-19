@@ -1815,8 +1815,30 @@
     if (ty < 0 || tx < 0 || ty >= rows || tx >= cols) return 1;
     return g[ty][tx];
   }
+  /* BB-V7.25 — rim hangs on the wall face (boardY < 0). Open a narrow north-wall
+     corridor so a hoop-ready heave can reach the net instead of bouncing off stone. */
+  function hoopLaneOpen(tx, ty) {
+    if (ty !== 0) return false;
+    if (!S.hoopReady || !room || !room.hoop || room.hoop.swished) return false;
+    var hx = Math.floor(room.hoop.x / TILE);
+    return Math.abs(tx - hx) <= 2;
+  }
+  function tileAtBall(g, x, y) {
+    var tx = Math.floor(x / TILE), ty = Math.floor(y / TILE);
+    if (hoopLaneOpen(tx, ty)) return 0;
+    return tileAt(g, x, y);
+  }
   function circleBlocked(g, blocks, x, y, r) {
     if (tileAt(g, x - r, y) || tileAt(g, x + r, y) || tileAt(g, x, y - r) || tileAt(g, x, y + r) || tileAt(g, x, y)) return true;
+    for (var i = 0; i < blocks.length; i++) {
+      var b = blocks[i];
+      if (Math.abs(x - b.x) < r + TILE * 0.45 && Math.abs(y - b.y) < r + TILE * 0.45) return true;
+    }
+    return false;
+  }
+  function ballCircleBlocked(g, blocks, x, y, r) {
+    if (tileAtBall(g, x - r, y) || tileAtBall(g, x + r, y) || tileAtBall(g, x, y - r) ||
+        tileAtBall(g, x, y + r) || tileAtBall(g, x, y)) return true;
     for (var i = 0; i < blocks.length; i++) {
       var b = blocks[i];
       if (Math.abs(x - b.x) < r + TILE * 0.45 && Math.abs(y - b.y) < r + TILE * 0.45) return true;
@@ -1833,6 +1855,20 @@
       o.y -= o.vy * DT * 1.1; o.vy *= -1; hit = true;
     }
     if (circleBlocked(g, blocks, o.x, o.y, o.r)) {
+      o.x -= o.vx * DT; o.y -= o.vy * DT;
+    }
+    return hit;
+  }
+  function resolveBallCircle(g, blocks, o) {
+    if (!ballCircleBlocked(g, blocks, o.x, o.y, o.r)) return false;
+    var hit = false;
+    if (tileAtBall(g, o.x + o.r, o.y) || tileAtBall(g, o.x - o.r, o.y) || blockHit(blocks, o.x, o.y, o.r, true)) {
+      o.x -= o.vx * DT * 1.1; o.vx *= -1; hit = true;
+    }
+    if (tileAtBall(g, o.x, o.y + o.r) || tileAtBall(g, o.x, o.y - o.r) || blockHit(blocks, o.x, o.y, o.r, false)) {
+      o.y -= o.vy * DT * 1.1; o.vy *= -1; hit = true;
+    }
+    if (ballCircleBlocked(g, blocks, o.x, o.y, o.r)) {
       o.x -= o.vx * DT; o.y -= o.vy * DT;
     }
     return hit;
@@ -1923,8 +1959,11 @@
      floor boss is dead and the ball is back in hand.
      BB-V7.23 — boss rooms imply wallH 3 (high). Seat the backboard on that
      extruded north face so the hoop is not stuck on the floor under a tall
-     wall; rim hangs just into the first open floor row so throws still score.
-     BB-V7.23 — same hoop in end-of-floor knight (mini) chambers. */
+     wall. Same hoop in end-of-floor knight (mini) chambers.
+     BB-V7.25 — rim rides the board bottom with a short brace (no floor-stuck gap). */
+  var HOOP_BOARD_W = 2.2; /* × TILE */
+  var HOOP_BOARD_H = 1.35;
+  var HOOP_ARM = 0.22; /* × TILE — board bottom → rim center (short brace) */
   function roomWantsHoop(spec) {
     return !!(spec && (spec.kind === "boss" || spec.kind === "mini"));
   }
@@ -1941,10 +1980,11 @@
       }
     }
     /* North face spans [TILE - wallH*TILE, TILE]. Mount the board high on that
-       face for high/deep walls; keep the rim in open floor (row 1+) for scoring. */
+       face; hang the rim from the board bottom so board + rim read as one unit. */
     var frontTop = TILE - wallH * TILE;
     var boardY = frontTop + TILE * (wallH >= 3 ? 1.0 : 1.15);
-    var rimY = Math.max(TILE * 1.35, boardY + TILE * 1.15);
+    var bh = TILE * HOOP_BOARD_H;
+    var rimY = boardY + bh * 0.5 + TILE * HOOP_ARM;
     return {
       x: (cx + 0.5) * TILE,
       y: rimY,
@@ -2154,7 +2194,8 @@
   function drawHoop(g, h) {
     if (!h) return;
     var bx = h.x, by = h.boardY;
-    var bw = TILE * 2.2, bh = TILE * 1.35;
+    var bw = TILE * HOOP_BOARD_W, bh = TILE * HOOP_BOARD_H;
+    var boardBot = by + bh * 0.5;
     /* backboard — white with black target square (NBA look) */
     cube(g, bx - bw / 2, by - bh / 2, bw, bh, 6, "#e8e8e8");
     g.strokeStyle = "#1a1a1a";
@@ -2163,6 +2204,10 @@
     g.strokeStyle = "#c03028";
     g.lineWidth = 2;
     g.strokeRect(bx - bw * 0.14, by - bh * 0.14, bw * 0.28, bh * 0.28);
+    /* brace + rim plate — ties board to hoop so it does not float on the floor */
+    var armLen = Math.max(5, h.y - boardBot + 3);
+    cube(g, h.x - 5, boardBot - 2, 10, armLen, 5, "#d06020");
+    cube(g, h.x - 8, h.y - 6, 16, 8, 5, "#e87028");
     /* orange rim */
     g.save();
     g.strokeStyle = "#e86020";
@@ -2791,7 +2836,7 @@
     ball.life -= dt;
     checkHoopSwish(prevX, prevY);
     var ballBlock = blockAt(room.blocks, ball.x, ball.y, ball.r);
-    if (resolveCircle(room.grid, room.blocks, ball)) {
+    if (resolveBallCircle(room.grid, room.blocks, ball)) {
       ball.bounces += 1;
       sfx("bounce");
       if (ballBlock >= 0) hurtBlockAt(ballBlock, BLOCK_HITS);
@@ -2863,11 +2908,12 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     var vx = Math.cos(ang), vy = Math.sin(ang);
     pts.push({ x: x, y: y });
     var bounced = false;
+    var probe = (S.hoopReady && room && room.hoop && !room.hoop.swished) ? tileAtBall : tileAt;
     for (var i = 0; i < 90; i++) {
       x += vx * 8; y += vy * 8;
-      if (tileAt(room.grid, x, y) || blockHit(room.blocks, x, y, 6, true)) {
-        var hx = tileAt(room.grid, x + vx * 8, y) || blockHit(room.blocks, x + 4, y, 6, true);
-        var hy = tileAt(room.grid, x, y + vy * 8) || blockHit(room.blocks, x, y + 4, 6, false);
+      if (probe(room.grid, x, y) || blockHit(room.blocks, x, y, 6, true)) {
+        var hx = probe(room.grid, x + vx * 8, y) || blockHit(room.blocks, x + 4, y, 6, true);
+        var hy = probe(room.grid, x, y + vy * 8) || blockHit(room.blocks, x, y + 4, 6, false);
         if (hx) vx *= -1;
         if (hy) vy *= -1;
         if (!hx && !hy) { vx *= -1; vy *= -1; }
@@ -4166,6 +4212,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      BB-V7.24 — track→punch→ease camera on every hoop swish (boss + knight).
      BB-V7.25 — iPad/tablet bolt-on: capped sticks nearer corners, denser HUD,
      screen-space aim power; same control scheme, no separate iPad fork.
+     BB-V7.25 — rim + brace attach to the raised backboard (no floor-stuck gap).
      BB-V7.26 — iPad HUD drops below status bar by one heart row; sticks +15%
      size with same corner edge gap as v7.25.
      BB-V7.27 — pad canvas DPR 1.0 + pixel budget; park canvas on menus;
