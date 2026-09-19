@@ -656,6 +656,7 @@
     pops: [],
     muteFx: 0,
     bossBeat: 0,
+    downBeat: 0,
     hoopReady: false,
     cine: null,
     seenAimHelp: false,
@@ -1948,6 +1949,7 @@
     S.placeMode = false;
     S.placeArmed = false;
     S.shots = []; S.splits = [];
+    S.downBeat = 0;
     room.clearWait = 0;
     if (!ents.length) { room.cleared = true; room.doorReady = true; }
     if (!S.seenAimHelp) toast("LEFT RING to walk · DRAG anywhere to throw");
@@ -1960,6 +1962,7 @@
     S.runTricks = 0;
     S.hoopReady = false;
     S.bossBeat = 0;
+    S.downBeat = 0;
     S.cine = null;
     S.customPlay = !!custom;
     S.builderLevel = custom || null;
@@ -2025,7 +2028,7 @@
 
   /* ---------- combat ---------- */
   function hurtPlayer(n) {
-    if (player.inv > 0) return;
+    if (player.inv > 0 || S.downBeat > 0) return;
     player.hp -= n;
     player.inv = 0.9;
     S.shake = 0.25;
@@ -2033,9 +2036,15 @@
     floatTxt(player.x, player.y - 24, "-" + n, "#ff8060");
     if (player.hp <= 0) {
       player.hp = 0;
+      /* hold on the death spot before room reload — instant loadRoom read as a
+         teleport, especially mid-Skull-Lord lunge */
       toast("DOWN — room reset, loot kept");
-      player.hp = player.maxHp;
-      loadRoom(S.roomI);
+      S.downBeat = 1.45;
+      S.shake = Math.max(S.shake, 0.55);
+      player.vx = player.vy = 0;
+      S.aim = null;
+      burst(player.x, player.y, "#ff8060", 18);
+      syncHud();
     }
   }
 
@@ -2266,7 +2275,7 @@
   }
 
   function throwBall(ang, pow) {
-    if (ball.live) return;
+    if (ball.live || S.downBeat > 0) return;
     S.throws = (S.throws || 0) + 1;
     var spd = throwSpeed() * pow;
     ball.live = true; ball.ret = false; ball.pierced = false;
@@ -2981,7 +2990,8 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      dashed lane (was ~40px of travel vs a 400px tell). Ease-in slash, ease-out
      dash, stride/cape on the pose clock.
      BB-V7.21 — lunge telegraph: longer wind + early aim lock so the dashed
-     lane freezes with enough time to walk-dodge (was tracking until 78%). */
+     lane freezes with enough time to walk-dodge (was tracking until 78%);
+     attack pick mixes cleave walk-ins and caps lunge streaks. */
   var SKULL_CLEAVE_BACK = 1.32;
   var SKULL_CLEAVE_FWD = 1.18;
 
@@ -3033,6 +3043,8 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     e.dashCommit = false;
     e.prevX = e.x;
     e.prevY = e.y;
+    e.lastAtk = null;
+    e.lungeStreak = 0;
   }
 
   function spawnSkullAdds(boss, n) {
@@ -3082,6 +3094,18 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
         spawnSkullAdds(e, counts[i]);
       }
     }
+  }
+
+  /* Big hall made pure dist>135 → almost always lunge. Mix in walk-ins and
+     cleaves; never chain more than one lunge without a close-range beat. */
+  function pickSkullAtk(e, dist) {
+    if (e.lastAtk === "lunge" || (e.lungeStreak || 0) >= 1) {
+      if (dist < 160) return "cleave";
+      return null; /* keep chasing into cleave range */
+    }
+    if (dist < 150) return "cleave";
+    if (dist < 220) return rnd() < 0.22 ? "lunge" : null;
+    return "lunge";
   }
 
   function startSkullAtk(e, kind, dx, dy, dist) {
@@ -3304,7 +3328,11 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
         var finished = e.atk;
         e.atk = null;
         e.atkT = 0;
-        e.cd = (finished === "lunge" ? 1.05 : 0.92) + rnd() * 0.38;
+        e.lastAtk = finished;
+        if (finished === "lunge") e.lungeStreak = (e.lungeStreak || 0) + 1;
+        else e.lungeStreak = 0;
+        /* longer post-lunge rest so the next beat is walk/cleave, not spam */
+        e.cd = (finished === "lunge" ? 1.55 : 1.05) + rnd() * 0.4;
         e.bladeLift = 0;
         e.bladeAng = e.face * -0.45;
         e.lean = 0;
@@ -3317,8 +3345,11 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       return;
     }
 
-    /* idle chase — close for cleave; lunge is the gap-closer in the big hall */
+    /* idle chase — after a lunge, press in for cleave instead of re-charging */
     var chase = dist > 240 ? 1.25 : dist > 150 ? 0.9 : dist > 90 ? 0.55 : 0.32;
+    if (e.lastAtk === "lunge" || (e.lungeStreak || 0) >= 1) {
+      chase = Math.max(chase, dist > 160 ? 1.35 : 0.95);
+    }
     moveToward(e, dx / dist * chase, dy / dist * chase, e.spd, dt);
     e.face = dx < 0 ? -1 : 1;
     e.bladeAng = e.face * -0.45;
@@ -3326,12 +3357,12 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     e.stridePhase = (e.stridePhase || 0) + dt * (dist > 50 ? 9 : 3.5);
     e.stride = Math.sin(e.stridePhase) * 0.14;
     if (e.cd <= 0) {
-      if (dist < 135) {
-        startSkullAtk(e, "cleave", dx, dy, dist);
-        sfx("cleave");
+      var pick = pickSkullAtk(e, dist);
+      if (pick) {
+        startSkullAtk(e, pick, dx, dy, dist);
+        sfx(pick);
       } else {
-        startSkullAtk(e, "lunge", dx, dy, dist);
-        sfx("lunge");
+        e.cd = 0.28 + rnd() * 0.22;
       }
     }
   }
@@ -3634,7 +3665,8 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      BB-V7.20 — paint-only back-wall HEIGHT 1–4 (half/wall/high/deep); solid
      walls; per-room wallH from procedural/curated rules + builder share.
      BB-V7.21 — Skull Lord lunge: longer telegraph + early lane lock so the
-     dash is walk-dodgeable on phone. */
+     dash is walk-dodgeable on phone; attack mix stops lunge spam; short
+     death beat before room reset so a kill no longer teleports. */
   var BUILD = "v7.21";
   var FEEL_DEF = { spd: 250, accel: 2600, brake: 3600, throwSpd: 620, aimMode: "drag", aimDead: 2, aimHold: 64 };
   var FEEL = (function () {
@@ -3863,6 +3895,11 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     g.scale(scale, scale);
     drawWorld(g);
     g.restore();
+    if (S.downBeat > 0) {
+      var da = Math.min(0.62, 0.18 + (1.45 - S.downBeat) * 0.32);
+      g.fillStyle = "rgba(28,6,8," + da + ")";
+      g.fillRect(0, 0, cw, ch);
+    }
     if (S.mode === "play" && !S.pause && !S.portrait) drawSticks(g);
     if (S.mode === "play" && !S.seenAimHelp) {
       g.fillStyle = "rgba(20,17,14,0.0)";
@@ -5929,7 +5966,7 @@ function endRunToMenu() {
      release it, so a thumb on the walk ring never steals the aim, and lifting one
      never cancels the other. The old drag-anywhere aim is kept for the mouse. */
   function onDown(ev) {
-    if (S.mode !== "play" || S.pause || S.portrait) return;
+    if (S.mode !== "play" || S.pause || S.portrait || S.downBeat > 0) return;
     if (ev.target && ev.target.closest && ev.target.closest("#hud button, #btnBlock, #btnPause, #placePips")) return;
     if (hudChromeHit(ev)) return;
     ensureAudio();
@@ -6005,7 +6042,7 @@ function endRunToMenu() {
     STK.FIELD.id = null;
     if (!S.pointer.down) return;
     S.pointer.down = false;
-    if (S.mode === "play" && S.aim && !ball.live) throwBall(S.aim.ang, S.aim.pow);
+    if (S.mode === "play" && S.aim && !ball.live && S.downBeat <= 0) throwBall(S.aim.ang, S.aim.pow);
     S.aim = null;
   }
 
@@ -6123,6 +6160,20 @@ function endRunToMenu() {
     if (!player || !room) return;
     if (document.getElementById("shopPanel").className.indexOf("show") >= 0) return;
     if (document.getElementById("floorPanel").className.indexOf("show") >= 0) return;
+    /* death beat: freeze the room on the kill spot, then reload */
+    if (S.downBeat > 0) {
+      S.downBeat -= dt;
+      player.vx = player.vy = 0;
+      S.aim = null;
+      updateFx(dt);
+      if (S.t % 0.25 < dt) syncHud();
+      if (S.downBeat <= 0) {
+        player.hp = player.maxHp;
+        loadRoom(S.roomI);
+        syncHud();
+      }
+      return;
+    }
     updatePlayer(dt);
     updateBall(dt);
     updateSplits(dt);
