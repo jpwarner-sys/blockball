@@ -2269,9 +2269,18 @@
   function updateBall(dt) {
     if (!ball.live) {
       /* CHIEF BB-V5.3 — the ball at rest used to be drawn over the hero's face.
-         It now sits in the throwing hand, out to the side and low. */
+         It now sits in the throwing hand, out to the side and low.
+         BB-V7.19 — match the hero's south-wall ground bias so the held ball
+         does not sit on the wall's lifted top while he stands on the floor. */
+      var handBias = 0;
+      if (room && room.grid) {
+        var ptx = Math.floor(player.x / TILE), pty = Math.floor(player.y / TILE);
+        if (pty + 1 < playRows() && room.grid[pty + 1] && room.grid[pty + 1][ptx]) {
+          handBias = -Math.round(TILE * WALL_Z);
+        }
+      }
       ball.x = player.x + player.facing * 30;
-      ball.y = player.y - 8;
+      ball.y = player.y - 8 + handBias;
       return;
     }
     if (ball.ret) {
@@ -3593,15 +3602,13 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      BB-V7.16 — Skull Lord hall ~2.3× the v7.12 lair; cleave/lunge ease,
      real dash travel, blade sweeps the telegraph fan.
      BB-V7.17 — no auto exit-pull on clear; closed/open east door.
-<<<<<<< HEAD
-     BB-V7.18 — paint-only back-wall HEIGHT 1–4 (half/wall/high/deep); solid walls.
-     BB-V7.19 — per-room wallH from procedural/curated rules + builder share. */
-  var BUILD = "v7.19";
-=======
      BB-V7.18 — mini knights each get a special / normal / wild kit with
-     distinct weapons, telegraphs, and pose clocks. */
-  var BUILD = "v7.18";
->>>>>>> origin/main
+     distinct weapons, telegraphs, and pose clocks.
+     BB-V7.19 — row-sort walls with actors so south cubes occlude feet; softer
+     hero bob/shadow against a south wall so he stops floating on the block.
+     BB-V7.20 — paint-only back-wall HEIGHT 1–4 (half/wall/high/deep); solid
+     walls; per-room wallH from procedural/curated rules + builder share. */
+  var BUILD = "v7.20";
   var FEEL_DEF = { spd: 250, accel: 2600, brake: 3600, throwSpd: 620, aimMode: "drag", aimDead: 2, aimHold: 64 };
   var FEEL = (function () {
     var f = {};
@@ -3952,7 +3959,11 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      and the floor delivered a top-down checkerboard. The old LP build got this right:
      walls are blocks lifted by their own height, ~48% of a tile. That one number is
      the difference between a room and a grid.
-     BB-V7.18 — visual HEIGHT is paint-only (grid stays 0/1). In this projection,
+     BB-V7.19 — painting every wall before every actor made the hero cover a south
+     wall's lifted top, so walking the south lip read as floating on the block.
+     Depth is now row-sorted north→south: actors on a row, then that row's cubes.
+     A wall south of you occludes your feet; you stay in front of walls to the north.
+     BB-V7.20 — visual HEIGHT is paint-only (grid stays 0/1). In this projection,
      height is the cube front-face (z), not extra top-face rows — stacking tops
      reads as wall thickness. BACK_WALL_H is north-border height in block units
      (1 half · 2 wall · 3 high · 4 deep). Interior/side/south keep WALL_Z.
@@ -4019,6 +4030,11 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     var h = clampWallH(BACK_WALL_H) * TILE;
     var base = Math.round(TILE * WALL_Z);
     return Math.max(0, h - base);
+  }
+
+  function sortRow(py) {
+    var rows = playRows();
+    return Math.max(0, Math.min(rows - 1, Math.floor(py / TILE)));
   }
 
   /* Exit door: sealed plank slab before clear, swings open with a warm hall glow after. */
@@ -4111,7 +4127,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     var bio = biomeOf(S.floor);
     var wz = Math.round(TILE * WALL_Z);
     var rows = playRows(), cols = playCols();
-    var y, x, wall;
+    var y, x, wall, b, c, i, L, s, sp, z, f, p;
     /* floor for EVERY tile first, or a wall's lifted top is painted over by the
        floor of the tile above it. */
     for (y = 0; y < rows; y++) {
@@ -4120,9 +4136,39 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
         g.fillRect(x * TILE, y * TILE, TILE, TILE);
       }
     }
-    /* then walls as blocks, top row first so a lower wall occludes the one above it.
+    if (room && room.hoop) drawHoop(g, room.hoop);
+    if (S.scaleProbe && player) drawScaleProbe(g, wz);
+    /* Row-sorted north→south: actors then cubes so south walls occlude feet.
        North border: one footprint, taller front face (height, not thickness). */
     for (y = 0; y < rows; y++) {
+      if (room) {
+        for (c = 0; c < room.chests.length; c++) {
+          if (sortRow(room.chests[c].y) === y) drawChest(g, room.chests[c]);
+        }
+        for (i = 0; i < room.enemies.length; i++) {
+          if (sortRow(room.enemies[i].y) === y) drawEnemy(g, room.enemies[i]);
+        }
+      }
+      for (L = 0; L < S.loot.length; L++) {
+        if (sortRow(S.loot[L].y) === y) drawLoot(g, S.loot[L]);
+      }
+      if (ball && !ball.live && sortRow(ball.y) === y) drawBallObj(g, ball, false);
+      if (player && sortRow(player.y) === y) drawPlayer(g);
+      if (ball && ball.live && sortRow(ball.y) === y) drawBallObj(g, ball, true);
+      if (room) {
+        for (b = 0; b < room.blocks.length; b++) {
+          var bl = room.blocks[b];
+          if (sortRow(bl.y) !== y) continue;
+          var tLife = bl.maxLife ? Math.max(0, bl.life / bl.maxLife) : 1;
+          var tHp = bl.maxHp ? Math.max(0, bl.hp / bl.maxHp) : 1;
+          var t = Math.min(tLife, tHp);
+          var bh = TILE * (0.42 + 0.58 * t);
+          var bz = Math.round(wz * (0.35 + 0.65 * t));
+          g.globalAlpha = 0.38 + 0.62 * t;
+          cube(g, bl.x - TILE * 0.5, bl.y - TILE * 0.5 - bz + (TILE - bh), TILE, bh, bz, t < 0.35 ? "#5a4030" : "#6a5a44");
+          g.globalAlpha = 1;
+        }
+      }
       for (x = 0; x < cols; x++) {
         wall = room ? room.grid[y][x] : 1;
         if (!wall) continue;
@@ -4147,33 +4193,14 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
         }
       }
     }
+    /* East exit after wall pass so sealed/open leaves sit on the carved hole. */
     drawExitDoor(g, wz);
-    if (room) {
-      for (var b = 0; b < room.blocks.length; b++) {
-        var bl = room.blocks[b];
-        var tLife = bl.maxLife ? Math.max(0, bl.life / bl.maxLife) : 1;
-        var tHp = bl.maxHp ? Math.max(0, bl.hp / bl.maxHp) : 1;
-        var t = Math.min(tLife, tHp);
-        var bh = TILE * (0.42 + 0.58 * t);
-        var bz = Math.round(wz * (0.35 + 0.65 * t));
-        g.globalAlpha = 0.38 + 0.62 * t;
-        cube(g, bl.x - TILE * 0.5, bl.y - TILE * 0.5 - bz + (TILE - bh), TILE, bh, bz, t < 0.35 ? "#5a4030" : "#6a5a44");
-        g.globalAlpha = 1;
-      }
-      if (room.hoop) drawHoop(g, room.hoop);
-      if (S.scaleProbe && player) drawScaleProbe(g, wz);
-      for (var c = 0; c < room.chests.length; c++) drawChest(g, room.chests[c]);
-      for (var i = 0; i < room.enemies.length; i++) drawEnemy(g, room.enemies[i]);
-    }
-    for (var L = 0; L < S.loot.length; L++) drawLoot(g, S.loot[L]);
-    for (var s = 0; s < S.shots.length; s++) drawShot(g, S.shots[s]);
-    for (var sp = 0; sp < S.splits.length; sp++) {
+
+    for (s = 0; s < S.shots.length; s++) drawShot(g, S.shots[s]);
+    for (sp = 0; sp < S.splits.length; sp++) {
       g.fillStyle = "#f09040";
-g.beginPath(); g.arc(S.splits[sp].x, S.splits[sp].y, S.splits[sp].r, 0, 6.3); g.fill();
+      g.beginPath(); g.arc(S.splits[sp].x, S.splits[sp].y, S.splits[sp].r, 0, 6.3); g.fill();
     }
-    if (ball && !ball.live) drawBallObj(g, ball, false);
-    if (player) drawPlayer(g);
-    if (ball && ball.live) drawBallObj(g, ball, true);
     if (S.mode === "play" && !S.pause && S.placeArmed) drawPlaceGhost(g, wz);
     if (S.aim && !ball.live) {
       var pts = aimGuide(S.aim.ang, S.aim.pow);
@@ -4181,7 +4208,7 @@ g.beginPath(); g.arc(S.splits[sp].x, S.splits[sp].y, S.splits[sp].r, 0, 6.3); g.
       g.lineWidth = 2;
       g.setLineDash([6, 6]);
       g.beginPath();
-      for (var p = 0; p < pts.length; p++) {
+      for (p = 0; p < pts.length; p++) {
         if (p === 0) g.moveTo(pts[p].x, pts[p].y); else g.lineTo(pts[p].x, pts[p].y);
       }
       g.stroke();
@@ -4189,14 +4216,14 @@ g.beginPath(); g.arc(S.splits[sp].x, S.splits[sp].y, S.splits[sp].r, 0, 6.3); g.
       g.fillStyle = "rgba(240,210,140,0.8)";
       g.beginPath(); g.arc(player.x + Math.cos(S.aim.ang) * 28, player.y + Math.sin(S.aim.ang) * 28, 4, 0, 6.3); g.fill();
     }
-    for (var z = 0; z < S.particles.length; z++) {
+    for (z = 0; z < S.particles.length; z++) {
       var pt = S.particles[z];
       g.globalAlpha = Math.max(0, pt.t * 2);
       g.fillStyle = pt.col;
       g.fillRect(pt.x, pt.y, pt.s, pt.s);
       g.globalAlpha = 1;
     }
-    for (var f = 0; f < S.floats.length; f++) {
+    for (f = 0; f < S.floats.length; f++) {
       var ft = S.floats[f];
       g.globalAlpha = Math.max(0, ft.life * 1.4);
       g.fillStyle = ft.c;
@@ -4479,21 +4506,35 @@ g.beginPath(); g.arc(S.splits[sp].x, S.splits[sp].y, S.splits[sp].r, 0, 6.3); g.
 
     /* Joe's own offsets, unchanged: head at 0, body at 0.55, legs at 1.15, all
        measured down from py = y - s*1.55. Only `sc` is ours, so he is the size
-       Joe asked for while standing in exactly the proportions that worked. */
+       Joe asked for while standing in exactly the proportions that worked.
+       BB-V7.19 — near a south wall the cube top overhangs onto the floor tile
+       (lifted by WALL_Z). Row-sort hides feet under that lip, but bob + a low
+       shadow still read as standing on the block. Soften bob, park the ellipse
+       on the real floor north of the lip, and bias the paint a few px north so
+       the soles clear the overhang without changing the hitbox. */
     var sc = 22 * HS;
     var moving = Math.hypot(player.vx || 0, player.vy || 0) > 12;
-    var bob = Math.sin(S.t * 7) * (moving ? 1.4 : 0.45);
+    var nearSouth = false;
+    if (room && room.grid) {
+      var ptx = Math.floor(player.x / TILE), pty = Math.floor(player.y / TILE);
+      if (pty + 1 < playRows() && room.grid[pty + 1] && room.grid[pty + 1][ptx]) nearSouth = true;
+    }
+    var bobAmp = moving ? (nearSouth ? 0.5 : 1.4) : (nearSouth ? 0.2 : 0.45);
+    var bob = Math.sin(S.t * 7) * bobAmp;
     var step = moving ? Math.sin(player.walk) : 0;
-    var lift = Math.abs(step) * sc * 0.09;
+    var lift = Math.abs(step) * sc * (nearSouth ? 0.04 : 0.09);
+    /* Full WALL_Z: the cube top overhangs exactly that far onto the floor. */
+    var groundBias = nearSouth ? -Math.round(TILE * WALL_Z) : 0;
 
     var bw = cos.body === "tall" ? 0.72 : cos.body === "round" ? 0.98 : cos.body === "swift" ? 0.7 : 0.84;
     var bh = cos.body === "tall" ? 0.86 : cos.body === "round" ? 0.56 : cos.body === "swift" ? 0.64 : 0.7;
 
     var x = player.x, f = player.facing;
-    var pxl = x - sc * 0.5, pyt = player.y - sc * 1.55 + bob;
+    var pxl = x - sc * 0.5, pyt = player.y - sc * 1.55 + bob + groundBias;
+    var shadowY = player.y + sc * 0.08 + groundBias;
 
     g.fillStyle = "rgba(10,8,6,0.34)";
-    g.beginPath(); g.ellipse(x, player.y + sc * 0.3, sc * 0.44, sc * 0.15, 0, 0, 6.3); g.fill();
+    g.beginPath(); g.ellipse(x, shadowY, sc * 0.42, sc * 0.13, 0, 0, 6.3); g.fill();
 
     cube(g, pxl + sc * 0.12, pyt + sc * 1.15 - (step > 0 ? lift : 0), sc * 0.28, sc * 0.28, sc * 0.18, pal.b);
     cube(g, pxl + sc * 0.58, pyt + sc * 1.15 - (step < 0 ? lift : 0), sc * 0.28, sc * 0.28, sc * 0.18, pal.b);
