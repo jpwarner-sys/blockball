@@ -1501,7 +1501,8 @@
       }
       list.push({
         piece: piece, kind: kind, grid: g, ents: ents, cleared: false, blocks: [],
-        spawn: spawn, cols: cols, rows: made.rows, pathOk: made.pathOk
+        spawn: spawn, cols: cols, rows: made.rows, pathOk: made.pathOk,
+        wallH: pickWallH(kind, piece, cols, made.rows)
       });
     }
     return list;
@@ -1930,7 +1931,8 @@
       doorReady: spec.cleared,
       spawnX: spec.spawn ? (spec.spawn.tx + 0.5) * TILE : 2.5 * TILE,
       spawnY: spec.spawn ? (spec.spawn.ty + 0.5) * TILE : (doorY(spec.grid) + 0.5) * TILE,
-      hoop: null
+      hoop: null,
+      wallH: applySpecWallH(spec)
     };
     if (spec.kind === "boss") room.hoop = makeBossHoop(spec);
     var spawnEnt = spec.ents.filter(function (e) { return e.kind === "spawn"; })[0];
@@ -1991,7 +1993,8 @@
     return {
       piece: "custom", kind: "room", grid: g, ents: ents, cleared: false, blocks: [],
       name: lv.n || "CUSTOM", cols: COLS, rows: ROWS,
-      spawn: { tx: 2, ty: doorY(g) }, pathOk: true
+      spawn: { tx: 2, ty: doorY(g) }, pathOk: true,
+      wallH: clampWallH(lv.wh != null ? lv.wh : (lv.wallH != null ? lv.wallH : 2))
     };
   }
 
@@ -3602,8 +3605,10 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      BB-V7.18 — mini knights each get a special / normal / wild kit with
      distinct weapons, telegraphs, and pose clocks.
      BB-V7.19 — row-sort walls with actors so south cubes occlude feet; softer
-     hero bob/shadow against a south wall so he stops floating on the block. */
-  var BUILD = "v7.19";
+     hero bob/shadow against a south wall so he stops floating on the block.
+     BB-V7.20 — paint-only back-wall HEIGHT 1–4 (half/wall/high/deep); solid
+     walls; per-room wallH from procedural/curated rules + builder share. */
+  var BUILD = "v7.20";
   var FEEL_DEF = { spd: 250, accel: 2600, brake: 3600, throwSpd: 620, aimMode: "drag", aimDead: 2, aimHold: 64 };
   var FEEL = (function () {
     var f = {};
@@ -3784,8 +3789,16 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     var viewW = cw / scale, viewH = ch / scale;
     var px = (player && S.mode === "play") ? player.x : ww * 0.5;
     var py = (player && S.mode === "play") ? player.y : hh * 0.5;
+    var wallPad = wallVisualPad();
+    var worldTop = -wallPad;
+    var worldH = hh + wallPad;
     var camX = viewW >= ww ? (ww - viewW) * 0.5 : Math.max(0, Math.min(ww - viewW, px - viewW * 0.5));
-    var camY = viewH >= hh ? (hh - viewH) * 0.5 : Math.max(0, Math.min(hh - viewH, py - viewH * 0.5));
+    /* Frame includes the lifted north-wall top (negative Y), or height reads as a thin edge. */
+    var camY = viewH >= worldH ? worldTop + (worldH - viewH) * 0.5
+      : Math.max(worldTop, Math.min(hh - viewH, py - viewH * 0.5));
+    /* Phone zoom often sets viewH ≈ hh so camY sticks at 0 and clips the face.
+       If the north edge is in frame, pull up to show the full extruded height. */
+    if (wallPad > 0 && camY > worldTop && camY < wallPad) camY = worldTop;
     return { scale: scale, ox: -camX * scale, oy: -camY * scale, camX: camX, camY: camY, viewW: viewW, viewH: viewH };
   }
 
@@ -3799,8 +3812,13 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     /* bias hoop slightly high in frame during swish so the backboard breathes */
     var biasY = (S.cine.mode === "swish") ? viewH * 0.08 : 0;
     var fx = S.cine.focusX, fy = S.cine.focusY + biasY;
+    var wallPad = wallVisualPad();
+    var worldTop = -wallPad;
+    var worldH = hh + wallPad;
     var camX = viewW >= ww ? (ww - viewW) * 0.5 : Math.max(0, Math.min(ww - viewW, fx - viewW * 0.5));
-    var camY = viewH >= hh ? (hh - viewH) * 0.5 : Math.max(0, Math.min(hh - viewH, fy - viewH * 0.5));
+    var camY = viewH >= worldH ? worldTop + (worldH - viewH) * 0.5
+      : Math.max(worldTop, Math.min(hh - viewH, fy - viewH * 0.5));
+    if (wallPad > 0 && camY > worldTop && camY < wallPad) camY = worldTop;
     return { scale: scale, ox: -camX * scale, oy: -camY * scale };
   }
 
@@ -3941,12 +3959,79 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      and the floor delivered a top-down checkerboard. The old LP build got this right:
      walls are blocks lifted by their own height, ~48% of a tile. That one number is
      the difference between a room and a grid.
-
      BB-V7.19 — painting every wall before every actor made the hero cover a south
      wall's lifted top, so walking the south lip read as floating on the block.
      Depth is now row-sorted north→south: actors on a row, then that row's cubes.
-     A wall south of you occludes your feet; you stay in front of walls to the north. */
+     A wall south of you occludes your feet; you stay in front of walls to the north.
+     BB-V7.20 — visual HEIGHT is paint-only (grid stays 0/1). In this projection,
+     height is the cube front-face (z), not extra top-face rows — stacking tops
+     reads as wall thickness. BACK_WALL_H is north-border height in block units
+     (1 half · 2 wall · 3 high · 4 deep). Interior/side/south keep WALL_Z.
+     Walls use one solid biome colour; only the floor checkerboards. */
   var WALL_Z = 0.48;
+  var BACK_WALL_H = 2;
+  var WALL_H_MIN = 1, WALL_H_MAX = 4;
+  var WALL_H_NAME = { 1: "half", 2: "wall", 3: "high", 4: "deep" };
+  var WALL_H_FROM_NAME = {
+    half: 1, halfwall: 1,
+    wall: 2,
+    high: 3, highwall: 3,
+    deep: 4, deeproom: 4, deeproomhigh: 4, deeproomhighwall: 4
+  };
+
+  function clampWallH(n) {
+    n = n | 0;
+    if (n < WALL_H_MIN) n = WALL_H_MIN;
+    if (n > WALL_H_MAX) n = WALL_H_MAX;
+    return n;
+  }
+
+  function setBackWallH(n) {
+    if (typeof n === "string") {
+      var key = String(n).toLowerCase().replace(/[\s_-]+/g, "");
+      if (WALL_H_FROM_NAME[key] != null) n = WALL_H_FROM_NAME[key];
+      else n = parseInt(n, 10);
+    }
+    BACK_WALL_H = clampWallH(n);
+    return BACK_WALL_H;
+  }
+
+  /* Procedural + curated back-wall height. Schema stays 0/1; this is paint mood.
+     1 half — corridors / choke
+     2 wall — standard combat rooms
+     3 high — mini-boss, big chambers, generic boss
+     4 deep — Skull Lord cathedral (and other huge curated halls) */
+  function pickWallH(kind, piece, cols, rows) {
+    var area = (cols || 20) * (rows || 12);
+    if (piece === "skullLair") return 4;
+    if (kind === "boss" || piece === "boss") return 3;
+    if (kind === "mini") return 3;
+    if (kind === "corridor" || piece === "hallH" || piece === "hallV") return 1;
+    if (piece === "choke") return 1;
+    if (piece === "teeth" || piece === "aisle") return rnd() < 0.55 ? 1 : 2;
+    if (piece === "chambers" || piece === "ring" || piece === "lbend") return rnd() < 0.5 ? 3 : 2;
+    if (piece === "plus" || piece === "stagger") return rnd() < 0.35 ? 3 : 2;
+    if (area >= 28 * 15) return rnd() < 0.65 ? 3 : 2;
+    if (area <= 18 * 12) return rnd() < 0.4 ? 1 : 2;
+    return 2;
+  }
+
+  function applySpecWallH(spec) {
+    if (!spec) return setBackWallH(2);
+    return setBackWallH(spec.wallH != null ? spec.wallH : 2);
+  }
+
+  function wallHeightPx(x, y, cols, rows) {
+    if (y === 0) return clampWallH(BACK_WALL_H) * TILE;
+    return Math.round(TILE * WALL_Z);
+  }
+
+  function wallVisualPad() {
+    var h = clampWallH(BACK_WALL_H) * TILE;
+    var base = Math.round(TILE * WALL_Z);
+    return Math.max(0, h - base);
+  }
+
   function sortRow(py) {
     var rows = playRows();
     return Math.max(0, Math.min(rows - 1, Math.floor(py / TILE)));
@@ -4053,7 +4138,8 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     }
     if (room && room.hoop) drawHoop(g, room.hoop);
     if (S.scaleProbe && player) drawScaleProbe(g, wz);
-
+    /* Row-sorted north→south: actors then cubes so south walls occlude feet.
+       North border: one footprint, taller front face (height, not thickness). */
     for (y = 0; y < rows; y++) {
       if (room) {
         for (c = 0; c < room.chests.length; c++) {
@@ -4086,7 +4172,25 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       for (x = 0; x < cols; x++) {
         wall = room ? room.grid[y][x] : 1;
         if (!wall) continue;
-        cube(g, x * TILE, y * TILE - wz, TILE, TILE, wz, bio.walls[(x + y) & 1]);
+        var wh = wallHeightPx(x, y, cols, rows);
+        /* Floor keeps the checkerboard; walls are one solid colour so height
+           (front face) does not read as alternating thickness rows. */
+        var col = bio.walls[0];
+        var foot = y * TILE;
+        cube(g, x * TILE, foot - wh, TILE, TILE, wh, col);
+        /* seam lines on tall faces so N-block height reads as stories, not a slab */
+        if (wh > TILE + 1) {
+          var frontTop = foot - wh + TILE;
+          var s;
+          g.strokeStyle = shade(col, 0.42);
+          g.lineWidth = 1;
+          for (s = TILE; s < wh; s += TILE) {
+            g.beginPath();
+            g.moveTo(x * TILE + 1.5, frontTop + s);
+            g.lineTo(x * TILE + TILE - 1.5, frontTop + s);
+            g.stroke();
+          }
+        }
       }
     }
     /* East exit after wall pass so sealed/open leaves sit on the carved hole. */
@@ -4135,23 +4239,39 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
   }
 
   function drawScaleProbe(g, wz) {
-    var x2 = player.x + 70;
-    var x3 = player.x + 70 + TILE + 10;
+    /* 1–4 block height ladder: half · wall · high · deep (same extrusion metaphor). */
     var baseY = player.y;
-    var n, k;
-    for (n = 0; n < 2; n++) {
-      k = n;
-      cube(g, x2 - TILE * 0.5, baseY - TILE * 0.5 - wz - k * TILE, TILE, TILE, wz, n ? "#8a7a60" : "#6a5a44");
+    var foot = baseY - TILE * 0.5;
+    var gap = TILE + 8;
+    var x0 = player.x + 56;
+    var i, h, x, s, frontTop;
+    for (i = 1; i <= 4; i++) {
+      h = i * TILE;
+      x = x0 + (i - 1) * gap;
+      cube(g, x - TILE * 0.5, foot - h, TILE, TILE, h, "#6a5a44");
+      if (h > TILE + 1) {
+        frontTop = foot - h + TILE;
+        g.strokeStyle = shade("#6a5a44", 0.42);
+        g.lineWidth = 1;
+        for (s = TILE; s < h; s += TILE) {
+          g.beginPath();
+          g.moveTo(x - TILE * 0.5 + 1.5, frontTop + s);
+          g.lineTo(x + TILE * 0.5 - 1.5, frontTop + s);
+          g.stroke();
+        }
+      }
+      if (i === clampWallH(BACK_WALL_H)) {
+        g.fillStyle = "#c4a060";
+        g.fillRect(x - TILE * 0.5, foot - h, TILE, 4);
+      }
+      g.fillStyle = "#f0e6d4";
+      g.font = "bold 10px -apple-system, sans-serif";
+      g.textAlign = "center";
+      g.fillText(String(i), x, baseY + 18);
+      g.font = "bold 8px -apple-system, sans-serif";
+      g.fillStyle = "#c4b49a";
+      g.fillText(WALL_H_NAME[i], x, baseY + 28);
     }
-    for (n = 0; n < 3; n++) {
-      k = n;
-      cube(g, x3 - TILE * 0.5, baseY - TILE * 0.5 - wz - k * TILE, TILE, TILE, wz, n === 2 ? "#c4a060" : "#6a5a44");
-    }
-    g.fillStyle = "#f0e6d4";
-    g.font = "bold 11px -apple-system, sans-serif";
-    g.textAlign = "center";
-    g.fillText("2", x2, baseY + 22);
-    g.fillText("3", x3, baseY + 22);
   }
 
   function drawPlaceGhost(g, wz) {
@@ -5633,15 +5753,15 @@ function endRunToMenu() {
   }
 
   /* ---------- builder ---------- */
-  var BLD = { grid: null, ents: [], tool: "wall", name: "MY DUNGEON", hover: null };
+  var BLD = { grid: null, ents: [], tool: "wall", name: "MY DUNGEON", hover: null, wallH: 2 };
 
   function emptyLevel() {
     var t = "";
     for (var i = 0; i < COLS * ROWS; i++) t += "0";
-    return { n: "MY DUNGEON", w: COLS, h: ROWS, t: t, e: [] };
+    return { n: "MY DUNGEON", w: COLS, h: ROWS, t: t, e: [], wh: 2 };
   }
   function encodeShare(lv) {
-    var raw = JSON.stringify({ n: lv.n, w: lv.w, h: lv.h, t: lv.t, e: lv.e });
+    var raw = JSON.stringify({ n: lv.n, w: lv.w, h: lv.h, t: lv.t, e: lv.e, wh: clampWallH(lv.wh != null ? lv.wh : 2) });
     var b64 = btoa(unescape(encodeURIComponent(raw)));
     return b64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
   }
@@ -5664,6 +5784,7 @@ function endRunToMenu() {
     lv = lv || emptyLevel();
     BLD.name = lv.n || "MY DUNGEON";
     BLD.ents = (lv.e || []).slice();
+    BLD.wallH = clampWallH(lv.wh != null ? lv.wh : (lv.wallH != null ? lv.wallH : 2));
     BLD.grid = blankGrid(0);
     for (var i = 0; i < lv.t.length && i < COLS * ROWS; i++) {
       BLD.grid[Math.floor(i / COLS)][i % COLS] = lv.t.charAt(i) === "1" ? 1 : 0;
@@ -5676,12 +5797,15 @@ function endRunToMenu() {
   function levelFromBld() {
     var t = "";
     for (var y = 0; y < ROWS; y++) for (var x = 0; x < COLS; x++) t += BLD.grid[y][x] ? "1" : "0";
-    return { n: BLD.name, w: COLS, h: ROWS, t: t, e: BLD.ents.slice() };
+    return { n: BLD.name, w: COLS, h: ROWS, t: t, e: BLD.ents.slice(), wh: clampWallH(BLD.wallH) };
   }
 
   function renderBuilder() {
     var tools = ["wall", "erase", "slime", "bat", "skel", "archer", "imp", "chest", "spawn"].map(function (t) {
       return "<button class='bb" + (BLD.tool === t ? " on" : "") + "' data-tool='" + t + "'>" + t + "</button>";
+    }).join("");
+    var whBtns = [1, 2, 3, 4].map(function (h) {
+      return "<button class='bb" + (BLD.wallH === h ? " on" : "") + "' data-wh='" + h + "'>" + h + " " + WALL_H_NAME[h] + "</button>";
     }).join("");
     var code = encodeShare(levelFromBld());
     document.getElementById("builderCard").innerHTML =
@@ -5690,14 +5814,20 @@ function endRunToMenu() {
       "<button class='bb pri' id='btnPlayLv'>PLAY</button>" +
       "<button class='bb' id='btnBldMenu'>MENU</button></div>" +
       "<h2>TOOLS</h2><div class='row' id='tools'>" + tools + "</div>" +
+      "<h2>BACK WALL</h2><div class='row' id='wallHTools'>" + whBtns + "</div>" +
       "<canvas id='bld' width='960' height='540' style='width:100%;background:#14110e;touch-action:none;margin-top:8px'></canvas>" +
       "<h2>SHARE CODE</h2>" +
       "<textarea class='bb' id='copybox' readonly>" + code + "</textarea>" +
       "<div class='row'><button class='bb good' id='btnCopy'>COPY</button><button class='bb' id='btnClearB'>CLEAR</button></div>" +
-      "<p class='muted'>Paint walls. Stamp enemies and a chest. Play it. The code is the level — screenshot it if storage dies.</p>";
+      "<p class='muted'>Paint walls. Stamp enemies and a chest. Pick back-wall height (half→deep). Play it. The code is the level — screenshot it if storage dies.</p>";
     document.getElementById("lvlName").oninput = function () { BLD.name = this.value.slice(0, 24); };
     document.getElementById("tools").onclick = function (ev) {
       var b = ev.target.closest("button"); if (!b) return; BLD.tool = b.getAttribute("data-tool"); renderBuilder();
+    };
+    document.getElementById("wallHTools").onclick = function (ev) {
+      var b = ev.target.closest("button"); if (!b) return;
+      BLD.wallH = clampWallH(b.getAttribute("data-wh"));
+      renderBuilder();
     };
     document.getElementById("btnPlayLv").onclick = function () {
       var lv = levelFromBld();
@@ -6102,6 +6232,32 @@ function endRunToMenu() {
       return { rooms: roomsN, fails: fails, sizes: sizes, pieces: pieces };
     },
     scaleProbe: function (on) { S.scaleProbe = !!on; },
+    /* Paint-only back-wall HEIGHT: 1 half · 2 wall · 3 high · 4 deep (or name string). */
+    wallBackStack: function (n) { return setBackWallH(n == null ? BACK_WALL_H : n); },
+    wallBackH: function (n) {
+      if (n != null) {
+        setBackWallH(n);
+        if (room) {
+          room.wallH = BACK_WALL_H;
+          if (room.spec) room.spec.wallH = BACK_WALL_H;
+        }
+      }
+      return { h: BACK_WALL_H, name: WALL_H_NAME[BACK_WALL_H], room: room ? room.wallH : null };
+    },
+    wallHeights: function () {
+      return { min: WALL_H_MIN, max: WALL_H_MAX, current: BACK_WALL_H, names: WALL_H_NAME };
+    },
+    floorWallH: function () {
+      if (!S.rooms) return [];
+      return S.rooms.map(function (r, i) {
+        return { i: i, kind: r.kind, piece: r.piece, cols: r.cols, rows: r.rows, wallH: r.wallH, name: WALL_H_NAME[r.wallH] };
+      });
+    },
+    gotoRoom: function (i) {
+      if (!S.rooms || i < 0 || i >= S.rooms.length) return null;
+      loadRoom(i);
+      return this.floorWallH()[i];
+    },
     placeGhost: placeGhostCell,
     placeNow: tryPlaceAtGhost,
     setStock: function (n, max) {
