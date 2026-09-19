@@ -2267,7 +2267,7 @@
     if (!ball.live) {
       /* CHIEF BB-V5.3 — the ball at rest used to be drawn over the hero's face.
          It now sits in the throwing hand, out to the side and low.
-         BB-V7.16 — match the hero's south-wall ground bias so the held ball
+         BB-V7.19 — match the hero's south-wall ground bias so the held ball
          does not sit on the wall's lifted top while he stands on the floor. */
       var handBias = 0;
       if (room && room.grid) {
@@ -3942,7 +3942,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      walls are blocks lifted by their own height, ~48% of a tile. That one number is
      the difference between a room and a grid.
 
-     BB-V7.16 — painting every wall before every actor made the hero cover a south
+     BB-V7.19 — painting every wall before every actor made the hero cover a south
      wall's lifted top, so walking the south lip read as floating on the block.
      Depth is now row-sorted north→south: actors on a row, then that row's cubes.
      A wall south of you occludes your feet; you stay in front of walls to the north. */
@@ -4387,7 +4387,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     /* Joe's own offsets, unchanged: head at 0, body at 0.55, legs at 1.15, all
        measured down from py = y - s*1.55. Only `sc` is ours, so he is the size
        Joe asked for while standing in exactly the proportions that worked.
-       BB-V7.16 — near a south wall the cube top overhangs onto the floor tile
+       BB-V7.19 — near a south wall the cube top overhangs onto the floor tile
        (lifted by WALL_Z). Row-sort hides feet under that lip, but bob + a low
        shadow still read as standing on the block. Soften bob, park the ellipse
        on the real floor north of the lip, and bias the paint a few px north so
