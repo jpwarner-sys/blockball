@@ -592,8 +592,12 @@
      WORLD_W/H and COLS/ROWS are the builder ceiling (32×18). Generated rooms
      choose their own cols×rows; cameraFit follows the live room. TILE_CSS is
      the on-screen target so cubes read on a phone (~30 CSS px, not the old
-     hard 34px floor and not fit-only ~22px). */
+     hard 34px floor and not fit-only ~22px).
+     BB-V7.24 — oversized rooms ease toward TILE_CSS_MIN so more of the arena
+     stays framed (less frantic follow), and cam pan lerps instead of snapping. */
   var TILE_CSS = 30;
+  var TILE_CSS_MIN = 22;
+  var CAM_PAN_RATE = 7;
   /* BB-V7.15 — draw scale and hurtboxes follow what is painted, not one shared
      boss multiplier. Trash / knights / Skull Lord each get their own vis, and
      contact boxes are authored from the silhouette (torso), not r*N. */
@@ -662,6 +666,8 @@
     aim: null,
     pointer: { down: false, x: 0, y: 0, id: -1 },
     world: { x: 0, y: 0, s: 1 },
+    /* BB-V7.24 — smoothed follow cam; {x,y} in world px, on=false snaps next frame. */
+    camFollow: { x: 0, y: 0, on: false },
     particles: [],
     floats: [],
     loot: [],
@@ -1901,6 +1907,8 @@
 
   function cineEnd() {
     S.cine = null;
+    /* Snap follow so we do not lerp out of a punch-zoom focus. */
+    if (S.camFollow) S.camFollow.on = false;
   }
 
   function updateCine(dt) {
@@ -2165,6 +2173,7 @@
     player.x = room.spawnX; player.y = room.spawnY;
     player.inv = 0.6;
     resetBallHome();
+    S.camFollow = { x: 0, y: 0, on: false };
     S.placeMode = false;
     S.placeArmed = false;
     S.shots = []; S.splits = [];
@@ -4052,8 +4061,9 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      and dungeon builder entry hidden from player menus.
      BB-V7.23 — held-ball dribble while walking (bounce, squash, soft tap, arm).
      BB-V7.23 — boss-lair hoop mounts on the implied wallH-3 north face;
-     end-of-floor knight chambers get the same hoop + optional swish window. */
-  var BUILD = "v7.23";
+     end-of-floor knight chambers get the same hoop + optional swish window.
+     BB-V7.24 — large rooms zoom out toward TILE_CSS_MIN + smoothed cam pan. */
+  var BUILD = "v7.24";
   var FEEL_DEF = { spd: 250, accel: 2600, brake: 3600, throwSpd: 620, aimMode: "drag", aimDead: 2, aimHold: 64 };
   var FEEL = (function () {
     var f = {};
@@ -4217,7 +4227,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     };
   }
 
-  function cameraFitRaw() {
+  function cameraTarget() {
     var cw = canvas.width, ch = canvas.height;
     var cssW = Math.max(1, window.innerWidth);
     var dpr = cw / cssW;
@@ -4227,31 +4237,25 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
        (almost no room visible). Small generated rooms fit whole at this zoom;
        larger ones follow the player, clamped to the room. Desktop/iPad already
        above 30 CSS px keep whole-room fit. Hero is smaller (HS); trash mobs use
-       MOB_VIS / KNIGHT_VIS / LORD_VIS / BOSS_VIS size each tier to its art. */
+       MOB_VIS / KNIGHT_VIS / LORD_VIS / BOSS_VIS size each tier to its art.
+       BB-V7.24 — when the live room is bigger than one preferred frame, ease the
+       tile floor toward TILE_CSS_MIN so more of the arena stays on screen. */
     var want = (TILE_CSS * dpr) / TILE;
+    var wantMin = (TILE_CSS_MIN * dpr) / TILE;
     var fit = Math.min(cw / ww, ch / hh);
-    var scale = Math.max(fit, want);
-    /* BB-V7.18 — Skull throne: pull wider than a normal room, then ease zoom
-       from distance to the Lord (far = more wide shot, close = punch in). */
-    if (room && room.spec && room.spec.piece === "skullLair" && S.mode === "play") {
-      var lord = null, li;
-      if (room.enemies) {
-        for (li = 0; li < room.enemies.length; li++) {
-          if (room.enemies[li].boss === "lord" && room.enemies[li].alive) { lord = room.enemies[li]; break; }
-        }
-      }
-      var targetMul = 0.72;
-      if (lord && player) {
-        var ld = Math.hypot(player.x - lord.x, player.y - lord.y);
-        var t = Math.max(0, Math.min(1, (ld - 120) / 480));
-        targetMul = 0.92 - t * 0.28; /* close 0.92 → far 0.64 */
-      }
-      if (S.lordZoom == null) S.lordZoom = targetMul;
-      else S.lordZoom += (targetMul - S.lordZoom) * 0.07;
-      scale *= S.lordZoom;
-    } else {
-      S.lordZoom = null;
+    var viewAtWantW = cw / Math.max(1e-6, want);
+    var viewAtWantH = ch / Math.max(1e-6, want);
+    var overshoot = Math.max(ww / Math.max(1, viewAtWantW), hh / Math.max(1, viewAtWantH));
+    var softWant = want;
+    if (overshoot > 1) {
+      /* Fully soft by ~2.2× preferred view (Skull Lord hall on a phone). */
+      var softT = Math.max(0, Math.min(1, (overshoot - 1) / 1.2));
+      softWant = want + (wantMin - want) * softT;
     }
+    var scale = Math.max(fit, softWant);
+    /* Post-boss hoop flourish (track ball → swish punch) lives in cameraFit/cine,
+       not a continuous skullLair scale mul — softWant already frames the throne. */
+    S.lordZoom = null;
     var viewW = cw / scale, viewH = ch / scale;
     var px = (player && S.mode === "play") ? player.x : ww * 0.5;
     var py = (player && S.mode === "play") ? player.y : hh * 0.5;
@@ -4265,7 +4269,52 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     /* Phone zoom often sets viewH ≈ hh so camY sticks at 0 and clips the face.
        If the north edge is in frame, pull up to show the full extruded height. */
     if (wallPad > 0 && camY > worldTop && camY < wallPad) camY = worldTop;
-    return { scale: scale, ox: -camX * scale, oy: -camY * scale, camX: camX, camY: camY, viewW: viewW, viewH: viewH };
+    return {
+      scale: scale, camX: camX, camY: camY, viewW: viewW, viewH: viewH,
+      ww: ww, hh: hh, wallPad: wallPad, worldTop: worldTop, worldH: worldH,
+      overshoot: overshoot, softWant: softWant, want: want, wantMin: wantMin, fit: fit
+    };
+  }
+
+  function cameraFitRaw() {
+    var t = cameraTarget();
+    var camX = t.camX, camY = t.camY;
+    var scale = t.scale, viewW = t.viewW, viewH = t.viewH;
+    var ww = t.ww, hh = t.hh, wallPad = t.wallPad, worldTop = t.worldTop, worldH = t.worldH;
+    /* BB-V7.24 — lerp camX/camY so remaining follow does not snap. */
+    var follow = S.camFollow;
+    var useSmooth = follow && follow.on && S.mode === "play" && !(S.cine && S.cine.active);
+    if (useSmooth) {
+      camX = follow.x;
+      camY = follow.y;
+      if (viewW < ww) camX = Math.max(0, Math.min(ww - viewW, camX));
+      else camX = (ww - viewW) * 0.5;
+      if (viewH < worldH) camY = Math.max(worldTop, Math.min(hh - viewH, camY));
+      else camY = worldTop + (worldH - viewH) * 0.5;
+      if (wallPad > 0 && camY > worldTop && camY < wallPad) camY = worldTop;
+    }
+    return {
+      scale: scale, ox: -camX * scale, oy: -camY * scale,
+      camX: camX, camY: camY, viewW: viewW, viewH: viewH,
+      targetX: t.camX, targetY: t.camY,
+      overshoot: t.overshoot, softWant: t.softWant
+    };
+  }
+
+  /* BB-V7.24 — exponential follow toward the ideal cam; snap when follow.on is false. */
+  function updateCamera(dt) {
+    if (S.mode !== "play" || !player || (S.cine && S.cine.active)) return;
+    var t = cameraTarget();
+    var follow = S.camFollow || (S.camFollow = { x: 0, y: 0, on: false });
+    if (!follow.on) {
+      follow.x = t.camX;
+      follow.y = t.camY;
+      follow.on = true;
+      return;
+    }
+    var k = 1 - Math.exp(-CAM_PAN_RATE * dt);
+    follow.x += (t.camX - follow.x) * k;
+    follow.y += (t.camY - follow.y) * k;
   }
 
   function cameraFit() {
@@ -6642,6 +6691,7 @@ function endRunToMenu() {
       return;
     }
     updatePlayer(dt);
+    updateCamera(dt);
     updateBall(dt);
     updateSplits(dt);
     updateEnemies(dt);
@@ -6745,14 +6795,25 @@ function endRunToMenu() {
     startRun: startRun,
     camera: function () {
       var cam = cameraFit();
+      var t = cameraTarget();
       var dpr = canvas.width / Math.max(1, window.innerWidth);
       return {
-        build: BUILD, hs: HS, mobVis: MOB_VIS, knightVis: KNIGHT_VIS, lordVis: LORD_VIS, bossVis: BOSS_VIS, tileCssTarget: TILE_CSS,
+        build: BUILD, hs: HS, mobVis: MOB_VIS, knightVis: KNIGHT_VIS, lordVis: LORD_VIS, bossVis: BOSS_VIS,
+        tileCssTarget: TILE_CSS, tileCssMin: TILE_CSS_MIN, camPanRate: CAM_PAN_RATE,
         scale: cam.scale, tileCss: TILE * cam.scale / dpr,
+        overshoot: t.overshoot, softWant: t.softWant, want: t.want, fit: t.fit,
+        camX: cam.camX, camY: cam.camY, follow: S.camFollow ? { x: S.camFollow.x, y: S.camFollow.y, on: !!S.camFollow.on } : null,
         cols: playCols(), rows: playRows(), ww: playW(), hh: playH(),
         playerR: player ? player.r : null, ballR: ball ? ball.r : null, moveSpd: FEEL.spd, throwSpd: FEEL.throwSpd, aimMode: FEEL.aimMode, blockLife: BLOCK_LIFE, blockHits: BLOCK_HITS,
         difficulty: S.difficulty || store.difficulty || "easy"
       };
+    },
+    /* Harness: teleport the hero (keeps follow smooth unless snap). */
+    warpPlayer: function (x, y, snap) {
+      if (!player) return null;
+      player.x = x; player.y = y;
+      if (snap && S.camFollow) S.camFollow.on = false;
+      return { x: player.x, y: player.y };
     },
     difficulty: function () {
       var d = diff();
