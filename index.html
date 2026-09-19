@@ -6328,6 +6328,14 @@ function endRunToMenu() {
     downed: function () { return S.downed ? { t: S.downed.t, dur: S.downed.dur } : null; },
     forceDown: function () { if (!player) return; player.inv = 0; player.hp = 0; startDowned(); },
     dropHeart: dropHeart,
+    dropLoot: dropLoot,
+    loot: function () {
+      return S.loot.map(function (it) {
+        return { kind: it.kind, x: Math.round(it.x), y: Math.round(it.y),
+          restY: it.restY != null ? Math.round(it.restY) : null, vy: Math.round(it.vy) };
+      });
+    },
+    playH: function () { return playH(); },
     blocks: function () { return room ? room.blocks.map(function (b) { return { tx: b.tx, ty: b.ty, life: b.life, maxLife: b.maxLife, hp: b.hp, maxHp: b.maxHp }; }) : []; },
     setBlockLife: function (t) { if (room && room.blocks[0]) room.blocks[0].life = t; },
     hurtBlock: function (i, n) { return hurtBlockAt(i == null ? 0 : i, n == null ? 1 : n); },
