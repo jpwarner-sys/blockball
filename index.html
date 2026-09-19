@@ -6662,7 +6662,7 @@ function endRunToMenu() {
   window.__BB_SELFTEST = {
     /* read-only probe for the headless harness: position and velocity, nothing else */
     pos: function () { return player ? { x: Math.round(player.x), y: Math.round(player.y), vx: Math.round(player.vx), vy: Math.round(player.vy) } : null; },
-    ballState: function () { return ball ? { x: Math.round(ball.x), y: Math.round(ball.y), vx: Math.round(ball.vx), vy: Math.round(ball.vy), live: ball.live, bounces: ball.bounces, hits: ball.hits.length, pierced: !!ball.pierced, r: ball.r } : null; },
+    ballState: function () { return ball ? { x: Math.round(ball.x), y: Math.round(ball.y), vx: Math.round(ball.vx), vy: Math.round(ball.vy), live: ball.live, bounces: ball.bounces, hits: ball.hits.length, pierced: !!ball.pierced, r: ball.r, lift: Math.round(ball.lift || 0), squash: +(ball.squash || 0).toFixed(2), dribble: +(ball.dribble || 0).toFixed(2), groundY: Math.round(ball.groundY != null ? ball.groundY : ball.y) } : null; },
     enemies: function () { return room ? room.enemies.filter(function (e) { return e.alive; }).map(function (e) { return { type: e.type, x: Math.round(e.x), y: Math.round(e.y), r: e.r, artR: artR(e), bodyR: bodyR(e), hitR: e.hitR || e.r, hitLift: e.hitLift || 0, hp: e.hp, spd: e.spd, kind: e.kind, vis: enemyVis(e), boss: e.boss || null }; }) : []; },
     fire: function (ang, pow) { throwBall(ang, pow); },
     resetBall: function () { if (ball) { ball.live = false; ball.ret = false; resetBallHome(); } },
