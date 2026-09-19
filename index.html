@@ -573,14 +573,26 @@
      the on-screen target so cubes read on a phone (~30 CSS px, not the old
      hard 34px floor and not fit-only ~22px). */
   var TILE_CSS = 30;
-  /* BB-V7.8 — Joe locked Bone Knight vs tiles. Trash mobs draw smaller than
-     that; knights / floor bosses keep the v7.7 0.76 visual. Hitboxes for trash
-     shrink a little so contact matches the smaller sprite. */
+  /* BB-V7.15 — draw scale and hurtboxes follow what is painted, not one shared
+     boss multiplier. Trash / knights / Skull Lord each get their own vis, and
+     contact boxes are authored from the silhouette (torso), not r*N. */
   var MOB_VIS = 0.56;
-  var BOSS_VIS = 0.76;
-  function enemyVis(e) { return e && e.boss ? BOSS_VIS : MOB_VIS; }
+  var KNIGHT_VIS = 0.86; /* minis: between HS 1.7 hero and the floor lord */
+  var LORD_VIS = 0.72;   /* Skull Lord: ~+35% taller than a knight on screen */
+  var BOSS_VIS = 0.76;   /* ash / thorn legacy arts */
+  function enemyVis(e) {
+    if (!e || !e.boss) return MOB_VIS;
+    if (e.boss === "mini") return KNIGHT_VIS;
+    if (e.boss === "bone") return LORD_VIS;
+    return BOSS_VIS;
+  }
+  /* art radius used by draw* — physics uses bodyR / e.r after fitSilhouette */
+  function artR(e) { return (e && e.artR != null) ? e.artR : (e ? e.r : 0); }
   /* BB-V7.9 — ball sprite AND hitbox. 17 sat huge next to HS 1.7 / r 24. */
   var BALL_R = 14;
+  /* Hero body: sc=22*HS, default torso width ~0.84*sc → half ≈ 16. Contact
+     sits on that torso, not the old r=24 halo. */
+  var PLAYER_R = 17;
   /* BB-V7.12 — placed cubes are temporary cover: crumble on a timer AND take
      hits. HP is 2: a normal mob needs two, a knight / floor boss one-shots.
      The hero ball still clears a cube in one bounce. Permanent dungeon walls
@@ -874,7 +886,7 @@
   function freshPlayer() {
     var p = store.profiles[activeProfile] || store.profiles[0];
     return {
-      x: 120, y: 270, r: 24,
+      x: 120, y: 270, r: PLAYER_R,
       /* CHIEF BB-V6.3 — 158 px/s is the number from Joe's v3 build, the one LP
          played to floor 20 and then said "I like the controls, keep them". */
       /* CHIEF BB-V6.6 — 158 was right for the old sprite; at 2.15x the size the same
@@ -1241,15 +1253,77 @@
   function spawnEnemy(type, x, y, fl, isBoss) {
     var d = enemyDef(type);
     var hp = scaleStat(d.hp, fl);
-    return {
-      type: type, name: d.name, x: x, y: y, r: d.r,       hp: hp, maxHp: hp,
+    var e = {
+      type: type, name: d.name, x: x, y: y,
+      /* artR locks the sprite size; fitSilhouette then sets body/hurt from paint */
+      artR: d.r, r: d.r,
+      hp: hp, maxHp: hp,
       spd: walkFloor(d.kind, d.spd), kind: d.kind, col: d.col, boss: d.boss || null,
-      hitR: d.boss === "mini" ? Math.round(d.r * 2.05) : d.boss ? Math.round(d.r * 1.85) : Math.max(14, Math.round(d.r * 0.78)),
-      hitLift: d.boss === "mini" ? Math.round(d.r * 1.15) : d.boss ? Math.round(d.r * 1.05) : 0,
+      hitR: d.r, hitLift: 0, bodyR: d.r,
       cd: rnd() * 1.2, stun: 0, burn: 0, alive: true, vx: 0, vy: 0,
       phase: 0, tell: 0, tellMax: 0, gap: 0, ringR: 0, ringOn: false, deadT: 0,
       facing: 1, disarm: false, thrown: null, rearm: 0, knivesLeft: 0
     };
+    fitSilhouette(e);
+    return e;
+  }
+
+  /* BB-V7.15 — contact boxes from the painted body, not r*N multipliers.
+     bodyR  = solid torso you bump into / that bumps you
+     hitR   = meat the ball should register on (shoulders OK, cape/weapon no)
+     hitLift = raise the hurt circle onto the torso (sprites grow upward) */
+  function fitSilhouette(e) {
+    var vis = enemyVis(e);
+    var ar = artR(e);
+    var u, body, hurt, lift;
+    if (e.boss === "mini") {
+      /* Bone Knight family: cuirass is solid; pauldrons are fair ball meat;
+         cloak strip is not. u matches drawKnight. */
+      u = ar * 1.35 * vis;
+      body = u * 0.52;
+      hurt = u * 0.82;
+      lift = u * 1.08;
+    } else if (e.boss === "bone") {
+      /* Skull Lord: ribs + skull are solid; spiked pauldrons fair to hit;
+         wide cape is drama only. u matches drawSkullLord. */
+      u = ar * 1.48 * vis;
+      body = u * 0.46;
+      hurt = u * 0.70;
+      lift = u * 1.18;
+    } else if (e.boss === "ash") {
+      /* Fixed-pixel ash block, then bossScale 1.2 * BOSS_VIS. */
+      u = 28 * 1.2 * vis;
+      body = u * 0.92;
+      hurt = u * 1.05;
+      lift = u * 0.55;
+    } else if (e.boss === "thorn") {
+      /* Fixed-pixel thorn body, bossScale 1.35 * BOSS_VIS. */
+      u = 18 * 1.35 * vis;
+      body = u * 1.05;
+      hurt = u * 1.25;
+      lift = u * 0.85;
+    } else if (e.kind === "swoop") {
+      /* Wide wing cube — body is the core, hurt includes a bit of wing. */
+      u = ar * vis;
+      body = u * 0.85;
+      hurt = u * 1.05;
+      lift = u * 0.25;
+    } else {
+      /* Standard trash cube (~2r wide, ~1.85r tall) after MOB_VIS. */
+      u = ar * vis;
+      body = u * 0.95;
+      hurt = u * 1.08;
+      lift = u * 0.35;
+    }
+    e.bodyR = Math.max(8, Math.round(body));
+    e.hitR = Math.max(e.bodyR + 1, Math.round(hurt));
+    e.hitLift = Math.max(0, Math.round(lift));
+    /* movement / bump radius tracks the solid body you can see */
+    e.r = e.bodyR;
+  }
+
+  function bodyR(e) {
+    return (e && e.bodyR != null) ? e.bodyR : (e ? e.r : 0);
   }
 
   function shuffleInPlace(arr) {
@@ -2293,7 +2367,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       /* Skull Lord owns damage during cleave/lunge active frames — body bump
          would stack with the authored hit and muddy the animation read. */
       var skullAtk = e.boss === "bone" && e.atk && e.atkT >= e.atkWind && e.atkT < e.atkWind + e.atkActive;
-      if (!skullAtk && Math.hypot(e.x - player.x, e.y - player.y) < (e.boss ? e.r : (e.hitR || e.r)) + player.r - 2) {
+      if (!skullAtk && Math.hypot(e.x - player.x, e.y - player.y) < bodyR(e) + player.r - 2) {
         hurtPlayer(1 + Math.floor(S.floor / 6));
         var px = player.x - e.x, py = player.y - e.y, pd = Math.hypot(px, py) || 1;
         /* CHIEF FIX BB-V6.10 — THE clipping cause, found by instrumenting rather
@@ -2350,7 +2424,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
   function throwKnightWeapon(e, ux, uy) {
     var k = KNIGHT[e.type] || KNIGHT.minibone;
     var face = (player && player.x < e.x) ? -1 : 1;
-    var u = e.r * 1.35;
+    var u = artR(e) * 1.35;
     var sx = e.x + face * u * 0.74;
     var sy = e.y - u * 0.85;
     var ax = (player ? player.x : sx + ux) - sx;
@@ -2468,7 +2542,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     if (e.atkHit || !player) return;
     var px = player.x - e.x, py = player.y - e.y;
     var pr = Math.hypot(px, py) || 1;
-    var reach = e.r * 3.15;
+    var reach = artR(e) * 3.15;
     if (pr > reach + player.r) return;
     var pang = Math.atan2(py, px);
     var base = Math.atan2(e.aimY, e.aimX);
@@ -2488,10 +2562,10 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
 
   function skullLungeHit(e) {
     if (e.atkHit || !player) return;
-    var tipX = e.x + e.aimX * e.r * 2.45;
-    var tipY = e.y + e.aimY * e.r * 2.45;
-    if (Math.hypot(player.x - tipX, player.y - tipY) < player.r + e.r * 0.95 ||
-        Math.hypot(player.x - e.x, player.y - e.y) < player.r + e.r * 1.15) {
+    var tipX = e.x + e.aimX * artR(e) * 2.45;
+    var tipY = e.y + e.aimY * artR(e) * 2.45;
+    if (Math.hypot(player.x - tipX, player.y - tipY) < player.r + artR(e) * 0.95 ||
+        Math.hypot(player.x - e.x, player.y - e.y) < player.r + bodyR(e) * 1.15) {
       e.atkHit = true;
       hurtPlayer(3 + Math.floor(S.floor / 3));
       S.shake = Math.max(S.shake, 0.5);
@@ -2529,11 +2603,11 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
           e.shieldFwd = -0.2 + s * 0.35;
           /* slash trail samples for the draw pass */
           if (!e.slashTrail) e.slashTrail = [];
-          var rad = e.r * 2.85;
+          var rad = artR(e) * 2.85;
           var bang = Math.atan2(e.aimY, e.aimX) + e.bladeAng;
           e.slashTrail.push({
             x: e.x + Math.cos(bang) * rad,
-            y: e.y + Math.sin(bang) * rad - e.r * 0.35,
+            y: e.y + Math.sin(bang) * rad - artR(e) * 0.35,
             a: 1 - s
           });
           if (e.slashTrail.length > 14) e.slashTrail.shift();
@@ -2578,7 +2652,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
           var rush = e.spd * (4.8 - ls * 1.2);
           moveToward(e, e.aimX, e.aimY, rush, dt);
           e.dustT = 0.35;
-          burst(e.x - e.aimX * e.r, e.y - e.aimY * e.r + e.r * 0.5, "#6a5a44", 2);
+          burst(e.x - e.aimX * artR(e), e.y - e.aimY * artR(e) + artR(e) * 0.5, "#6a5a44", 2);
           skullLungeHit(e);
         } else {
           var lr = (t - wind - active) / recover;
@@ -2910,8 +2984,10 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      BB-V7.12b — Skull Lord replaces Bone King: curated lair, melee cleave+lunge,
      trash waves at 75/50/25, arena wipe on death.
      BB-V7.13 — NBA hoop + cinematic swish; HEART pips collapse to a bar after 8.
-     BB-V7.14 — larger translucent walk/shot rings; phone HUD sized off viewport. */
-  var BUILD = "v7.14";
+     BB-V7.14 — larger translucent walk/shot rings; phone HUD sized off viewport.
+     BB-V7.15 — silhouette hitboxes: contact matches painted body for hero,
+     trash, knights, and Skull Lord; split KNIGHT_VIS / LORD_VIS. */
+  var BUILD = "v7.15";
   var FEEL_DEF = { spd: 250, accel: 2600, brake: 3600, throwSpd: 620, aimMode: "drag", aimDead: 2, aimHold: 64 };
   var FEEL = (function () {
     var f = {};
@@ -3083,7 +3159,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
        (almost no room visible). Small generated rooms fit whole at this zoom;
        larger ones follow the player, clamped to the room. Desktop/iPad already
        above 30 CSS px keep whole-room fit. Hero is smaller (HS); trash mobs use
-       MOB_VIS. Knights / floor bosses keep BOSS_VIS (Joe locked that vs tiles). */
+       MOB_VIS / KNIGHT_VIS / LORD_VIS / BOSS_VIS size each tier to its art. */
     var want = (TILE_CSS * dpr) / TILE;
     var fit = Math.min(cw / ww, ch / hh);
     var scale = Math.max(fit, want);
@@ -3391,7 +3467,8 @@ g.beginPath(); g.arc(S.splits[sp].x, S.splits[sp].y, S.splits[sp].r, 0, 6.3); g.
      Everything is derived from HS so one number changes his whole scale.
      BB-V7.8 — HS 1.7 so the hero reads smaller than the Bone Knight vs the
      same 30 CSS px tiles. v7.7 used 2.2, which matched the knight's height and
-     felt too big on Joe's phone. Knights stay on BOSS_VIS; trash on MOB_VIS. */
+     felt too big on Joe's phone. v7.15: KNIGHT_VIS / LORD_VIS split the tiers;
+     PLAYER_R matches the painted torso. */
   var HS = 1.7;
 
   /* CHIEF BB-V6.1 — lifted verbatim in behaviour from Joe's own v3 build
@@ -3696,7 +3773,7 @@ g.beginPath(); g.arc(S.splits[sp].x, S.splits[sp].y, S.splits[sp].r, 0, 6.3); g.
   function drawKnight(g, e) {
     var k = KNIGHT[e.type] || KNIGHT.minibone;
     var body = e.flash > 0 ? "#ffffff" : k.body;
-    var u = e.r * 1.35;
+    var u = artR(e) * 1.35;
     var x = e.x;
     e.artH = u * 2.86;   /* tells drawEnemy where the bar and the name go */
     if (e.bobPhase == null) e.bobPhase = Math.random() * 6.3;
@@ -3816,8 +3893,8 @@ g.beginPath(); g.arc(S.splits[sp].x, S.splits[sp].y, S.splits[sp].r, 0, 6.3); g.
     ensureSkullLord(e);
     var BONE = "#f0e8dc", BONE_D = "#a89880", STEEL = "#8a9098", GOLD = "#e0b44a";
     var PURPLE = "#5a2848", PURPLE_D = "#2a1428", LINING = "#8a2840", EMBER = "#ff6a28";
-    /* art unit sized so he reads ~1.55x Bone Knight height at BOSS_VIS */
-    var u = e.r * 1.48;
+    /* art unit sized so he reads ~1.35x Bone Knight height at LORD_VIS */
+    var u = artR(e) * 1.48;
     e.artH = u * 3.35;
     var x = e.x;
     if (e.bobPhase == null) e.bobPhase = Math.random() * 6.3;
@@ -4092,10 +4169,8 @@ g.beginPath(); g.arc(S.splits[sp].x, S.splits[sp].y, S.splits[sp].r, 0, 6.3); g.
     if (!e.alive && e.deadT <= 0) return;
     var a = !e.alive ? Math.max(0, e.deadT) : 1;
     g.globalAlpha = a;
-    /* BB-V7.8 — trash sprites shrink toward knight-vs-tile scale. Knights /
-       floor bosses keep BOSS_VIS (Joe locked Bone Knight vs the map). Trash
-       hitboxes (hitR) are slightly tighter so contact isn't a halo around a
-       small cube. */
+    /* BB-V7.15 — trash / knight / lord each have their own vis. Hurtboxes are
+       fit to the painted torso in fitSilhouette (not a shared r*N halo). */
     g.save();
     g.translate(e.x, e.y);
     g.scale(enemyVis(e), enemyVis(e));
@@ -4153,7 +4228,7 @@ g.beginPath(); g.arc(S.splits[sp].x, S.splits[sp].y, S.splits[sp].r, 0, 6.3); g.
          with a lit top and a dropped front face, its own idle bob so a room of them
          breathes at different rates, and two hard dark eyes. The flat square with a
          highlight strip was a worse picture of the same thing. */
-      var r = e.r, x = e.x, y = e.y;
+      var r = artR(e), x = e.x, y = e.y;
       if (e.wob == null) e.wob = 4 + (e.seedw = (e.seedw || Math.random() * 4));
       var bob = Math.sin(S.t * e.wob + (e.bobPhase || (e.bobPhase = Math.random() * 6.3))) * r * 0.1;
 
@@ -4183,12 +4258,10 @@ g.beginPath(); g.arc(S.splits[sp].x, S.splits[sp].y, S.splits[sp].r, 0, 6.3); g.
     }
     if (bossScale !== 1) g.restore();
     g.restore();
-    /* BB-V7.3 — anchored to e.r back when every sprite was a square the size of its
-       own hitbox. A knight stands about 2.8r tall, so the bar and the name landed on
-       his face. Sprites that draw taller than their hitbox now say so in e.artH. */
-    var topOff = (e.artH || e.r) * enemyVis(e);
+    /* HP bar sits above the painted silhouette (artH), not the contact bodyR. */
+    var topOff = (e.artH || artR(e)) * enemyVis(e);
     if (e.alive) {
-      var w = Math.max(20, e.r * 2);
+      var w = Math.max(20, artR(e) * 2 * enemyVis(e));
       g.fillStyle = "#2a1810";
       g.fillRect(e.x - w / 2, e.y - topOff - 10, w, 4);
       g.fillStyle = e.hp / e.maxHp > 0.35 ? "#50c060" : "#d04030";
@@ -5034,7 +5107,7 @@ function endRunToMenu() {
     /* read-only probe for the headless harness: position and velocity, nothing else */
     pos: function () { return player ? { x: Math.round(player.x), y: Math.round(player.y), vx: Math.round(player.vx), vy: Math.round(player.vy) } : null; },
     ballState: function () { return ball ? { x: Math.round(ball.x), y: Math.round(ball.y), vx: Math.round(ball.vx), vy: Math.round(ball.vy), live: ball.live, bounces: ball.bounces, hits: ball.hits.length, pierced: !!ball.pierced, r: ball.r } : null; },
-    enemies: function () { return room ? room.enemies.filter(function (e) { return e.alive; }).map(function (e) { return { type: e.type, x: Math.round(e.x), y: Math.round(e.y), r: e.r, hitR: e.hitR || e.r, hitLift: e.hitLift || 0, hp: e.hp, spd: e.spd, kind: e.kind, vis: enemyVis(e), boss: e.boss || null }; }) : []; },
+    enemies: function () { return room ? room.enemies.filter(function (e) { return e.alive; }).map(function (e) { return { type: e.type, x: Math.round(e.x), y: Math.round(e.y), r: e.r, artR: artR(e), bodyR: bodyR(e), hitR: e.hitR || e.r, hitLift: e.hitLift || 0, hp: e.hp, spd: e.spd, kind: e.kind, vis: enemyVis(e), boss: e.boss || null }; }) : []; },
     fire: function (ang, pow) { throwBall(ang, pow); },
     resetBall: function () { if (ball) { ball.live = false; ball.ret = false; resetBallHome(); } },
     setAff: function (a) { player.ballAffix = a; ball.affix = a; },
@@ -5082,7 +5155,7 @@ function endRunToMenu() {
       var cam = cameraFit();
       var dpr = canvas.width / Math.max(1, window.innerWidth);
       return {
-        build: BUILD, hs: HS, mobVis: MOB_VIS, bossVis: BOSS_VIS, tileCssTarget: TILE_CSS,
+        build: BUILD, hs: HS, mobVis: MOB_VIS, knightVis: KNIGHT_VIS, lordVis: LORD_VIS, bossVis: BOSS_VIS, tileCssTarget: TILE_CSS,
         scale: cam.scale, tileCss: TILE * cam.scale / dpr,
         cols: playCols(), rows: playRows(), ww: playW(), hh: playH(),
         playerR: player ? player.r : null, ballR: ball ? ball.r : null, moveSpd: FEEL.spd, throwSpd: FEEL.throwSpd, aimMode: FEEL.aimMode, blockLife: BLOCK_LIFE, blockHits: BLOCK_HITS
@@ -5138,7 +5211,7 @@ function endRunToMenu() {
       var e = spawnEnemy(type || "minibone", player.x + (dx == null ? 90 : dx), player.y + (dy || 0), S.floor, true);
       e.spd = 0; e.cd = 99; e.tell = 0; e.knivesLeft = 0;
       room.enemies.push(e);
-      return { x: Math.round(e.x), y: Math.round(e.y), r: e.r, hitR: e.hitR || e.r, hitLift: e.hitLift || 0, boss: e.boss };
+      return { x: Math.round(e.x), y: Math.round(e.y), r: e.r, artR: artR(e), bodyR: bodyR(e), hitR: e.hitR || e.r, hitLift: e.hitLift || 0, boss: e.boss };
     },
     /* harness-only: mutate the most recently spawned live enemy (for pose screenshots) */
     mutLast: function (patch) {
