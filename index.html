@@ -585,7 +585,7 @@
      choose their own cols×rows; cameraFit follows the live room. TILE_CSS is
      the on-screen target so cubes read on a phone (~30 CSS px, not the old
      hard 34px floor and not fit-only ~22px).
-     BB-V7.23 — oversized rooms ease toward TILE_CSS_MIN so more of the arena
+     BB-V7.24 — oversized rooms ease toward TILE_CSS_MIN so more of the arena
      stays framed (less frantic follow), and cam pan lerps instead of snapping. */
   var TILE_CSS = 30;
   var TILE_CSS_MIN = 22;
@@ -657,7 +657,7 @@
     aim: null,
     pointer: { down: false, x: 0, y: 0, id: -1 },
     world: { x: 0, y: 0, s: 1 },
-    /* BB-V7.23 — smoothed follow cam; {x,y} in world px, on=false snaps next frame. */
+    /* BB-V7.24 — smoothed follow cam; {x,y} in world px, on=false snaps next frame. */
     camFollow: { x: 0, y: 0, on: false },
     particles: [],
     floats: [],
@@ -3821,8 +3821,8 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      telegraph + early lane lock, attack mix stops lunge spam.
      BB-V7.22 — difficulty tiers; loot hops settle at drop point; FEEL controls
      and dungeon builder entry hidden from player menus.
-     BB-V7.23 — large rooms zoom out toward TILE_CSS_MIN + smoothed cam pan. */
-  var BUILD = "v7.23";
+     BB-V7.24 — large rooms zoom out toward TILE_CSS_MIN + smoothed cam pan. */
+  var BUILD = "v7.24";
   var FEEL_DEF = { spd: 250, accel: 2600, brake: 3600, throwSpd: 620, aimMode: "drag", aimDead: 2, aimHold: 64 };
   var FEEL = (function () {
     var f = {};
@@ -3997,7 +3997,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
        larger ones follow the player, clamped to the room. Desktop/iPad already
        above 30 CSS px keep whole-room fit. Hero is smaller (HS); trash mobs use
        MOB_VIS / KNIGHT_VIS / LORD_VIS / BOSS_VIS size each tier to its art.
-       BB-V7.23 — when the live room is bigger than one preferred frame, ease the
+       BB-V7.24 — when the live room is bigger than one preferred frame, ease the
        tile floor toward TILE_CSS_MIN so more of the arena stays on screen. */
     var want = (TILE_CSS * dpr) / TILE;
     var wantMin = (TILE_CSS_MIN * dpr) / TILE;
@@ -4037,7 +4037,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     var camX = t.camX, camY = t.camY;
     var scale = t.scale, viewW = t.viewW, viewH = t.viewH;
     var ww = t.ww, hh = t.hh, wallPad = t.wallPad, worldTop = t.worldTop, worldH = t.worldH;
-    /* BB-V7.23 — lerp camX/camY so remaining follow does not snap. */
+    /* BB-V7.24 — lerp camX/camY so remaining follow does not snap. */
     var follow = S.camFollow;
     var useSmooth = follow && follow.on && S.mode === "play" && !(S.cine && S.cine.active);
     if (useSmooth) {
@@ -4057,7 +4057,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     };
   }
 
-  /* BB-V7.23 — exponential follow toward the ideal cam; snap when follow.on is false. */
+  /* BB-V7.24 — exponential follow toward the ideal cam; snap when follow.on is false. */
   function updateCamera(dt) {
     if (S.mode !== "play" || !player || (S.cine && S.cine.active)) return;
     var t = cameraTarget();
