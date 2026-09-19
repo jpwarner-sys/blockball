@@ -155,16 +155,14 @@
     padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
     box-sizing: border-box;
     /* BB-V7.14 — each chip is absolutely placed from these so a later pass can
-       nudge one without dragging the rest. Change a --hud-*-t/l/r, not a flex group. */
+       nudge one without dragging the rest. Change a --hud-*-t/l/r, not a flex group.
+       BB-V7.19 — floor/score/frag ride in one flex row (#metaRow) so growing
+       digit counts never clip the next icon; only the row origin is absolute. */
     --hud-pad: 8px;
     --hud-hp-t: var(--hud-pad);
     --hud-hp-l: var(--hud-pad);
-    --hud-fl-t: calc(var(--hud-pad) + clamp(28px, 7.8vh, 42px));
-    --hud-fl-l: var(--hud-pad);
-    --hud-sc-t: var(--hud-fl-t);
-    --hud-sc-l: calc(var(--hud-pad) + 2.7em);
-    --hud-fr-t: var(--hud-fl-t);
-    --hud-fr-l: calc(var(--hud-pad) + 5.4em);
+    --hud-meta-t: calc(var(--hud-pad) + clamp(28px, 7.8vh, 42px));
+    --hud-meta-l: var(--hud-pad);
     --hud-pause-t: var(--hud-pad);
     --hud-pause-r: var(--hud-pad);
     --hud-place-t: var(--hud-pad);
@@ -389,7 +387,7 @@
   }
   .hud-item { position: absolute; display: none; }
   #hud.play #hpPips { display: flex; }
-  #hud.play .meta.hud-item { display: inline-flex; }
+  #hud.play #metaRow { display: flex; }
   #hud.play #placePips { display: grid; }
   #hud.play #btnBlock { display: block; }
   #hud.play #btnPause { display: flex; }
@@ -431,15 +429,20 @@
     letter-spacing: 0.02em;
     flex: 0 0 auto;
   }
+  #metaRow {
+    top: var(--hud-meta-t); left: var(--hud-meta-l);
+    align-items: center; gap: clamp(10px, 2.4vh, 16px);
+    max-width: calc(100% - var(--hud-place-r) - clamp(80px, 18vh, 100px) - 16px);
+    flex-wrap: wrap;
+  }
   .meta {
-    align-items: center; gap: 6px;
+    display: inline-flex; align-items: center; gap: 6px;
     font-weight: 800; font-size: clamp(18px, 5.4vh, 28px); color: #f0e6d4;
     text-shadow: 0 1px 0 #1a120c;
     letter-spacing: 0.02em;
+    font-variant-numeric: tabular-nums;
+    flex: 0 0 auto;
   }
-  #flChip { top: var(--hud-fl-t); left: var(--hud-fl-l); }
-  #scChip { top: var(--hud-sc-t); left: var(--hud-sc-l); }
-  #frChip { top: var(--hud-fr-t); left: var(--hud-fr-l); }
   .meta svg { display: block; flex: 0 0 auto; width: clamp(20px, 6vh, 30px); height: clamp(20px, 6vh, 30px); }
   .meta b { font-weight: 800; }
   #placePips {
@@ -515,18 +518,20 @@
   <canvas id="game" width="1280" height="720"></canvas>
   <div id="hud">
     <div id="hpPips" class="hud-item" aria-label="health"></div>
-    <span class="hud-item meta" id="flChip" title="floor">
-      <svg width="26" height="26" viewBox="0 0 14 14" aria-hidden="true"><rect x="1" y="8" width="12" height="5" rx="0.5" fill="#6a5a44" stroke="#c4b49a" stroke-width="1"/><rect x="3" y="4" width="8" height="5" rx="0.5" fill="#8a7a60" stroke="#e8dcc8" stroke-width="1"/><rect x="5" y="1" width="4" height="4" rx="0.5" fill="#c4a060" stroke="#f0e6d4" stroke-width="1"/></svg>
-      <b id="flNum">1</b>
-    </span>
-    <span class="hud-item meta" id="scChip" title="score">
-      <svg width="26" height="26" viewBox="0 0 14 14" aria-hidden="true"><polygon points="7,1 13,7 7,13 1,7" fill="#d0a040" stroke="#f0e0a0" stroke-width="1"/></svg>
-      <b id="scNum">0</b>
-    </span>
-    <span class="hud-item meta" id="frChip" title="fragments">
-      <svg width="22" height="26" viewBox="0 0 12 14" aria-hidden="true"><polygon points="6,1 11,6 8,13 4,13 1,6" fill="#70b0d0" stroke="#d0f0ff" stroke-width="1"/></svg>
-      <b id="frNum">0</b>
-    </span>
+    <div id="metaRow" class="hud-item" aria-label="run stats">
+      <span class="meta" id="flChip" title="floor">
+        <svg width="26" height="26" viewBox="0 0 14 14" aria-hidden="true"><rect x="1" y="8" width="12" height="5" rx="0.5" fill="#6a5a44" stroke="#c4b49a" stroke-width="1"/><rect x="3" y="4" width="8" height="5" rx="0.5" fill="#8a7a60" stroke="#e8dcc8" stroke-width="1"/><rect x="5" y="1" width="4" height="4" rx="0.5" fill="#c4a060" stroke="#f0e6d4" stroke-width="1"/></svg>
+        <b id="flNum">1</b>
+      </span>
+      <span class="meta" id="scChip" title="score">
+        <svg width="26" height="26" viewBox="0 0 14 14" aria-hidden="true"><polygon points="7,1 13,7 7,13 1,7" fill="#d0a040" stroke="#f0e0a0" stroke-width="1"/></svg>
+        <b id="scNum">0</b>
+      </span>
+      <span class="meta" id="frChip" title="fragments">
+        <svg width="22" height="26" viewBox="0 0 12 14" aria-hidden="true"><polygon points="6,1 11,6 8,13 4,13 1,6" fill="#70b0d0" stroke="#d0f0ff" stroke-width="1"/></svg>
+        <b id="frNum">0</b>
+      </span>
+    </div>
     <div id="placePips" class="hud-item" aria-hidden="true"></div>
     <button type="button" class="hud-item place-btn" id="btnBlock" aria-label="place me">
       <svg class="place-svg" viewBox="0 0 80 88" aria-hidden="true">
@@ -656,9 +661,11 @@
     pops: [],
     muteFx: 0,
     bossBeat: 0,
-    downBeat: 0,
     hoopReady: false,
     cine: null,
+    /* BB-V7.21 — soft death: brief DOWN beat, then room reset with loot kept.
+       Null when upright; { t, dur } while the hero is down. */
+    downed: null,
     seenAimHelp: false,
     throws: 0,
     shopOpen: false
@@ -836,6 +843,10 @@
     else if (name === "loot") beep("sine", 520, 0.14, 0.06, 780);
     else if (name === "pickup") beep("sine", 660, 0.1, 0.07, 990);
     else if (name === "hurt") beep("sawtooth", 110, 0.18, 0.08, 40);
+    else if (name === "down") {
+      beep("sawtooth", 90, 0.28, 0.09, 36);
+      setTimeout(function () { beep("triangle", 70, 0.35, 0.06, 40); }, 90);
+    }
     else if (name === "place") beep("square", 90, 0.06, 0.05);
     else if (name === "boss") beep("sawtooth", 70, 0.4, 0.09, 30);
     else if (name === "cleave") { beep("sawtooth", 90, 0.12, 0.07, 40); beep("triangle", 160, 0.18, 0.05, 60); }
@@ -1949,7 +1960,6 @@
     S.placeMode = false;
     S.placeArmed = false;
     S.shots = []; S.splits = [];
-    S.downBeat = 0;
     room.clearWait = 0;
     if (!ents.length) { room.cleared = true; room.doorReady = true; }
     if (!S.seenAimHelp) toast("LEFT RING to walk · DRAG anywhere to throw");
@@ -1962,8 +1972,8 @@
     S.runTricks = 0;
     S.hoopReady = false;
     S.bossBeat = 0;
-    S.downBeat = 0;
     S.cine = null;
+    S.downed = null;
     S.customPlay = !!custom;
     S.builderLevel = custom || null;
     player = freshPlayer();
@@ -2028,7 +2038,7 @@
 
   /* ---------- combat ---------- */
   function hurtPlayer(n) {
-    if (player.inv > 0 || S.downBeat > 0) return;
+    if (S.downed || player.inv > 0) return;
     player.hp -= n;
     player.inv = 0.9;
     S.shake = 0.25;
@@ -2036,16 +2046,82 @@
     floatTxt(player.x, player.y - 24, "-" + n, "#ff8060");
     if (player.hp <= 0) {
       player.hp = 0;
-      /* hold on the death spot before room reload — instant loadRoom read as a
-         teleport, especially mid-Skull-Lord lunge */
-      toast("DOWN — room reset, loot kept");
-      S.downBeat = 1.45;
-      S.shake = Math.max(S.shake, 0.55);
-      player.vx = player.vy = 0;
-      S.aim = null;
-      burst(player.x, player.y, "#ff8060", 18);
-      syncHud();
+      startDowned();
     }
+  }
+
+  /* BB-V7.21 — death used to snap-heal and reload the room in one frame, which
+     read as "nothing happened." Soft path: hold a short DOWN beat (no run wipe,
+     no frag loss), then reset the room with loot kept. Weight without a stiff
+     penalty. */
+  function startDowned() {
+    if (S.downed) return;
+    clearSticks();
+    S.aim = null;
+    S.placeArmed = false;
+    S.placeMode = false;
+    player.vx = player.vy = 0;
+    player.hp = 0;
+    if (ball) { ball.live = false; ball.ret = false; }
+    S.shots = [];
+    S.splits = [];
+    S.shake = Math.max(S.shake, 0.55);
+    S.downed = { t: 0, dur: 1.55 };
+    sfx("down");
+    syncHud();
+  }
+
+  function updateDowned(dt) {
+    if (!S.downed) return;
+    S.downed.t += dt;
+    if (S.downed.t >= S.downed.dur) finishDowned();
+  }
+
+  function finishDowned() {
+    if (!S.downed) return;
+    S.downed = null;
+    player.hp = player.maxHp;
+    loadRoom(S.roomI);
+    player.inv = 1.4;
+    toast("UP — room reset, loot kept");
+    syncHud();
+  }
+
+  function drawDowned(g) {
+    if (!S.downed || S.mode !== "play") return;
+    var cw = canvas.width, ch = canvas.height;
+    var u = Math.min(1, S.downed.t / S.downed.dur);
+    var fadeIn = Math.min(1, S.downed.t / 0.18);
+    var pulse = 0.55 + 0.45 * Math.sin(S.downed.t * 7);
+    g.save();
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    g.fillStyle = "rgba(12, 8, 6, " + (0.42 * fadeIn) + ")";
+    g.fillRect(0, 0, cw, ch);
+    var grd = g.createRadialGradient(cw * 0.5, ch * 0.48, ch * 0.08, cw * 0.5, ch * 0.5, ch * 0.72);
+    grd.addColorStop(0, "rgba(80, 20, 16, 0)");
+    grd.addColorStop(1, "rgba(40, 8, 6, " + (0.55 * fadeIn) + ")");
+    g.fillStyle = grd;
+    g.fillRect(0, 0, cw, ch);
+    g.globalAlpha = fadeIn;
+    g.fillStyle = "#f0c8b0";
+    g.font = "700 " + Math.round(Math.min(cw, ch) * 0.09) + "px Georgia, 'Times New Roman', serif";
+    g.textAlign = "center";
+    g.textBaseline = "middle";
+    g.fillText("DOWN", cw * 0.5, ch * 0.44);
+    g.globalAlpha = fadeIn * (0.55 + 0.35 * pulse);
+    g.fillStyle = "#d8c4a8";
+    g.font = "600 " + Math.round(Math.min(cw, ch) * 0.028) + "px system-ui, sans-serif";
+    g.fillText("room reset · loot kept", cw * 0.5, ch * 0.52);
+    /* thin recover meter so the beat is readable, not a freeze */
+    var barW = Math.min(220, cw * 0.28), barH = Math.max(3, ch * 0.006);
+    var bx = (cw - barW) * 0.5, by = ch * 0.58;
+    g.globalAlpha = fadeIn * 0.35;
+    g.fillStyle = "#f0e6d4";
+    g.fillRect(bx, by, barW, barH);
+    g.globalAlpha = fadeIn * 0.9;
+    g.fillStyle = "#e07058";
+    g.fillRect(bx, by, barW * u, barH);
+    g.restore();
   }
 
   function healPlayer(n) {
@@ -2275,7 +2351,7 @@
   }
 
   function throwBall(ang, pow) {
-    if (ball.live || S.downBeat > 0) return;
+    if (ball.live || S.downed) return;
     S.throws = (S.throws || 0) + 1;
     var spd = throwSpeed() * pow;
     ball.live = true; ball.ret = false; ball.pierced = false;
@@ -3664,9 +3740,8 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      hero bob/shadow against a south wall so he stops floating on the block.
      BB-V7.20 — paint-only back-wall HEIGHT 1–4 (half/wall/high/deep); solid
      walls; per-room wallH from procedural/curated rules + builder share.
-     BB-V7.21 — Skull Lord lunge: longer telegraph + early lane lock so the
-     dash is walk-dodgeable on phone; attack mix stops lunge spam; short
-     death beat before room reset so a kill no longer teleports. */
+     BB-V7.21 — soft DOWN beat before room reset; Skull Lord lunge longer
+     telegraph + early lane lock, attack mix stops lunge spam. */
   var BUILD = "v7.21";
   var FEEL_DEF = { spd: 250, accel: 2600, brake: 3600, throwSpd: 620, aimMode: "drag", aimDead: 2, aimHold: 64 };
   var FEEL = (function () {
@@ -3895,15 +3970,11 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     g.scale(scale, scale);
     drawWorld(g);
     g.restore();
-    if (S.downBeat > 0) {
-      var da = Math.min(0.62, 0.18 + (1.45 - S.downBeat) * 0.32);
-      g.fillStyle = "rgba(28,6,8," + da + ")";
-      g.fillRect(0, 0, cw, ch);
-    }
-    if (S.mode === "play" && !S.pause && !S.portrait) drawSticks(g);
+    if (S.mode === "play" && !S.pause && !S.portrait && !S.downed) drawSticks(g);
     if (S.mode === "play" && !S.seenAimHelp) {
       g.fillStyle = "rgba(20,17,14,0.0)";
     }
+    drawDowned(g);
   }
 
   /* CHIEF BB-V5.1 — the two spherical controls, drawn in screen space so they keep
@@ -4567,6 +4638,16 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     var cos = player.cos;
     var pal = PALETTES[cos.pal] || PALETTES.ember;
     if (player.inv > 0 && Math.floor(player.inv * 12) % 2 === 0) g.globalAlpha = 0.45;
+    /* BB-V7.21 — flatten + dim while DOWN so the beat reads on the body, not only
+       as a screen tint. */
+    if (S.downed) {
+      var du = Math.min(1, S.downed.t / 0.22);
+      g.globalAlpha = Math.min(g.globalAlpha, 0.55 + 0.2 * (1 - du));
+      g.save();
+      g.translate(player.x, player.y);
+      g.scale(1, 0.55 + 0.45 * (1 - du));
+      g.translate(-player.x, -player.y);
+    }
 
     /* Joe's own offsets, unchanged: head at 0, body at 0.55, legs at 1.15, all
        measured down from py = y - s*1.55. Only `sc` is ours, so he is the size
@@ -4618,6 +4699,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     g.fillRect(pxl + sc * 0.52 + ex, pyt + sc * 0.2, e, e);
 
     drawHat(g, x, pyt, cos.hat, pal, sc);
+    if (S.downed) g.restore();
     g.globalAlpha = 1;
   }
 
@@ -5966,7 +6048,7 @@ function endRunToMenu() {
      release it, so a thumb on the walk ring never steals the aim, and lifting one
      never cancels the other. The old drag-anywhere aim is kept for the mouse. */
   function onDown(ev) {
-    if (S.mode !== "play" || S.pause || S.portrait || S.downBeat > 0) return;
+    if (S.mode !== "play" || S.pause || S.portrait || S.downed) return;
     if (ev.target && ev.target.closest && ev.target.closest("#hud button, #btnBlock, #btnPause, #placePips")) return;
     if (hudChromeHit(ev)) return;
     ensureAudio();
@@ -6042,7 +6124,7 @@ function endRunToMenu() {
     STK.FIELD.id = null;
     if (!S.pointer.down) return;
     S.pointer.down = false;
-    if (S.mode === "play" && S.aim && !ball.live && S.downBeat <= 0) throwBall(S.aim.ang, S.aim.pow);
+    if (S.mode === "play" && S.aim && !ball.live && !S.downed) throwBall(S.aim.ang, S.aim.pow);
     S.aim = null;
   }
 
@@ -6078,7 +6160,7 @@ function endRunToMenu() {
   window.addEventListener("pointercancel", onUp);
 
   document.getElementById("btnPause").onclick = function () {
-    if (S.mode !== "play") return;
+    if (S.mode !== "play" || S.downed) return;
     S.pause = true; clearSticks(); showPause();
   };
   (function bindPlaceBtn() {
@@ -6086,7 +6168,7 @@ function endRunToMenu() {
     function arm(ev) {
       ev.preventDefault();
       ev.stopPropagation();
-      if (S.mode !== "play" || S.pause) return;
+      if (S.mode !== "play" || S.pause || S.downed) return;
       S.placeArmed = true;
       S.placeMode = true;
       try { btn.setPointerCapture(ev.pointerId); } catch (err) {}
@@ -6097,7 +6179,7 @@ function endRunToMenu() {
       if (!S.placeArmed) return;
       S.placeArmed = false;
       S.placeMode = false;
-      if (S.mode === "play" && !S.pause) tryPlaceAtGhost();
+      if (S.mode === "play" && !S.pause && !S.downed) tryPlaceAtGhost();
       syncHud();
     }
     function cancel(ev) {
@@ -6160,18 +6242,11 @@ function endRunToMenu() {
     if (!player || !room) return;
     if (document.getElementById("shopPanel").className.indexOf("show") >= 0) return;
     if (document.getElementById("floorPanel").className.indexOf("show") >= 0) return;
-    /* death beat: freeze the room on the kill spot, then reload */
-    if (S.downBeat > 0) {
-      S.downBeat -= dt;
-      player.vx = player.vy = 0;
-      S.aim = null;
+    /* BB-V7.21 — while DOWN, freeze the fight; only the beat, FX, and shake run. */
+    if (S.downed) {
+      updateDowned(dt);
       updateFx(dt);
-      if (S.t % 0.25 < dt) syncHud();
-      if (S.downBeat <= 0) {
-        player.hp = player.maxHp;
-        loadRoom(S.roomI);
-        syncHud();
-      }
+      syncHud();
       return;
     }
     updatePlayer(dt);
@@ -6244,6 +6319,8 @@ function endRunToMenu() {
     setHp: function (n) { if (!player) return; player.hp = n; player.inv = 9; syncHud(); },
     setMaxHp: function (n) { if (!player) return; player.maxHp = n; if (player.hp > n) player.hp = n; syncHud(); },
     hurt: function (n) { if (player) player.inv = 0; hurtPlayer(n); },
+    downed: function () { return S.downed ? { t: S.downed.t, dur: S.downed.dur } : null; },
+    forceDown: function () { if (!player) return; player.inv = 0; player.hp = 0; startDowned(); },
     dropHeart: dropHeart,
     blocks: function () { return room ? room.blocks.map(function (b) { return { tx: b.tx, ty: b.ty, life: b.life, maxLife: b.maxLife, hp: b.hp, maxHp: b.maxHp }; }) : []; },
     setBlockLife: function (t) { if (room && room.blocks[0]) room.blocks[0].life = t; },
