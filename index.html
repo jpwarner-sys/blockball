@@ -3357,8 +3357,11 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     var viewW = cw / scale, viewH = ch / scale;
     var px = (player && S.mode === "play") ? player.x : ww * 0.5;
     var py = (player && S.mode === "play") ? player.y : hh * 0.5;
+    var wallPad = wallVisualPad();
     var camX = viewW >= ww ? (ww - viewW) * 0.5 : Math.max(0, Math.min(ww - viewW, px - viewW * 0.5));
-    var camY = viewH >= hh ? (hh - viewH) * 0.5 : Math.max(0, Math.min(hh - viewH, py - viewH * 0.5));
+    /* Allow a little negative camY so stacked north-wall cubes are not clipped. */
+    var camY = viewH >= hh + wallPad ? (hh - viewH) * 0.5
+      : Math.max(-wallPad, Math.min(hh - viewH, py - viewH * 0.5));
     return { scale: scale, ox: -camX * scale, oy: -camY * scale, camX: camX, camY: camY, viewW: viewW, viewH: viewH };
   }
 
@@ -3372,8 +3375,10 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     /* bias hoop slightly high in frame during swish so the backboard breathes */
     var biasY = (S.cine.mode === "swish") ? viewH * 0.08 : 0;
     var fx = S.cine.focusX, fy = S.cine.focusY + biasY;
+    var wallPad = wallVisualPad();
     var camX = viewW >= ww ? (ww - viewW) * 0.5 : Math.max(0, Math.min(ww - viewW, fx - viewW * 0.5));
-    var camY = viewH >= hh ? (hh - viewH) * 0.5 : Math.max(0, Math.min(hh - viewH, fy - viewH * 0.5));
+    var camY = viewH >= hh + wallPad ? (hh - viewH) * 0.5
+      : Math.max(-wallPad, Math.min(hh - viewH, fy - viewH * 0.5));
     return { scale: scale, ox: -camX * scale, oy: -camY * scale };
   }
 
@@ -3513,8 +3518,23 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      and the knights all carry real cube() depth, so the sprites promised a 3/4 view
      and the floor delivered a top-down checkerboard. The old LP build got this right:
      walls are blocks lifted by their own height, ~48% of a tile. That one number is
-     the difference between a room and a grid. */
+     the difference between a room and a grid.
+     BB-V7.17 — visual height is paint-only. The grid stays 0/1; collision, pieces,
+     and room gen are unchanged. Each solid cell is still one footprint; BACK_WALL_STACK
+     stacks extra cubes upward on the north border so the back wall can read as a
+     2-high or 3-high backdrop. Interior / side / south walls stay single-cube. */
   var WALL_Z = 0.48;
+  var BACK_WALL_STACK = 3;
+  var WALL_STACK = 1;
+
+  function wallStackAt(x, y, cols, rows) {
+    if (y === 0) return Math.max(1, BACK_WALL_STACK | 0);
+    return Math.max(1, WALL_STACK | 0);
+  }
+
+  function wallVisualPad() {
+    return Math.max(0, (Math.max(1, BACK_WALL_STACK | 0) - 1) * TILE);
+  }
 
   /* Exit door: sealed plank slab before clear, swings open with a warm hall glow after. */
   function drawExitDoor(g, wz) {
@@ -3615,12 +3635,19 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
         g.fillRect(x * TILE, y * TILE, TILE, TILE);
       }
     }
-    /* then walls as blocks, top row first so a lower wall occludes the one above it */
+    /* then walls as blocks, top row first so a lower wall occludes the one above it.
+       North-row cells may stack several cubes upward (paint only). */
     for (y = 0; y < rows; y++) {
       for (x = 0; x < cols; x++) {
         wall = room ? room.grid[y][x] : 1;
         if (!wall) continue;
-        cube(g, x * TILE, y * TILE - wz, TILE, TILE, wz, bio.walls[(x + y) & 1]);
+        var stacks = wallStackAt(x, y, cols, rows);
+        var baseCol = bio.walls[(x + y) & 1];
+        var k;
+        for (k = stacks - 1; k >= 0; k--) {
+          cube(g, x * TILE, y * TILE - wz - k * TILE, TILE, TILE, wz,
+            bio.walls[(x + y + k) & 1] || baseCol);
+        }
       }
     }
     drawExitDoor(g, wz);
@@ -5473,6 +5500,15 @@ function endRunToMenu() {
       return { rooms: roomsN, fails: fails, sizes: sizes, pieces: pieces };
     },
     scaleProbe: function (on) { S.scaleProbe = !!on; },
+    /* Paint-only back-wall height. Schema/collision unchanged. Try 2 vs 3. */
+    wallBackStack: function (n) {
+      if (n != null) BACK_WALL_STACK = Math.max(1, n | 0);
+      return BACK_WALL_STACK;
+    },
+    wallStack: function (n) {
+      if (n != null) WALL_STACK = Math.max(1, n | 0);
+      return WALL_STACK;
+    },
     placeGhost: placeGhostCell,
     placeNow: tryPlaceAtGhost,
     setStock: function (n, max) {
