@@ -1497,7 +1497,8 @@
       }
       list.push({
         piece: piece, kind: kind, grid: g, ents: ents, cleared: false, blocks: [],
-        spawn: spawn, cols: cols, rows: made.rows, pathOk: made.pathOk
+        spawn: spawn, cols: cols, rows: made.rows, pathOk: made.pathOk,
+        wallH: pickWallH(kind, piece, cols, made.rows)
       });
     }
     return list;
@@ -1926,7 +1927,8 @@
       doorReady: spec.cleared,
       spawnX: spec.spawn ? (spec.spawn.tx + 0.5) * TILE : 2.5 * TILE,
       spawnY: spec.spawn ? (spec.spawn.ty + 0.5) * TILE : (doorY(spec.grid) + 0.5) * TILE,
-      hoop: null
+      hoop: null,
+      wallH: applySpecWallH(spec)
     };
     if (spec.kind === "boss") room.hoop = makeBossHoop(spec);
     var spawnEnt = spec.ents.filter(function (e) { return e.kind === "spawn"; })[0];
@@ -1987,7 +1989,8 @@
     return {
       piece: "custom", kind: "room", grid: g, ents: ents, cleared: false, blocks: [],
       name: lv.n || "CUSTOM", cols: COLS, rows: ROWS,
-      spawn: { tx: 2, ty: doorY(g) }, pathOk: true
+      spawn: { tx: 2, ty: doorY(g) }, pathOk: true,
+      wallH: clampWallH(lv.wh != null ? lv.wh : (lv.wallH != null ? lv.wallH : 2))
     };
   }
 
@@ -3176,8 +3179,9 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      BB-V7.16 — Skull Lord hall ~2.3× the v7.12 lair; cleave/lunge ease,
      real dash travel, blade sweeps the telegraph fan.
      BB-V7.17 — no auto exit-pull on clear; closed/open east door.
-     BB-V7.18 — paint-only back-wall HEIGHT 1–4 (half/wall/high/deep); solid walls. */
-  var BUILD = "v7.18";
+     BB-V7.18 — paint-only back-wall HEIGHT 1–4 (half/wall/high/deep); solid walls.
+     BB-V7.19 — per-room wallH from procedural/curated rules + builder share. */
+  var BUILD = "v7.19";
   var FEEL_DEF = { spd: 250, accel: 2600, brake: 3600, throwSpd: 620, aimMode: "drag", aimDead: 2, aimHold: 64 };
   var FEEL = (function () {
     var f = {};
@@ -3559,6 +3563,31 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     }
     BACK_WALL_H = clampWallH(n);
     return BACK_WALL_H;
+  }
+
+  /* Procedural + curated back-wall height. Schema stays 0/1; this is paint mood.
+     1 half — corridors / choke
+     2 wall — standard combat rooms
+     3 high — mini-boss, big chambers, generic boss
+     4 deep — Skull Lord cathedral (and other huge curated halls) */
+  function pickWallH(kind, piece, cols, rows) {
+    var area = (cols || 20) * (rows || 12);
+    if (piece === "skullLair") return 4;
+    if (kind === "boss" || piece === "boss") return 3;
+    if (kind === "mini") return 3;
+    if (kind === "corridor" || piece === "hallH" || piece === "hallV") return 1;
+    if (piece === "choke") return 1;
+    if (piece === "teeth" || piece === "aisle") return rnd() < 0.55 ? 1 : 2;
+    if (piece === "chambers" || piece === "ring" || piece === "lbend") return rnd() < 0.5 ? 3 : 2;
+    if (piece === "plus" || piece === "stagger") return rnd() < 0.35 ? 3 : 2;
+    if (area >= 28 * 15) return rnd() < 0.65 ? 3 : 2;
+    if (area <= 18 * 12) return rnd() < 0.4 ? 1 : 2;
+    return 2;
+  }
+
+  function applySpecWallH(spec) {
+    if (!spec) return setBackWallH(2);
+    return setBackWallH(spec.wallH != null ? spec.wallH : 2);
   }
 
   function wallHeightPx(x, y, cols, rows) {
@@ -5095,15 +5124,15 @@ function endRunToMenu() {
   }
 
   /* ---------- builder ---------- */
-  var BLD = { grid: null, ents: [], tool: "wall", name: "MY DUNGEON", hover: null };
+  var BLD = { grid: null, ents: [], tool: "wall", name: "MY DUNGEON", hover: null, wallH: 2 };
 
   function emptyLevel() {
     var t = "";
     for (var i = 0; i < COLS * ROWS; i++) t += "0";
-    return { n: "MY DUNGEON", w: COLS, h: ROWS, t: t, e: [] };
+    return { n: "MY DUNGEON", w: COLS, h: ROWS, t: t, e: [], wh: 2 };
   }
   function encodeShare(lv) {
-    var raw = JSON.stringify({ n: lv.n, w: lv.w, h: lv.h, t: lv.t, e: lv.e });
+    var raw = JSON.stringify({ n: lv.n, w: lv.w, h: lv.h, t: lv.t, e: lv.e, wh: clampWallH(lv.wh != null ? lv.wh : 2) });
     var b64 = btoa(unescape(encodeURIComponent(raw)));
     return b64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
   }
@@ -5126,6 +5155,7 @@ function endRunToMenu() {
     lv = lv || emptyLevel();
     BLD.name = lv.n || "MY DUNGEON";
     BLD.ents = (lv.e || []).slice();
+    BLD.wallH = clampWallH(lv.wh != null ? lv.wh : (lv.wallH != null ? lv.wallH : 2));
     BLD.grid = blankGrid(0);
     for (var i = 0; i < lv.t.length && i < COLS * ROWS; i++) {
       BLD.grid[Math.floor(i / COLS)][i % COLS] = lv.t.charAt(i) === "1" ? 1 : 0;
@@ -5138,12 +5168,15 @@ function endRunToMenu() {
   function levelFromBld() {
     var t = "";
     for (var y = 0; y < ROWS; y++) for (var x = 0; x < COLS; x++) t += BLD.grid[y][x] ? "1" : "0";
-    return { n: BLD.name, w: COLS, h: ROWS, t: t, e: BLD.ents.slice() };
+    return { n: BLD.name, w: COLS, h: ROWS, t: t, e: BLD.ents.slice(), wh: clampWallH(BLD.wallH) };
   }
 
   function renderBuilder() {
     var tools = ["wall", "erase", "slime", "bat", "skel", "archer", "imp", "chest", "spawn"].map(function (t) {
       return "<button class='bb" + (BLD.tool === t ? " on" : "") + "' data-tool='" + t + "'>" + t + "</button>";
+    }).join("");
+    var whBtns = [1, 2, 3, 4].map(function (h) {
+      return "<button class='bb" + (BLD.wallH === h ? " on" : "") + "' data-wh='" + h + "'>" + h + " " + WALL_H_NAME[h] + "</button>";
     }).join("");
     var code = encodeShare(levelFromBld());
     document.getElementById("builderCard").innerHTML =
@@ -5152,14 +5185,20 @@ function endRunToMenu() {
       "<button class='bb pri' id='btnPlayLv'>PLAY</button>" +
       "<button class='bb' id='btnBldMenu'>MENU</button></div>" +
       "<h2>TOOLS</h2><div class='row' id='tools'>" + tools + "</div>" +
+      "<h2>BACK WALL</h2><div class='row' id='wallHTools'>" + whBtns + "</div>" +
       "<canvas id='bld' width='960' height='540' style='width:100%;background:#14110e;touch-action:none;margin-top:8px'></canvas>" +
       "<h2>SHARE CODE</h2>" +
       "<textarea class='bb' id='copybox' readonly>" + code + "</textarea>" +
       "<div class='row'><button class='bb good' id='btnCopy'>COPY</button><button class='bb' id='btnClearB'>CLEAR</button></div>" +
-      "<p class='muted'>Paint walls. Stamp enemies and a chest. Play it. The code is the level — screenshot it if storage dies.</p>";
+      "<p class='muted'>Paint walls. Stamp enemies and a chest. Pick back-wall height (half→deep). Play it. The code is the level — screenshot it if storage dies.</p>";
     document.getElementById("lvlName").oninput = function () { BLD.name = this.value.slice(0, 24); };
     document.getElementById("tools").onclick = function (ev) {
       var b = ev.target.closest("button"); if (!b) return; BLD.tool = b.getAttribute("data-tool"); renderBuilder();
+    };
+    document.getElementById("wallHTools").onclick = function (ev) {
+      var b = ev.target.closest("button"); if (!b) return;
+      BLD.wallH = clampWallH(b.getAttribute("data-wh"));
+      renderBuilder();
     };
     document.getElementById("btnPlayLv").onclick = function () {
       var lv = levelFromBld();
