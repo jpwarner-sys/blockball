@@ -1817,23 +1817,32 @@
   /* BB-V7.13 — NBA-style hoop for floor-boss lairs, inspired by the title art:
      white backboard, orange rim, hanging net, mounted on the north wall so a
      top-down shot reads as "up the court." Active for a swish only after the
-     floor boss is dead and the ball is back in hand. */
+     floor boss is dead and the ball is back in hand.
+     BB-V7.23 — boss rooms imply wallH 3 (high). Seat the backboard on that
+     extruded north face so the hoop is not stuck on the floor under a tall
+     wall; rim hangs just into the first open floor row so throws still score. */
   function makeBossHoop(spec) {
     var cols = spec.cols || gCols(spec.grid);
     var cx = Math.floor(cols / 2);
     var g = spec.grid, tx, ty;
+    var wallH = clampWallH(spec.wallH != null ? spec.wallH : BACK_WALL_H);
     /* keep a clean paint of floor under backboard + rim so the shot lane is open */
     for (ty = 1; ty <= 3; ty++) {
       for (tx = cx - 2; tx <= cx + 2; tx++) {
         if (g[ty] && tx > 0 && tx < cols - 1) g[ty][tx] = 0;
       }
     }
-    /* hang the rim ~2 tiles into the room from the north wall */
+    /* North face spans [TILE - wallH*TILE, TILE]. Mount the board mid-face on
+       high/deep walls; keep the rim in open floor (row 1+) for collision. */
+    var frontTop = TILE - wallH * TILE;
+    var boardY = frontTop + TILE * (wallH >= 3 ? 1.35 : 1.15);
+    var rimY = Math.max(TILE * 1.35, boardY + TILE * 1.15);
     return {
       x: (cx + 0.5) * TILE,
-      y: 2.35 * TILE,
+      y: rimY,
       r: 16,
-      boardY: 1.15 * TILE,
+      boardY: boardY,
+      wallH: wallH,
       faceX: 0,
       faceY: -1, /* toward the backboard (north) */
       swished: false,
@@ -3984,8 +3993,9 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      BB-V7.21 — soft DOWN beat before room reset; Skull Lord lunge longer
      telegraph + early lane lock, attack mix stops lunge spam.
      BB-V7.22 — difficulty tiers; loot hops settle at drop point; FEEL controls
-     and dungeon builder entry hidden from player menus. */
-  var BUILD = "v7.22";
+     and dungeon builder entry hidden from player menus.
+     BB-V7.23 — boss-lair hoop mounts on the implied wallH-3 north face. */
+  var BUILD = "v7.23";
   var FEEL_DEF = { spd: 250, accel: 2600, brake: 3600, throwSpd: 620, aimMode: "drag", aimDead: 2, aimHold: 64 };
   var FEEL = (function () {
     var f = {};
@@ -4541,10 +4551,10 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
         g.fillRect(x * TILE, y * TILE, TILE, TILE);
       }
     }
-    if (room && room.hoop) drawHoop(g, room.hoop);
     if (S.scaleProbe && player) drawScaleProbe(g, wz);
     /* Row-sorted north→south: actors then cubes so south walls occlude feet.
-       North border: one footprint, taller front face (height, not thickness). */
+       North border: one footprint, taller front face (height, not thickness).
+       Hoop paints after the north face so a wallH-3 board sits ON the wall. */
     for (y = 0; y < rows; y++) {
       if (room) {
         for (c = 0; c < room.chests.length; c++) {
@@ -4597,6 +4607,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
           }
         }
       }
+      if (y === 0 && room && room.hoop) drawHoop(g, room.hoop);
     }
     /* East exit after wall pass so sealed/open leaves sit on the carved hole. */
     drawExitDoor(g, wz);
@@ -6730,6 +6741,13 @@ function endRunToMenu() {
         if (room) {
           room.wallH = BACK_WALL_H;
           if (room.spec) room.spec.wallH = BACK_WALL_H;
+          /* remount hoop when the implied back-wall height changes */
+          if (room.hoop) {
+            var kept = { swished: room.hoop.swished, netT: room.hoop.netT, beamT: room.hoop.beamT, glow: room.hoop.glow };
+            room.hoop = makeBossHoop(room.spec || { cols: playCols(), grid: room.grid, wallH: BACK_WALL_H });
+            room.hoop.swished = kept.swished; room.hoop.netT = kept.netT;
+            room.hoop.beamT = kept.beamT; room.hoop.glow = kept.glow;
+          }
         }
       }
       return { h: BACK_WALL_H, name: WALL_H_NAME[BACK_WALL_H], room: room ? room.wallH : null };
@@ -6832,12 +6850,17 @@ function endRunToMenu() {
     hoop: function () {
       return room && room.hoop ? {
         x: Math.round(room.hoop.x), y: Math.round(room.hoop.y), r: room.hoop.r,
+        boardY: Math.round(room.hoop.boardY), wallH: room.hoop.wallH || null,
         swished: !!room.hoop.swished, ready: !!S.hoopReady, beamT: room.hoop.beamT
       } : null;
     },
     armHoop: function () {
       if (!room) return null;
-      if (!room.hoop) room.hoop = makeBossHoop(room.spec || { cols: playCols(), grid: room.grid });
+      if (!room.hoop) {
+        room.hoop = makeBossHoop(room.spec || {
+          cols: playCols(), grid: room.grid, wallH: room.wallH || BACK_WALL_H
+        });
+      }
       S.hoopReady = true;
       room.cleared = true;
       S.bossBeat = Math.max(S.bossBeat, 8);
