@@ -1829,8 +1829,11 @@
      floor boss is dead and the ball is back in hand.
      BB-V7.23 — boss rooms imply wallH 3 (high). Seat the backboard on that
      extruded north face so the hoop is not stuck on the floor under a tall
-     wall; rim hangs just into the first open floor row so throws still score.
-     BB-V7.23 — same hoop in end-of-floor knight (mini) chambers. */
+     wall. Same hoop in end-of-floor knight (mini) chambers.
+     BB-V7.25 — rim rides the board bottom with a short brace (no floor-stuck gap). */
+  var HOOP_BOARD_W = 2.2; /* × TILE */
+  var HOOP_BOARD_H = 1.35;
+  var HOOP_ARM = 0.34; /* × TILE — board bottom → rim center */
   function roomWantsHoop(spec) {
     return !!(spec && (spec.kind === "boss" || spec.kind === "mini"));
   }
@@ -1847,10 +1850,11 @@
       }
     }
     /* North face spans [TILE - wallH*TILE, TILE]. Mount the board high on that
-       face for high/deep walls; keep the rim in open floor (row 1+) for scoring. */
+       face; hang the rim from the board bottom so board + rim read as one unit. */
     var frontTop = TILE - wallH * TILE;
     var boardY = frontTop + TILE * (wallH >= 3 ? 1.0 : 1.15);
-    var rimY = Math.max(TILE * 1.35, boardY + TILE * 1.15);
+    var bh = TILE * HOOP_BOARD_H;
+    var rimY = boardY + bh * 0.5 + TILE * HOOP_ARM;
     return {
       x: (cx + 0.5) * TILE,
       y: rimY,
@@ -2060,7 +2064,8 @@
   function drawHoop(g, h) {
     if (!h) return;
     var bx = h.x, by = h.boardY;
-    var bw = TILE * 2.2, bh = TILE * 1.35;
+    var bw = TILE * HOOP_BOARD_W, bh = TILE * HOOP_BOARD_H;
+    var boardBot = by + bh * 0.5;
     /* backboard — white with black target square (NBA look) */
     cube(g, bx - bw / 2, by - bh / 2, bw, bh, 6, "#e8e8e8");
     g.strokeStyle = "#1a1a1a";
@@ -2069,6 +2074,10 @@
     g.strokeStyle = "#c03028";
     g.lineWidth = 2;
     g.strokeRect(bx - bw * 0.14, by - bh * 0.14, bw * 0.28, bh * 0.28);
+    /* brace + rim plate — ties board to hoop so it does not float on the floor */
+    var armLen = Math.max(6, h.y - boardBot + 2);
+    cube(g, h.x - 4, boardBot - 1, 8, armLen, 4, "#8a3a14");
+    cube(g, h.x - 6, h.y - 5, 12, 7, 4, "#c05018");
     /* orange rim */
     g.save();
     g.strokeStyle = "#e86020";
@@ -4067,8 +4076,9 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      BB-V7.23 — boss-lair hoop mounts on the implied wallH-3 north face;
      end-of-floor knight chambers get the same hoop + optional swish window.
      BB-V7.24 — large rooms zoom out toward TILE_CSS_MIN + smoothed cam pan.
-     BB-V7.24 — track→punch→ease camera on every hoop swish (boss + knight). */
-  var BUILD = "v7.24";
+     BB-V7.24 — track→punch→ease camera on every hoop swish (boss + knight).
+     BB-V7.25 — rim + brace attach to the raised backboard (no floor-stuck gap). */
+  var BUILD = "v7.25";
   var FEEL_DEF = { spd: 250, accel: 2600, brake: 3600, throwSpd: 620, aimMode: "drag", aimDead: 2, aimHold: 64 };
   var FEEL = (function () {
     var f = {};
