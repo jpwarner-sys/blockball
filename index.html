@@ -729,6 +729,27 @@
       S.seenAimHelp = !!o.aimHelp;
     } catch (e) {}
   }
+  /* TEMP — for now, every fresh page load wipes carried items and any
+     profile-side stat boosts. Cosmetics (token + look) stay. Revisit when
+     meta progression should persist across reloads. */
+  function bareProfile(p, i) {
+    var base = PROFILES[i] || PROFILES[0];
+    var def = store.profiles[i] || store.profiles[0];
+    var cosSrc = (p && p.cos) || (def && def.cos) || defaultCos();
+    return {
+      token: (p && p.token) || (def && def.token) || base.token,
+      cos: JSON.parse(JSON.stringify(cosSrc))
+    };
+  }
+  function resetItemsAndBoostsOnLoad() {
+    store.stash = [];
+    store.profiles = (store.profiles || []).map(bareProfile);
+    while (store.profiles.length < PROFILES.length) {
+      var i = store.profiles.length;
+      store.profiles.push(bareProfile(null, i));
+    }
+    saveStore();
+  }
   function saveStore() {
     try {
       lsSet("bbd_v4", JSON.stringify({
@@ -2987,7 +3008,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      BB-V7.14 — larger translucent walk/shot rings; phone HUD sized off viewport.
      BB-V7.15 — silhouette hitboxes: contact matches painted body for hero,
      trash, knights, and Skull Lord; split KNIGHT_VIS / LORD_VIS. */
-  var BUILD = "v7.15";
+  var BUILD = "v7.15-clean";
   var FEEL_DEF = { spd: 250, accel: 2600, brake: 3600, throwSpd: 620, aimMode: "drag", aimDead: 2, aimHold: 64 };
   var FEEL = (function () {
     var f = {};
@@ -5098,6 +5119,7 @@ function endRunToMenu() {
 
   /* ---------- boot ---------- */
   loadStore();
+  resetItemsAndBoostsOnLoad();
   setupInstall();
   resize();
   showSplash();
