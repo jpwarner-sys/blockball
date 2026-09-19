@@ -155,16 +155,14 @@
     padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
     box-sizing: border-box;
     /* BB-V7.14 — each chip is absolutely placed from these so a later pass can
-       nudge one without dragging the rest. Change a --hud-*-t/l/r, not a flex group. */
+       nudge one without dragging the rest. Change a --hud-*-t/l/r, not a flex group.
+       BB-V7.19 — floor/score/frag ride in one flex row (#metaRow) so growing
+       digit counts never clip the next icon; only the row origin is absolute. */
     --hud-pad: 8px;
     --hud-hp-t: var(--hud-pad);
     --hud-hp-l: var(--hud-pad);
-    --hud-fl-t: calc(var(--hud-pad) + clamp(28px, 7.8vh, 42px));
-    --hud-fl-l: var(--hud-pad);
-    --hud-sc-t: var(--hud-fl-t);
-    --hud-sc-l: calc(var(--hud-pad) + 2.7em);
-    --hud-fr-t: var(--hud-fl-t);
-    --hud-fr-l: calc(var(--hud-pad) + 5.4em);
+    --hud-meta-t: calc(var(--hud-pad) + clamp(28px, 7.8vh, 42px));
+    --hud-meta-l: var(--hud-pad);
     --hud-pause-t: var(--hud-pad);
     --hud-pause-r: var(--hud-pad);
     --hud-place-t: var(--hud-pad);
@@ -389,7 +387,7 @@
   }
   .hud-item { position: absolute; display: none; }
   #hud.play #hpPips { display: flex; }
-  #hud.play .meta.hud-item { display: inline-flex; }
+  #hud.play #metaRow { display: flex; }
   #hud.play #placePips { display: grid; }
   #hud.play #btnBlock { display: block; }
   #hud.play #btnPause { display: flex; }
@@ -431,15 +429,20 @@
     letter-spacing: 0.02em;
     flex: 0 0 auto;
   }
+  #metaRow {
+    top: var(--hud-meta-t); left: var(--hud-meta-l);
+    align-items: center; gap: clamp(10px, 2.4vh, 16px);
+    max-width: calc(100% - var(--hud-place-r) - clamp(80px, 18vh, 100px) - 16px);
+    flex-wrap: wrap;
+  }
   .meta {
-    align-items: center; gap: 6px;
+    display: inline-flex; align-items: center; gap: 6px;
     font-weight: 800; font-size: clamp(18px, 5.4vh, 28px); color: #f0e6d4;
     text-shadow: 0 1px 0 #1a120c;
     letter-spacing: 0.02em;
+    font-variant-numeric: tabular-nums;
+    flex: 0 0 auto;
   }
-  #flChip { top: var(--hud-fl-t); left: var(--hud-fl-l); }
-  #scChip { top: var(--hud-sc-t); left: var(--hud-sc-l); }
-  #frChip { top: var(--hud-fr-t); left: var(--hud-fr-l); }
   .meta svg { display: block; flex: 0 0 auto; width: clamp(20px, 6vh, 30px); height: clamp(20px, 6vh, 30px); }
   .meta b { font-weight: 800; }
   #placePips {
@@ -515,18 +518,20 @@
   <canvas id="game" width="1280" height="720"></canvas>
   <div id="hud">
     <div id="hpPips" class="hud-item" aria-label="health"></div>
-    <span class="hud-item meta" id="flChip" title="floor">
-      <svg width="26" height="26" viewBox="0 0 14 14" aria-hidden="true"><rect x="1" y="8" width="12" height="5" rx="0.5" fill="#6a5a44" stroke="#c4b49a" stroke-width="1"/><rect x="3" y="4" width="8" height="5" rx="0.5" fill="#8a7a60" stroke="#e8dcc8" stroke-width="1"/><rect x="5" y="1" width="4" height="4" rx="0.5" fill="#c4a060" stroke="#f0e6d4" stroke-width="1"/></svg>
-      <b id="flNum">1</b>
-    </span>
-    <span class="hud-item meta" id="scChip" title="score">
-      <svg width="26" height="26" viewBox="0 0 14 14" aria-hidden="true"><polygon points="7,1 13,7 7,13 1,7" fill="#d0a040" stroke="#f0e0a0" stroke-width="1"/></svg>
-      <b id="scNum">0</b>
-    </span>
-    <span class="hud-item meta" id="frChip" title="fragments">
-      <svg width="22" height="26" viewBox="0 0 12 14" aria-hidden="true"><polygon points="6,1 11,6 8,13 4,13 1,6" fill="#70b0d0" stroke="#d0f0ff" stroke-width="1"/></svg>
-      <b id="frNum">0</b>
-    </span>
+    <div id="metaRow" class="hud-item" aria-label="run stats">
+      <span class="meta" id="flChip" title="floor">
+        <svg width="26" height="26" viewBox="0 0 14 14" aria-hidden="true"><rect x="1" y="8" width="12" height="5" rx="0.5" fill="#6a5a44" stroke="#c4b49a" stroke-width="1"/><rect x="3" y="4" width="8" height="5" rx="0.5" fill="#8a7a60" stroke="#e8dcc8" stroke-width="1"/><rect x="5" y="1" width="4" height="4" rx="0.5" fill="#c4a060" stroke="#f0e6d4" stroke-width="1"/></svg>
+        <b id="flNum">1</b>
+      </span>
+      <span class="meta" id="scChip" title="score">
+        <svg width="26" height="26" viewBox="0 0 14 14" aria-hidden="true"><polygon points="7,1 13,7 7,13 1,7" fill="#d0a040" stroke="#f0e0a0" stroke-width="1"/></svg>
+        <b id="scNum">0</b>
+      </span>
+      <span class="meta" id="frChip" title="fragments">
+        <svg width="22" height="26" viewBox="0 0 12 14" aria-hidden="true"><polygon points="6,1 11,6 8,13 4,13 1,6" fill="#70b0d0" stroke="#d0f0ff" stroke-width="1"/></svg>
+        <b id="frNum">0</b>
+      </span>
+    </div>
     <div id="placePips" class="hud-item" aria-hidden="true"></div>
     <button type="button" class="hud-item place-btn" id="btnBlock" aria-label="place me">
       <svg class="place-svg" viewBox="0 0 80 88" aria-hidden="true">
