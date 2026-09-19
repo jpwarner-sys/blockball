@@ -5606,11 +5606,28 @@ function endRunToMenu() {
     /* Paint-only back-wall HEIGHT: 1 half · 2 wall · 3 high · 4 deep (or name string). */
     wallBackStack: function (n) { return setBackWallH(n == null ? BACK_WALL_H : n); },
     wallBackH: function (n) {
-      if (n != null) setBackWallH(n);
-      return { h: BACK_WALL_H, name: WALL_H_NAME[BACK_WALL_H] };
+      if (n != null) {
+        setBackWallH(n);
+        if (room) {
+          room.wallH = BACK_WALL_H;
+          if (room.spec) room.spec.wallH = BACK_WALL_H;
+        }
+      }
+      return { h: BACK_WALL_H, name: WALL_H_NAME[BACK_WALL_H], room: room ? room.wallH : null };
     },
     wallHeights: function () {
       return { min: WALL_H_MIN, max: WALL_H_MAX, current: BACK_WALL_H, names: WALL_H_NAME };
+    },
+    floorWallH: function () {
+      if (!S.rooms) return [];
+      return S.rooms.map(function (r, i) {
+        return { i: i, kind: r.kind, piece: r.piece, cols: r.cols, rows: r.rows, wallH: r.wallH, name: WALL_H_NAME[r.wallH] };
+      });
+    },
+    gotoRoom: function (i) {
+      if (!S.rooms || i < 0 || i >= S.rooms.length) return null;
+      loadRoom(i);
+      return this.floorWallH()[i];
     },
     placeGhost: placeGhostCell,
     placeNow: tryPlaceAtGhost,
