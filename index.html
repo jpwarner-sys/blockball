@@ -3365,6 +3365,9 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     /* Frame includes the lifted north-wall top (negative Y), or height reads as a thin edge. */
     var camY = viewH >= worldH ? worldTop + (worldH - viewH) * 0.5
       : Math.max(worldTop, Math.min(hh - viewH, py - viewH * 0.5));
+    /* Phone zoom often sets viewH ≈ hh so camY sticks at 0 and clips the face.
+       If the north edge is in frame, pull up to show the full extruded height. */
+    if (wallPad > 0 && camY > worldTop && camY < wallPad) camY = worldTop;
     return { scale: scale, ox: -camX * scale, oy: -camY * scale, camX: camX, camY: camY, viewW: viewW, viewH: viewH };
   }
 
@@ -3384,6 +3387,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     var camX = viewW >= ww ? (ww - viewW) * 0.5 : Math.max(0, Math.min(ww - viewW, fx - viewW * 0.5));
     var camY = viewH >= worldH ? worldTop + (worldH - viewH) * 0.5
       : Math.max(worldTop, Math.min(hh - viewH, fy - viewH * 0.5));
+    if (wallPad > 0 && camY > worldTop && camY < wallPad) camY = worldTop;
     return { scale: scale, ox: -camX * scale, oy: -camY * scale };
   }
 
