@@ -155,16 +155,14 @@
     padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
     box-sizing: border-box;
     /* BB-V7.14 — each chip is absolutely placed from these so a later pass can
-       nudge one without dragging the rest. Change a --hud-*-t/l/r, not a flex group. */
+       nudge one without dragging the rest. Change a --hud-*-t/l/r, not a flex group.
+       BB-V7.19 — floor/score/frag ride in one flex row (#metaRow) so growing
+       digit counts never clip the next icon; only the row origin is absolute. */
     --hud-pad: 8px;
     --hud-hp-t: var(--hud-pad);
     --hud-hp-l: var(--hud-pad);
-    --hud-fl-t: calc(var(--hud-pad) + clamp(28px, 7.8vh, 42px));
-    --hud-fl-l: var(--hud-pad);
-    --hud-sc-t: var(--hud-fl-t);
-    --hud-sc-l: calc(var(--hud-pad) + 2.7em);
-    --hud-fr-t: var(--hud-fl-t);
-    --hud-fr-l: calc(var(--hud-pad) + 5.4em);
+    --hud-meta-t: calc(var(--hud-pad) + clamp(28px, 7.8vh, 42px));
+    --hud-meta-l: var(--hud-pad);
     --hud-pause-t: var(--hud-pad);
     --hud-pause-r: var(--hud-pad);
     --hud-place-t: var(--hud-pad);
@@ -397,7 +395,7 @@
   }
   .hud-item { position: absolute; display: none; }
   #hud.play #hpPips { display: flex; }
-  #hud.play .meta.hud-item { display: inline-flex; }
+  #hud.play #metaRow { display: flex; }
   #hud.play #placePips { display: grid; }
   #hud.play #btnBlock { display: block; }
   #hud.play #btnPause { display: flex; }
@@ -439,15 +437,20 @@
     letter-spacing: 0.02em;
     flex: 0 0 auto;
   }
+  #metaRow {
+    top: var(--hud-meta-t); left: var(--hud-meta-l);
+    align-items: center; gap: clamp(10px, 2.4vh, 16px);
+    max-width: calc(100% - var(--hud-place-r) - clamp(80px, 18vh, 100px) - 16px);
+    flex-wrap: wrap;
+  }
   .meta {
-    align-items: center; gap: 6px;
+    display: inline-flex; align-items: center; gap: 6px;
     font-weight: 800; font-size: clamp(18px, 5.4vh, 28px); color: #f0e6d4;
     text-shadow: 0 1px 0 #1a120c;
     letter-spacing: 0.02em;
+    font-variant-numeric: tabular-nums;
+    flex: 0 0 auto;
   }
-  #flChip { top: var(--hud-fl-t); left: var(--hud-fl-l); }
-  #scChip { top: var(--hud-sc-t); left: var(--hud-sc-l); }
-  #frChip { top: var(--hud-fr-t); left: var(--hud-fr-l); }
   .meta svg { display: block; flex: 0 0 auto; width: clamp(20px, 6vh, 30px); height: clamp(20px, 6vh, 30px); }
   .meta b { font-weight: 800; }
   #placePips {
@@ -523,18 +526,20 @@
   <canvas id="game" width="1280" height="720"></canvas>
   <div id="hud">
     <div id="hpPips" class="hud-item" aria-label="health"></div>
-    <span class="hud-item meta" id="flChip" title="floor">
-      <svg width="26" height="26" viewBox="0 0 14 14" aria-hidden="true"><rect x="1" y="8" width="12" height="5" rx="0.5" fill="#6a5a44" stroke="#c4b49a" stroke-width="1"/><rect x="3" y="4" width="8" height="5" rx="0.5" fill="#8a7a60" stroke="#e8dcc8" stroke-width="1"/><rect x="5" y="1" width="4" height="4" rx="0.5" fill="#c4a060" stroke="#f0e6d4" stroke-width="1"/></svg>
-      <b id="flNum">1</b>
-    </span>
-    <span class="hud-item meta" id="scChip" title="score">
-      <svg width="26" height="26" viewBox="0 0 14 14" aria-hidden="true"><polygon points="7,1 13,7 7,13 1,7" fill="#d0a040" stroke="#f0e0a0" stroke-width="1"/></svg>
-      <b id="scNum">0</b>
-    </span>
-    <span class="hud-item meta" id="frChip" title="fragments">
-      <svg width="22" height="26" viewBox="0 0 12 14" aria-hidden="true"><polygon points="6,1 11,6 8,13 4,13 1,6" fill="#70b0d0" stroke="#d0f0ff" stroke-width="1"/></svg>
-      <b id="frNum">0</b>
-    </span>
+    <div id="metaRow" class="hud-item" aria-label="run stats">
+      <span class="meta" id="flChip" title="floor">
+        <svg width="26" height="26" viewBox="0 0 14 14" aria-hidden="true"><rect x="1" y="8" width="12" height="5" rx="0.5" fill="#6a5a44" stroke="#c4b49a" stroke-width="1"/><rect x="3" y="4" width="8" height="5" rx="0.5" fill="#8a7a60" stroke="#e8dcc8" stroke-width="1"/><rect x="5" y="1" width="4" height="4" rx="0.5" fill="#c4a060" stroke="#f0e6d4" stroke-width="1"/></svg>
+        <b id="flNum">1</b>
+      </span>
+      <span class="meta" id="scChip" title="score">
+        <svg width="26" height="26" viewBox="0 0 14 14" aria-hidden="true"><polygon points="7,1 13,7 7,13 1,7" fill="#d0a040" stroke="#f0e0a0" stroke-width="1"/></svg>
+        <b id="scNum">0</b>
+      </span>
+      <span class="meta" id="frChip" title="fragments">
+        <svg width="22" height="26" viewBox="0 0 12 14" aria-hidden="true"><polygon points="6,1 11,6 8,13 4,13 1,6" fill="#70b0d0" stroke="#d0f0ff" stroke-width="1"/></svg>
+        <b id="frNum">0</b>
+      </span>
+    </div>
     <div id="placePips" class="hud-item" aria-hidden="true"></div>
     <button type="button" class="hud-item place-btn" id="btnBlock" aria-label="place me">
       <svg class="place-svg" viewBox="0 0 80 88" aria-hidden="true">
@@ -668,6 +673,11 @@
     hoopReady: false,
     cine: null,
     lordZoom: null,
+    /* BB-V7.21 — soft death: brief DOWN beat, then room reset with loot kept.
+       Null when upright; { t, dur } while the hero is down. */
+    downed: null,
+    /* BB-V7.22 — locked at run start from store.difficulty; EASY = current balance. */
+    difficulty: "easy",
     seenAimHelp: false,
     throws: 0,
     shopOpen: false
@@ -707,6 +717,7 @@
     bestFloor: 1,
     trickKills: 0,
     stash: [],
+    difficulty: "easy",
     unlocks: { pal: ["ember", "quill", "nova", "rift", "rose", "lilac", "mint", "coral", "storm", "ink"], hat: HATS.slice(), ball: BALLS.slice(), trail: TRAILS.slice(), body: BODIES.slice() },
     profiles: [
       { token: "EMBER", cos: { body: "bloc", hat: "cap", ball: "classic", trail: "flame", pal: "ember" } },
@@ -740,6 +751,11 @@
       if (o.trickKills) store.trickKills = o.trickKills;
       if (o.stash) store.stash = o.stash;
       if (o.profiles) store.profiles = o.profiles;
+      if (o.difficulty === "easy" || o.difficulty === "normal" ||
+          o.difficulty === "hard" || o.difficulty === "nightmare") {
+        store.difficulty = o.difficulty;
+        S.difficulty = o.difficulty;
+      }
       if (o.installHide) store.installHide = true;
       if (o.aimHelp) store.aimHelp = true;
       S.seenAimHelp = !!o.aimHelp;
@@ -773,6 +789,7 @@
         trickKills: store.trickKills,
         stash: store.stash.slice(0, 8),
         profiles: store.profiles,
+        difficulty: store.difficulty || "easy",
         installHide: store.installHide,
         aimHelp: store.aimHelp
       }));
@@ -845,6 +862,10 @@
     else if (name === "loot") beep("sine", 520, 0.14, 0.06, 780);
     else if (name === "pickup") beep("sine", 660, 0.1, 0.07, 990);
     else if (name === "hurt") beep("sawtooth", 110, 0.18, 0.08, 40);
+    else if (name === "down") {
+      beep("sawtooth", 90, 0.28, 0.09, 36);
+      setTimeout(function () { beep("triangle", 70, 0.35, 0.06, 40); }, 90);
+    }
     else if (name === "place") beep("square", 90, 0.06, 0.05);
     else if (name === "boss") beep("sawtooth", 70, 0.4, 0.09, 30);
     else if (name === "cleave") { beep("sawtooth", 90, 0.12, 0.07, 40); beep("triangle", 160, 0.18, 0.05, 60); }
@@ -879,11 +900,54 @@
   };
   var AFFIX = ["Fire", "Split", "Heavy", "Homing", "Chain"];
 
+  /* BB-V7.22 — EASY locks the current (v7.20/v7.21) combat + loot numbers.
+     Higher tiers raise enemy HP/damage and lean out drops, especially rare+. */
+  var DIFF_KEYS = ["easy", "normal", "hard", "nightmare"];
+  var DIFFS = {
+    easy: {
+      id: "easy", label: "EASY", blurb: "Current balance — generous drops",
+      hp: 1, dmg: 1, killLoot: 1, gear: 1, affix: 1,
+      rare: 1, epic: 1, legend: 1, fountain: 1, heart: 1, frag: 1, chest: 1
+    },
+    normal: {
+      id: "normal", label: "NORMAL", blurb: "Tougher foes, leaner loot",
+      hp: 1.40, dmg: 1.25, killLoot: 0.75, gear: 0.70, affix: 0.80,
+      rare: 0.70, epic: 0.55, legend: 0.40, fountain: 0.75, heart: 0.80, frag: 0.85, chest: 0.70
+    },
+    hard: {
+      id: "hard", label: "HARD", blurb: "Heavy hits, scarce rare gear",
+      hp: 1.85, dmg: 1.55, killLoot: 0.55, gear: 0.50, affix: 0.55,
+      rare: 0.45, epic: 0.30, legend: 0.18, fountain: 0.50, heart: 0.55, frag: 0.70, chest: 0.45
+    },
+    nightmare: {
+      id: "nightmare", label: "NIGHTMARE", blurb: "Brutal — legendary drops nearly gone",
+      hp: 2.50, dmg: 2.05, killLoot: 0.35, gear: 0.35, affix: 0.35,
+      rare: 0.25, epic: 0.14, legend: 0.08, fountain: 0.30, heart: 0.35, frag: 0.50, chest: 0.25
+    }
+  };
+  function diff() {
+    var id = (S.mode === "play" ? S.difficulty : store.difficulty) || "easy";
+    return DIFFS[id] || DIFFS.easy;
+  }
+  function diffLabel() {
+    return diff().label;
+  }
+  function setDifficulty(id) {
+    if (!DIFFS[id]) return;
+    store.difficulty = id;
+    if (S.mode !== "play") S.difficulty = id;
+    saveStore();
+  }
+
+  /* BB-V7.20 — floor ball rarity tightened; epic/legendary were showing up too
+     early and too often once trash drops started rolling.
+     BB-V7.22 — thresholds scaled by difficulty (EASY keeps the raw numbers). */
   function rarityForFloor(fl) {
+    var d = diff();
     var r = rnd();
-    if (fl >= 8 && r < 0.06) return "legendary";
-    if (fl >= 5 && r < 0.16) return "epic";
-    if (r < 0.38) return "rare";
+    if (fl >= 8 && r < 0.025 * d.legend) return "legendary";
+    if (fl >= 5 && r < 0.07 * d.epic) return "epic";
+    if (r < 0.20 * d.rare) return "rare";
     return "common";
   }
 
@@ -1380,7 +1444,7 @@
 
   function spawnEnemy(type, x, y, fl, isBoss, opts) {
     var d = enemyDef(type);
-    var hp = scaleStat(d.hp, fl);
+    var hp = Math.max(1, Math.floor(scaleStat(d.hp, fl) * diff().hp));
     if (opts && opts.hpMul) hp = Math.max(1, Math.floor(hp * opts.hpMul));
     var e = {
       type: type, name: d.name, x: x, y: y,
@@ -2094,12 +2158,14 @@
 
   function startRun(seed, custom) {
     S.seed = parseSeed(seed || makeSeed());
+    S.difficulty = store.difficulty || "easy";
     S.floor = 1;
     S.score = 0;
     S.runTricks = 0;
     S.hoopReady = false;
     S.bossBeat = 0;
     S.cine = null;
+    S.downed = null;
     S.customPlay = !!custom;
     S.builderLevel = custom || null;
     player = freshPlayer();
@@ -2114,7 +2180,7 @@
     if (typeof syncRotate === "function") syncRotate();
     hidePanels();
     syncHud();
-    toast("SEED " + S.seed);
+    toast("SEED " + S.seed + " · " + diffLabel());
   }
 
   function customToRoom(lv) {
@@ -2172,7 +2238,8 @@
 
   /* ---------- combat ---------- */
   function hurtPlayer(n) {
-    if (player.inv > 0) return;
+    if (S.downed || player.inv > 0) return;
+    n = Math.max(1, Math.round(n * diff().dmg));
     player.hp -= n;
     player.inv = 0.9;
     S.shake = 0.25;
@@ -2180,10 +2247,82 @@
     floatTxt(player.x, player.y - 24, "-" + n, "#ff8060");
     if (player.hp <= 0) {
       player.hp = 0;
-      toast("DOWN — room reset, loot kept");
-      player.hp = player.maxHp;
-      loadRoom(S.roomI);
+      startDowned();
     }
+  }
+
+  /* BB-V7.21 — death used to snap-heal and reload the room in one frame, which
+     read as "nothing happened." Soft path: hold a short DOWN beat (no run wipe,
+     no frag loss), then reset the room with loot kept. Weight without a stiff
+     penalty. */
+  function startDowned() {
+    if (S.downed) return;
+    clearSticks();
+    S.aim = null;
+    S.placeArmed = false;
+    S.placeMode = false;
+    player.vx = player.vy = 0;
+    player.hp = 0;
+    if (ball) { ball.live = false; ball.ret = false; }
+    S.shots = [];
+    S.splits = [];
+    S.shake = Math.max(S.shake, 0.55);
+    S.downed = { t: 0, dur: 1.55 };
+    sfx("down");
+    syncHud();
+  }
+
+  function updateDowned(dt) {
+    if (!S.downed) return;
+    S.downed.t += dt;
+    if (S.downed.t >= S.downed.dur) finishDowned();
+  }
+
+  function finishDowned() {
+    if (!S.downed) return;
+    S.downed = null;
+    player.hp = player.maxHp;
+    loadRoom(S.roomI);
+    player.inv = 1.4;
+    toast("UP — room reset, loot kept");
+    syncHud();
+  }
+
+  function drawDowned(g) {
+    if (!S.downed || S.mode !== "play") return;
+    var cw = canvas.width, ch = canvas.height;
+    var u = Math.min(1, S.downed.t / S.downed.dur);
+    var fadeIn = Math.min(1, S.downed.t / 0.18);
+    var pulse = 0.55 + 0.45 * Math.sin(S.downed.t * 7);
+    g.save();
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    g.fillStyle = "rgba(12, 8, 6, " + (0.42 * fadeIn) + ")";
+    g.fillRect(0, 0, cw, ch);
+    var grd = g.createRadialGradient(cw * 0.5, ch * 0.48, ch * 0.08, cw * 0.5, ch * 0.5, ch * 0.72);
+    grd.addColorStop(0, "rgba(80, 20, 16, 0)");
+    grd.addColorStop(1, "rgba(40, 8, 6, " + (0.55 * fadeIn) + ")");
+    g.fillStyle = grd;
+    g.fillRect(0, 0, cw, ch);
+    g.globalAlpha = fadeIn;
+    g.fillStyle = "#f0c8b0";
+    g.font = "700 " + Math.round(Math.min(cw, ch) * 0.09) + "px Georgia, 'Times New Roman', serif";
+    g.textAlign = "center";
+    g.textBaseline = "middle";
+    g.fillText("DOWN", cw * 0.5, ch * 0.44);
+    g.globalAlpha = fadeIn * (0.55 + 0.35 * pulse);
+    g.fillStyle = "#d8c4a8";
+    g.font = "600 " + Math.round(Math.min(cw, ch) * 0.028) + "px system-ui, sans-serif";
+    g.fillText("room reset · loot kept", cw * 0.5, ch * 0.52);
+    /* thin recover meter so the beat is readable, not a freeze */
+    var barW = Math.min(220, cw * 0.28), barH = Math.max(3, ch * 0.006);
+    var bx = (cw - barW) * 0.5, by = ch * 0.58;
+    g.globalAlpha = fadeIn * 0.35;
+    g.fillStyle = "#f0e6d4";
+    g.fillRect(bx, by, barW, barH);
+    g.globalAlpha = fadeIn * 0.9;
+    g.fillStyle = "#e07058";
+    g.fillRect(bx, by, barW * u, barH);
+    g.restore();
   }
 
   function healPlayer(n) {
@@ -2200,10 +2339,14 @@
     en.alive = false;
     en.deadT = 1.2;
     S.score += 10 * S.floor * (trick ? 3 : 1);
-    player.frag += 1 + Math.floor(S.floor / 3);
+    /* BB-V7.20 — kill frags were stacking with loot shards; keep a small
+       floor bonus but cut the guaranteed dump.
+       BB-V7.22 — frag yield scales with difficulty. */
+    var fragGain = 1 + Math.floor(S.floor / 5);
+    player.frag += Math.max(1, Math.round(fragGain * diff().frag));
     sfx(trick ? "trick" : "kill");
     burst(en.x, en.y, en.col, trick ? 22 : 10);
-    if (rnd() < 0.62 || en.boss) dropLoot(en.x, en.y, !!en.boss);
+    if (rnd() < 0.32 * diff().killLoot || en.boss) dropLoot(en.x, en.y, !!en.boss);
     maybeDropHeart(en.x, en.y, en);
     if (en.boss === "mini") startMiniDeath(en);
     else if (en.boss === "ash" || en.boss === "bone" || en.boss === "slag" || en.boss === "lord" || en.boss === "thorn") startBossDeath(en);
@@ -2217,7 +2360,10 @@
     S.muteFx = 0.25;
     S.shake = 0.38;
     sfx("boss");
-    for (var i = 0; i < 4; i++) {
+    /* BB-V7.20 — mini fountain was 4 rich balls; cut to 2.
+       BB-V7.22 — fountain count scales with difficulty (EASY keeps 2). */
+    var n = Math.max(1, Math.round(2 * diff().fountain));
+    for (var i = 0; i < n; i++) {
       (function (k) {
         setTimeout(function () { dropLoot(en.x + irnd(-26, 26), en.y + irnd(-20, 20), true); }, 90 * k);
       })(i);
@@ -2255,36 +2401,56 @@
       S.shots[si].dmg = 0;
       S.shots[si].life = Math.min(S.shots[si].life, 0.5);
     }
-    for (var i = 0; i < 10; i++) {
+    /* BB-V7.20 — floor-boss fountain was 10 rich balls; cut to 4.
+       BB-V7.22 — fountain count scales with difficulty (EASY keeps 4). */
+    var n = Math.max(1, Math.round(4 * diff().fountain));
+    for (var i = 0; i < n; i++) {
       (function (k) {
         setTimeout(function () { dropLoot(en.x + irnd(-40, 40), en.y + irnd(-30, 30), true); }, 80 * k);
       })(i);
     }
   }
 
+  /* BB-V7.20 — overall loot was too generous: trash kills spilled balls, rich
+     tables were epic/legendary-only, and frag piles fed the upgrade menu too
+     fast. Prefer shards over gear, and make power rarer when gear does drop.
+     BB-V7.22 — gear chance + rarity thresholds scale with difficulty.
+     BB-V7.22 — restY anchors the hop settle at the drop point (enemy/chest),
+     not the bottom of the playfield. */
   function dropLoot(x, y, rich) {
+    var d = diff();
     var table = rnd();
+    var gearFloor = 1 - 0.22 * d.gear;
     var it;
-    if (rich || table > 0.55) {
+    if (rich || table > gearFloor) {
       var aff = [];
-      var n = rich ? irnd(1, 2) : (rnd() < 0.5 ? 1 : 0);
+      var n = rich ? (rnd() < 0.45 * d.affix ? 1 : 0) : (rnd() < 0.22 * d.affix ? 1 : 0);
       for (var i = 0; i < n; i++) aff.push(pick(AFFIX));
-      it = { kind: "ball", x: x, y: y, r: 13, vy: -40, life: 12, rar: rich ? (rnd() < 0.4 ? "legendary" : "epic") : rarityForFloor(S.floor), affix: aff, taken: false };
+      var rar;
+      if (rich) {
+        var rr = rnd();
+        var legT = 0.10 * d.legend;
+        var epicT = legT + 0.35 * d.epic;
+        rar = rr < legT ? "legendary" : (rr < epicT ? "epic" : "rare");
+      } else {
+        rar = rarityForFloor(S.floor);
+      }
+      it = { kind: "ball", x: x, y: y, restY: y, r: 13, vy: -40, life: 12, rar: rar, affix: aff, taken: false };
     } else {
-      it = { kind: "frag", x: x, y: y, r: 8, vy: -30, life: 10, rar: "common", n: irnd(1, 3), taken: false };
+      it = { kind: "frag", x: x, y: y, restY: y, r: 8, vy: -30, life: 10, rar: "common", n: 1, taken: false };
     }
     S.loot.push(it);
     sfx("loot");
   }
 
   function dropHeart(x, y) {
-    S.loot.push({ kind: "heart", x: x, y: y, r: 10, vy: -52, life: 12, rar: "heart", n: 1, taken: false });
+    S.loot.push({ kind: "heart", x: x, y: y, restY: y, r: 10, vy: -52, life: 12, rar: "heart", n: 1, taken: false });
     sfx("loot");
   }
 
   function maybeDropHeart(x, y, en) {
     if (!player) return;
-    var p = 0.16;
+    var p = 0.16 * diff().heart;
     if (en && en.boss) p = 1;
     else if (player.hp >= player.maxHp) return;
     if (rnd() < p) dropHeart(x, y);
@@ -2399,7 +2565,7 @@
   }
 
   function throwBall(ang, pow) {
-    if (ball.live) return;
+    if (ball.live || S.downed) return;
     S.throws = (S.throws || 0) + 1;
     var spd = throwSpeed() * pow;
     ball.live = true; ball.ret = false; ball.pierced = false;
@@ -3113,7 +3279,10 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      each at 75/50/25% of max HP.
      BB-V7.16 — blade sweeps the telegraph fan; lunge actually covers the
      dashed lane (was ~40px of travel vs a 400px tell). Ease-in slash, ease-out
-     dash, stride/cape on the pose clock. */
+     dash, stride/cape on the pose clock.
+     BB-V7.21 — lunge telegraph: longer wind + early aim lock so the dashed
+     lane freezes with enough time to walk-dodge (was tracking until 78%);
+     attack pick mixes cleave walk-ins and caps lunge streaks. */
   var SKULL_CLEAVE_BACK = 1.32;
   var SKULL_CLEAVE_FWD = 1.18;
 
@@ -3165,6 +3334,8 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     e.dashCommit = false;
     e.prevX = e.x;
     e.prevY = e.y;
+    e.lastAtk = null;
+    e.lungeStreak = 0;
   }
 
   function spawnSkullAdds(boss, n) {
@@ -3216,6 +3387,18 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     }
   }
 
+  /* Big hall made pure dist>135 → almost always lunge. Mix in walk-ins and
+     cleaves; never chain more than one lunge without a close-range beat. */
+  function pickSkullAtk(e, dist) {
+    if (e.lastAtk === "lunge" || (e.lungeStreak || 0) >= 1) {
+      if (dist < 160) return "cleave";
+      return null; /* keep chasing into cleave range */
+    }
+    if (dist < 150) return "cleave";
+    if (dist < 220) return rnd() < 0.22 ? "lunge" : null;
+    return "lunge";
+  }
+
   function startSkullAtk(e, kind, dx, dy, dist) {
     e.atk = kind;
     e.atkT = 0;
@@ -3236,8 +3419,11 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       e.atkRecover = 0.50;
       e.bladeAng = skullBladeBang(skullAimAng(e), e.face * -SKULL_CLEAVE_BACK * 0.2);
     } else {
-      e.atkWind = 0.80;
-      e.atkActive = 0.34;
+      /* square up briefly, then freeze the lane — knight charge locks from
+         start; lord gets a short track so the tell still finds you, then
+         ~0.7s of committed dashed lane to sidestep off. */
+      e.atkWind = 1.20;
+      e.atkActive = 0.38;
       e.atkRecover = 0.62;
       e.bladeAng = e.face * -0.35;
     }
@@ -3367,14 +3553,18 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
           e.shieldFwd = coil * 1.05;
           e.dustT = 0.25;
           e.stride = coil * 0.22;
-          if (dist > 50) moveToward(e, dx / dist * 0.08, dy / dist * 0.08, e.spd * 0.22, dt);
-          if (lw < 0.78 && dist > 1) {
+          /* creep only while still tracking; freeze feet once the lane locks */
+          if (!e.dashCommit && dist > 50) {
+            moveToward(e, dx / dist * 0.08, dy / dist * 0.08, e.spd * 0.22, dt);
+          }
+          /* lock aim ~42% in so the dashed lane is readable before the dash */
+          if (lw < 0.42 && dist > 1) {
             e.aimX = dx / dist;
             e.aimY = dy / dist;
             e.face = e.aimX < 0 ? -1 : 1;
             e.dashLen = skullDashLen(e, dist);
           }
-          if (lw >= 0.78 && !e.dashCommit) {
+          if (lw >= 0.42 && !e.dashCommit) {
             e.dashCommit = true;
             e.dashFromX = e.x;
             e.dashFromY = e.y;
@@ -3429,7 +3619,11 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
         var finished = e.atk;
         e.atk = null;
         e.atkT = 0;
-        e.cd = (finished === "lunge" ? 1.05 : 0.92) + rnd() * 0.38;
+        e.lastAtk = finished;
+        if (finished === "lunge") e.lungeStreak = (e.lungeStreak || 0) + 1;
+        else e.lungeStreak = 0;
+        /* longer post-lunge rest so the next beat is walk/cleave, not spam */
+        e.cd = (finished === "lunge" ? 1.55 : 1.05) + rnd() * 0.4;
         e.bladeLift = 0;
         e.bladeAng = e.face * -0.45;
         e.lean = 0;
@@ -3442,8 +3636,11 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       return;
     }
 
-    /* idle chase — close for cleave; lunge is the gap-closer in the big hall */
+    /* idle chase — after a lunge, press in for cleave instead of re-charging */
     var chase = dist > 240 ? 1.25 : dist > 150 ? 0.9 : dist > 90 ? 0.55 : 0.32;
+    if (e.lastAtk === "lunge" || (e.lungeStreak || 0) >= 1) {
+      chase = Math.max(chase, dist > 160 ? 1.35 : 0.95);
+    }
     moveToward(e, dx / dist * chase, dy / dist * chase, e.spd, dt);
     e.face = dx < 0 ? -1 : 1;
     e.bladeAng = e.face * -0.45;
@@ -3451,12 +3648,12 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     e.stridePhase = (e.stridePhase || 0) + dt * (dist > 50 ? 9 : 3.5);
     e.stride = Math.sin(e.stridePhase) * 0.14;
     if (e.cd <= 0) {
-      if (dist < 135) {
-        startSkullAtk(e, "cleave", dx, dy, dist);
-        sfx("cleave");
+      var pick = pickSkullAtk(e, dist);
+      if (pick) {
+        startSkullAtk(e, pick, dx, dy, dist);
+        sfx(pick);
       } else {
-        startSkullAtk(e, "lunge", dx, dy, dist);
-        sfx("lunge");
+        e.cd = 0.28 + rnd() * 0.22;
       }
     }
   }
@@ -3580,8 +3777,11 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
   function updateLoot(dt) {
     for (var i = S.loot.length - 1; i >= 0; i--) {
       var it = S.loot[i];
+      /* BB-V7.22 — settle at the drop point (last enemy / chest location), not
+         the bottom of the screen. restY falls back for any legacy loot. */
+      var floorY = (it.restY != null) ? it.restY : (playH() - 40);
       it.life -= dt; it.vy += 80 * dt; it.y += it.vy * dt;
-      if (it.y > playH() - 40) { it.y = playH() - 40; it.vy *= -0.3; }
+      if (it.y > floorY) { it.y = floorY; it.vy *= -0.3; }
       if (!it.taken && Math.hypot(it.x - player.x, it.y - player.y) < 28) takeLoot(it);
       if (it.life <= 0 || it.taken) S.loot.splice(i, 1);
     }
@@ -3780,8 +3980,12 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      BB-V7.19-wall — row-sort walls with actors so south cubes occlude feet; softer
      hero bob/shadow against a south wall so he stops floating on the block.
      BB-V7.20 — paint-only back-wall HEIGHT 1–4 (half/wall/high/deep); solid
-     walls; per-room wallH from procedural/curated rules + builder share. */
-  var BUILD = "v7.21";
+     walls; per-room wallH from procedural/curated rules + builder share.
+     BB-V7.21 — soft DOWN beat before room reset; Skull Lord lunge longer
+     telegraph + early lane lock, attack mix stops lunge spam.
+     BB-V7.22 — difficulty tiers; loot hops settle at drop point; FEEL controls
+     and dungeon builder entry hidden from player menus. */
+  var BUILD = "v7.22";
   var FEEL_DEF = { spd: 250, accel: 2600, brake: 3600, throwSpd: 620, aimMode: "drag", aimDead: 2, aimHold: 64 };
   var FEEL = (function () {
     var f = {};
@@ -4030,10 +4234,11 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     g.scale(scale, scale);
     drawWorld(g);
     g.restore();
-    if (S.mode === "play" && !S.pause && !S.portrait) drawSticks(g);
+    if (S.mode === "play" && !S.pause && !S.portrait && !S.downed) drawSticks(g);
     if (S.mode === "play" && !S.seenAimHelp) {
       g.fillStyle = "rgba(20,17,14,0.0)";
     }
+    drawDowned(g);
   }
 
   /* CHIEF BB-V5.1 — the two spherical controls, drawn in screen space so they keep
@@ -4703,6 +4908,16 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     var cos = player.cos;
     var pal = PALETTES[cos.pal] || PALETTES.ember;
     if (player.inv > 0 && Math.floor(player.inv * 12) % 2 === 0) g.globalAlpha = 0.45;
+    /* BB-V7.21 — flatten + dim while DOWN so the beat reads on the body, not only
+       as a screen tint. */
+    if (S.downed) {
+      var du = Math.min(1, S.downed.t / 0.22);
+      g.globalAlpha = Math.min(g.globalAlpha, 0.55 + 0.2 * (1 - du));
+      g.save();
+      g.translate(player.x, player.y);
+      g.scale(1, 0.55 + 0.45 * (1 - du));
+      g.translate(-player.x, -player.y);
+    }
 
     /* Joe's own offsets, unchanged: head at 0, body at 0.55, legs at 1.15, all
        measured down from py = y - s*1.55. Only `sc` is ours, so he is the size
@@ -4754,6 +4969,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     g.fillRect(pxl + sc * 0.52 + ex, pyt + sc * 0.2, e, e);
 
     drawHat(g, x, pyt, cos.hat, pal, sc);
+    if (S.downed) g.restore();
     g.globalAlpha = 1;
   }
 
@@ -5153,6 +5369,8 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       var lw = e.atkT / e.atkWind;
       var lx = x + e.aimX * u * 0.6, ly = e.y + e.aimY * u * 0.12;
       var len = e.dashLen || skullDashLen(e, 0);
+      var tx = e.dashCommit ? e.dashToX : (lx + e.aimX * len);
+      var ty = e.dashCommit ? e.dashToY : (ly + e.aimY * len);
       g.save();
       g.globalAlpha = 0.24 + lw * 0.48;
       g.strokeStyle = "#f0e0b0";
@@ -5160,20 +5378,20 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       g.setLineDash([12, 9]);
       g.beginPath();
       g.moveTo(lx, ly);
-      g.lineTo(lx + e.aimX * len, ly + e.aimY * len);
+      g.lineTo(tx, ty);
       g.stroke();
       g.setLineDash([]);
       g.fillStyle = "rgba(255,122,42," + (0.12 + lw * 0.24) + ")";
       g.beginPath();
       g.moveTo(lx - e.aimY * u * 0.48, ly + e.aimX * u * 0.48);
-      g.lineTo(lx + e.aimX * len, ly + e.aimY * len);
+      g.lineTo(tx, ty);
       g.lineTo(lx + e.aimY * u * 0.48, ly - e.aimX * u * 0.48);
       g.closePath();
       g.fill();
       for (var ch = 0; ch < 5; ch++) {
         var ct = ((lw * 3 + ch * 0.18 + S.t * 1.8) % 1);
-        var cx = lx + e.aimX * len * ct;
-        var cy = ly + e.aimY * len * ct;
+        var cx = lx + (tx - lx) * ct;
+        var cy = ly + (ty - ly) * ct;
         g.globalAlpha = 0.4 + lw * 0.45;
         g.fillStyle = "#ffb060";
         g.beginPath();
@@ -5681,8 +5899,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       "<img class=\"splashArt\" alt=\"\" src=\"" + TITLE_ART + "\">" +
       "<h1 class=\"splashTitle\">DUNGEON</h1>" +
       "<div class=\"splashGo\">TAP TO START</div>" +
-      "<div class='muted' style='margin-top:10px;font-size:12px'>" + BUILD +
-        " · aim " + FEEL.aimMode.toUpperCase() + "</div>";
+      "<div class='muted' style='margin-top:10px;font-size:12px'>" + BUILD + "</div>";
     var panel = document.getElementById("splashPanel");
     panel.className = "panel splash show";
     panel.onclick = function () { ensureAudio(); showMenu(); };
@@ -5695,8 +5912,13 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     hidePanels();
     document.getElementById("menuPanel").className = "panel show";
     var el = document.getElementById("menuCard");
+    var curDiff = store.difficulty || "easy";
     var profs = store.profiles.map(function (p, i) {
       return "<button class='bb" + (i === activeProfile ? " on" : "") + "' data-p='" + i + "'>" + p.token + "</button>";
+    }).join("");
+    var diffs = DIFF_KEYS.map(function (k) {
+      var d = DIFFS[k];
+      return "<button class='bb" + (k === curDiff ? " on" : "") + "' data-d='" + k + "'>" + d.label + "</button>";
     }).join("");
     el.innerHTML =
       "<h1 class=\"title tTop\">BLOCKBALL</h1>" +
@@ -5707,17 +5929,15 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       "<h2>RUN</h2>" +
       "<div class='row'>" +
       "<button class='bb pri' id='btnPlay'>PLAY</button>" +
-      "<button class='bb' id='btnBuilder'>DUNGEON BUILDER</button>" +
-      /* FEEL lives here as well as on the pause card — you should not have to be
-         mid-fight to change how the game feels */
-      "<button class='bb' id='btnFeelMenu'>FEEL · " + FEEL.aimMode.toUpperCase() + "</button>" +
       "</div>" +
-      "<p class='muted' style='margin:2px 0 0'>" + BUILD + " · move " + FEEL.spd +
-        " · throw " + FEEL.throwSpd + "</p>" +
+      "<h2>DIFFICULTY</h2>" +
+      "<div class='row' id='diffRow'>" + diffs + "</div>" +
+      "<p class='muted' style='margin:2px 0 0'>" + (DIFFS[curDiff] || DIFFS.easy).blurb + "</p>" +
+      "<p class='muted' style='margin:2px 0 0'>" + BUILD + "</p>" +
       "<h2>PROFILE</h2><div class='row' id='profRow'>" + profs + "</div>" +
-      /* CHIEF FIX BB-V4.10 — five rows of dress-up pushed SEED and SHARE CODE two
-         screens down on a phone. They are a once-a-week choice, not a per-run one,
-         so they fold away behind one heading and the whole menu fits one screen. */
+      /* CHIEF FIX BB-V4.10 — five rows of dress-up pushed SEED two screens down
+         on a phone. They are a once-a-week choice, not a per-run one, so they
+         fold away behind one heading and the whole menu fits one screen. */
       "<h2 class='fold' id='cosHead'>LOOK <span class='foldArrow'>" + (cosOpen ? "\u25be" : "\u25b8") + "</span></h2>" +
       "<div id='cosBox'" + (cosOpen ? "" : " hidden") + "></div>" +
       "<h2>SEED</h2>" +
@@ -5725,11 +5945,6 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       "<input class='bb' id='seedIn' value='" + S.seed + "' maxlength='16' style='width:140px'>" +
       "<button class='bb' id='btnSeed'>PLAY SEED</button>" +
       "<button class='bb' id='btnRand'>NEW SEED</button>" +
-      "</div>" +
-      "<h2>SHARE CODE</h2>" +
-      "<div class='row'>" +
-      "<input class='bb' id='codeIn' placeholder='paste builder code' style='flex:1;min-width:180px'>" +
-      "<button class='bb' id='btnLoadCode'>LOAD</button>" +
       "</div>" +
       "<p class='muted'>Best floor " + store.bestFloor + " · Trick kills " + store.trickKills + " · Stash " + store.stash.length + "</p>";
     paintCos();
@@ -5740,16 +5955,15 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       activeProfile = +b.getAttribute("data-p");
       showMenu();
     };
-    document.getElementById("btnFeelMenu").onclick = function () { showFeel(); };
+    el.querySelector("#diffRow").onclick = function (ev) {
+      var b = ev.target.closest("button");
+      if (!b) return;
+      setDifficulty(b.getAttribute("data-d"));
+      showMenu();
+    };
     document.getElementById("btnPlay").onclick = function () { startRun(makeSeed(), null); };
-    document.getElementById("btnBuilder").onclick = function () { openBuilder(null); };
     document.getElementById("btnSeed").onclick = function () { startRun(document.getElementById("seedIn").value, null); };
     document.getElementById("btnRand").onclick = function () { S.seed = makeSeed(); showMenu(); };
-    document.getElementById("btnLoadCode").onclick = function () {
-      var lv = decodeShare(document.getElementById("codeIn").value);
-      if (!lv) { toast("BAD CODE"); return; }
-      startRun("BLK-CODE", lv);
-    };
     syncHud();
   }
 
@@ -5784,15 +5998,13 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     document.getElementById("pauseCard").innerHTML =
       "<div class='landSplit'><div class='landCopy'>" +
       "<h1>PAUSE</h1>" +
-      "<p class='muted'>" + S.seed + " · Floor " + S.floor + " · " + (player ? player.token : "") +
+      "<p class='muted'>" + S.seed + " · " + diffLabel() + " · Floor " + S.floor + " · " + (player ? player.token : "") +
         " · BALL " + ((player && player.ballAffix && player.ballAffix.length) ? player.ballAffix.join("+") : (player && player.permaFire ? "FIRE" : "PLAIN")) + "</p>" +
       "</div><div class='landBtns row'>" +
       "<button class='bb pri' id='btnRes'>RESUME</button>" +
       "<button class='bb' id='btnUpg'>UPGRADE · " + player.frag + "</button>" +
-      "<button class='bb' id='btnFeel'>FEEL</button>" +
       "<button class='bb' id='btnMenu'>MENU</button>" +
       "</div></div>";
-    document.getElementById("btnFeel").onclick = function () { showFeel(); };
     document.getElementById("btnUpg").onclick = function () { showShop(); };
     document.getElementById("btnRes").onclick = function () { document.getElementById("pausePanel").className = "panel"; S.pause = false; };
     document.getElementById("btnMenu").onclick = function () { S.pause = false; endRunToMenu(); };
@@ -5978,7 +6190,7 @@ function endRunToMenu() {
       "<h1>" + (boss ? "BOSS DOWN" : "FLOOR " + (S.floor - 1) + " CLEAR") + "</h1>" +
       "<p>Entering " + bio.name + " · Floor " + S.floor +
         (healed ? " · +" + healed + "♥" : "") + "</p>" +
-      "<p class='muted'>Seed " + S.seed + " · Score " + fmt(S.score) + " · Tricks " + S.runTricks + "</p>" +
+      "<p class='muted'>Seed " + S.seed + " · " + diffLabel() + " · Score " + fmt(S.score) + " · Tricks " + S.runTricks + "</p>" +
       "</div><div class='landBtns row'>" +
       "<button class='bb pri' id='btnFloorGo'>DESCEND</button>" +
       "<button class='bb' id='btnFloorUpg'>UPGRADE · " + player.frag + " FRAG</button>" +
@@ -6143,7 +6355,7 @@ function endRunToMenu() {
      release it, so a thumb on the walk ring never steals the aim, and lifting one
      never cancels the other. The old drag-anywhere aim is kept for the mouse. */
   function onDown(ev) {
-    if (S.mode !== "play" || S.pause || S.portrait) return;
+    if (S.mode !== "play" || S.pause || S.portrait || S.downed) return;
     if (ev.target && ev.target.closest && ev.target.closest("#hud button, #btnBlock, #btnPause, #placePips")) return;
     if (hudChromeHit(ev)) return;
     ensureAudio();
@@ -6219,7 +6431,7 @@ function endRunToMenu() {
     STK.FIELD.id = null;
     if (!S.pointer.down) return;
     S.pointer.down = false;
-    if (S.mode === "play" && S.aim && !ball.live) throwBall(S.aim.ang, S.aim.pow);
+    if (S.mode === "play" && S.aim && !ball.live && !S.downed) throwBall(S.aim.ang, S.aim.pow);
     S.aim = null;
   }
 
@@ -6255,7 +6467,7 @@ function endRunToMenu() {
   window.addEventListener("pointercancel", onUp);
 
   document.getElementById("btnPause").onclick = function () {
-    if (S.mode !== "play") return;
+    if (S.mode !== "play" || S.downed) return;
     S.pause = true; clearSticks(); showPause();
   };
   (function bindPlaceBtn() {
@@ -6263,7 +6475,7 @@ function endRunToMenu() {
     function arm(ev) {
       ev.preventDefault();
       ev.stopPropagation();
-      if (S.mode !== "play" || S.pause) return;
+      if (S.mode !== "play" || S.pause || S.downed) return;
       S.placeArmed = true;
       S.placeMode = true;
       try { btn.setPointerCapture(ev.pointerId); } catch (err) {}
@@ -6274,7 +6486,7 @@ function endRunToMenu() {
       if (!S.placeArmed) return;
       S.placeArmed = false;
       S.placeMode = false;
-      if (S.mode === "play" && !S.pause) tryPlaceAtGhost();
+      if (S.mode === "play" && !S.pause && !S.downed) tryPlaceAtGhost();
       syncHud();
     }
     function cancel(ev) {
@@ -6316,10 +6528,12 @@ function endRunToMenu() {
       var ch = room.chests[i];
       if (!ch.open && Math.hypot(ch.x - player.x, ch.y - player.y) < 28) {
         ch.open = true;
-        dropLoot(ch.x, ch.y - 10, S.floor >= 4);
-        dropLoot(ch.x + 10, ch.y - 6, false);
+        /* BB-V7.20 — chests no longer double-drop rich gear mid-run.
+           BB-V7.22 — second drop chance scales with difficulty. */
+        dropLoot(ch.x, ch.y - 10, S.floor >= 7);
+        if (rnd() < 0.35 * diff().chest) dropLoot(ch.x + 10, ch.y - 6, false);
         if (player.hp < player.maxHp) dropHeart(ch.x - 10, ch.y - 8);
-        player.frag += 2;
+        player.frag += 1;
         sfx("loot");
       }
     }
@@ -6336,6 +6550,13 @@ function endRunToMenu() {
     if (!player || !room) return;
     if (document.getElementById("shopPanel").className.indexOf("show") >= 0) return;
     if (document.getElementById("floorPanel").className.indexOf("show") >= 0) return;
+    /* BB-V7.21 — while DOWN, freeze the fight; only the beat, FX, and shake run. */
+    if (S.downed) {
+      updateDowned(dt);
+      updateFx(dt);
+      syncHud();
+      return;
+    }
     updatePlayer(dt);
     updateBall(dt);
     updateSplits(dt);
@@ -6406,7 +6627,17 @@ function endRunToMenu() {
     setHp: function (n) { if (!player) return; player.hp = n; player.inv = 9; syncHud(); },
     setMaxHp: function (n) { if (!player) return; player.maxHp = n; if (player.hp > n) player.hp = n; syncHud(); },
     hurt: function (n) { if (player) player.inv = 0; hurtPlayer(n); },
+    downed: function () { return S.downed ? { t: S.downed.t, dur: S.downed.dur } : null; },
+    forceDown: function () { if (!player) return; player.inv = 0; player.hp = 0; startDowned(); },
     dropHeart: dropHeart,
+    dropLoot: dropLoot,
+    loot: function () {
+      return S.loot.map(function (it) {
+        return { kind: it.kind, x: Math.round(it.x), y: Math.round(it.y),
+          restY: it.restY != null ? Math.round(it.restY) : null, vy: Math.round(it.vy) };
+      });
+    },
+    playH: function () { return playH(); },
     blocks: function () { return room ? room.blocks.map(function (b) { return { tx: b.tx, ty: b.ty, life: b.life, maxLife: b.maxLife, hp: b.hp, maxHp: b.maxHp }; }) : []; },
     setBlockLife: function (t) { if (room && room.blocks[0]) room.blocks[0].life = t; },
     hurtBlock: function (i, n) { return hurtBlockAt(i == null ? 0 : i, n == null ? 1 : n); },
@@ -6435,8 +6666,24 @@ function endRunToMenu() {
         build: BUILD, hs: HS, mobVis: MOB_VIS, knightVis: KNIGHT_VIS, lordVis: LORD_VIS, bossVis: BOSS_VIS, tileCssTarget: TILE_CSS,
         scale: cam.scale, tileCss: TILE * cam.scale / dpr,
         cols: playCols(), rows: playRows(), ww: playW(), hh: playH(),
-        playerR: player ? player.r : null, ballR: ball ? ball.r : null, moveSpd: FEEL.spd, throwSpd: FEEL.throwSpd, aimMode: FEEL.aimMode, blockLife: BLOCK_LIFE, blockHits: BLOCK_HITS
+        playerR: player ? player.r : null, ballR: ball ? ball.r : null, moveSpd: FEEL.spd, throwSpd: FEEL.throwSpd, aimMode: FEEL.aimMode, blockLife: BLOCK_LIFE, blockHits: BLOCK_HITS,
+        difficulty: S.difficulty || store.difficulty || "easy"
       };
+    },
+    difficulty: function () {
+      var d = diff();
+      return {
+        run: S.difficulty || "easy",
+        store: store.difficulty || "easy",
+        label: d.label,
+        hp: d.hp, dmg: d.dmg, killLoot: d.killLoot, gear: d.gear,
+        rare: d.rare, epic: d.epic, legend: d.legend, fountain: d.fountain
+      };
+    },
+    setDifficulty: function (id) {
+      setDifficulty(id);
+      if (S.mode === "play") S.difficulty = store.difficulty;
+      return this.difficulty();
     },
     feel: function () {
       return { spd: FEEL.spd, accel: FEEL.accel, brake: FEEL.brake, throwSpd: FEEL.throwSpd,
