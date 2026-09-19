@@ -1036,13 +1036,17 @@
     var pad = uiPad();
     /* BB-V7.12 — phone: +20% vs v7.5 (rad 0.145, inset 1.45R), keep 0.45R edge gap.
        BB-V7.25 — tablet/iPad: cap physical ring size near phone landscape and tuck
-       toward the corners. Same left-walk / field-aim scheme; no second input path. */
+       toward the corners. Same left-walk / field-aim scheme; no second input path.
+       BB-V7.26 — iPad sticks +15% radius; keep v7.25 absolute edge gap so the
+       larger rings stay as close to the corner as the bigger disc allows. */
     var radCss, gapCss;
     if (pad) {
-      /* Phone-like disc (~52–62 CSS px). Edge gap ~0.12R so the ring almost
-         kisses the corner — iPad thumbs rest nearer the bezel than phone. */
-      radCss = Math.min(62, Math.max(52, shortCss * 0.068));
-      gapCss = Math.max(6, radCss * 0.12);
+      /* Phone-like disc (~52–62 CSS px), then +15%. Edge gap stays on the
+         pre-scale radius (~0.12R base) so the ring still almost kisses the
+         corner — iPad thumbs rest nearer the bezel than phone. */
+      var radBase = Math.min(62, Math.max(52, shortCss * 0.068));
+      radCss = radBase * 1.15;
+      gapCss = Math.max(6, radBase * 0.12);
     } else {
       var rad0Css = Math.max(46, shortCss * 0.145);
       gapCss = rad0Css * 0.45;
@@ -4162,7 +4166,8 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      BB-V7.24 — track→punch→ease camera on every hoop swish (boss + knight).
      BB-V7.25 — iPad/tablet bolt-on: capped sticks nearer corners, denser HUD,
      screen-space aim power; same control scheme, no separate iPad fork.
-     BB-V7.26 — iPad HUD drops below status bar by one heart row.
+     BB-V7.26 — iPad HUD drops below status bar by one heart row; sticks +15%
+     size with same corner edge gap as v7.25.
      BB-V7.27 — pad canvas DPR 1.0 + pixel budget; park canvas on menus;
      pause rAF when hidden — older iPads were jetsamming Safari.
      BB-V7.28 — HARD knight/boss rich balls: ~80% rare / 15% epic / 4% legendary. */
