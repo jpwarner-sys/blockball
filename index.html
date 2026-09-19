@@ -243,6 +243,14 @@
     max-width: min(97vw, 1180px); max-height: 62vh;
     margin: 14px 0; border: 4px solid #4a4032; background: #14110e;
   }
+  .splashArt.bossArt {
+    max-width: min(98vw, 1400px); max-height: 72vh; width: 100%;
+    object-fit: cover; border-color: #6a5a40;
+  }
+  .card.splashCard h1.bossTitle {
+    font-size: clamp(22px, min(5.5vw, 6vh), 48px); letter-spacing: 0.18em;
+    color: #f0e0c0; text-shadow: 0 3px 0 #1a120c, 0 0 22px rgba(220,160,60,0.35);
+  }
   .splashGo {
     margin-top: 20px; font-size: clamp(13px, 2.4vw, 20px); letter-spacing: 3px; font-weight: 800; color: #c4b49a;
     animation: goPulse 1.5s ease-in-out infinite;
@@ -600,7 +608,7 @@
   function enemyVis(e) {
     if (!e || !e.boss) return MOB_VIS;
     if (e.boss === "mini") return KNIGHT_VIS;
-    if (e.boss === "bone") return LORD_VIS;
+    if (e.boss === "lord") return LORD_VIS;
     return BOSS_VIS;
   }
   /* art radius used by draw* — physics uses bodyR / e.r after fitSilhouette */
@@ -626,6 +634,7 @@
   var hud = document.getElementById("hud");
   var installBar = document.getElementById("install");
   var rotateEl = document.getElementById("rotate");
+  var BOSS_ART = "skull-lord-boss-landscape.jpg";
   /* CHIEF FIX BB-V4.10 — the LOOK section is folded away by default; see showMenu. */
   var cosOpen = false;
 
@@ -669,6 +678,7 @@
     bossBeat: 0,
     hoopReady: false,
     cine: null,
+    lordZoom: null,
     /* BB-V7.21 — soft death: brief DOWN beat, then room reset with loot kept.
        Null when upright; { t, dur } while the hero is down. */
     downed: null,
@@ -852,6 +862,7 @@
   function sfx(name) {
     if (name === "throw") beep("triangle", 180, 0.08, 0.05, 90);
     else if (name === "bounce") beep("square", 220, 0.05, 0.04, 140);
+    else if (name === "dribble") beep("triangle", 160, 0.035, 0.018, 90);
     else if (name === "hit") beep("sawtooth", 140, 0.07, 0.06, 60);
     else if (name === "kill") beep("square", 320, 0.12, 0.07, 520);
     else if (name === "trick") { beep("square", 440, 0.16, 0.08, 880); beep("triangle", 660, 0.2, 0.05, 1320); }
@@ -1016,7 +1027,9 @@
     ball = {
       live: false, ret: false, x: player.x + 30, y: player.y - 8, vx: 0, vy: 0, r: BALL_R, pierced: false,
       life: 0, bounces: 0, hits: [], dmg: 0, affix: player.ballAffix || [],
-      trail: []
+      trail: [],
+      /* BB-V7.23 — held-ball dribble: phase clock, visual lift, ground row for sort. */
+      dribble: 0, lift: 0, groundY: player.y - 8, squash: 0
     };
   }
 
@@ -1160,10 +1173,11 @@
   function pickRoomSize(kind, piece) {
     if (piece === "hallH") return { cols: irnd(20, 32), rows: irnd(8, 11) };
     if (piece === "hallV") return { cols: irnd(12, 16), rows: irnd(14, 18) };
-    /* BB-V7.16 — playtest: 28–34×16–20 still cramped for the cleave/lunge kit.
-       ~1.5× each side of that (~2.3× floor) so the camera scrolls and the
-       charge lanes actually have a destination. */
-    if (piece === "skullLair") return { cols: irnd(44, 52), rows: irnd(24, 30) };
+    /* BB-V7.18 — knight chamber sits between a normal room and the Skull throne. */
+    if (piece === "knightChamber") return { cols: irnd(24, 30), rows: irnd(14, 18) };
+    if (piece === "throneGate") return { cols: irnd(30, 36), rows: irnd(16, 20) };
+    /* BB-V7.16/19 -- Skull Lord throne: oversized nave, camera pulls wide. */
+    if (piece === "skullLair") return { cols: irnd(48, 56), rows: irnd(26, 32) };
     if (kind === "boss" || piece === "boss") return { cols: irnd(18, 24), rows: irnd(12, 15) };
     var roll = rnd();
     if (roll < 0.38) return { cols: irnd(16, 20), rows: irnd(10, 13) };
@@ -1243,9 +1257,9 @@
       rectWall(g, 2, 2, 2, 2); rectWall(g, c - 4, 2, 2, 2);
       rectWall(g, 2, r - 4, 2, 2); rectWall(g, c - 4, r - 4, 2, 2);
     },
-    /* BB-V7.16 — Skull Lord hall: huge open nave for cleave fans, side ruins
-       to bank the ball, east throne jaws as the charge destination. North
-       center stays clear for the hoop. Pillars sit off the mid charge lane. */
+    /* BB-V7.16/18 — Skull Lord THRONE: huge open nave for cleave fans, side
+       ruins to bank the ball, east throne jaws as the charge destination.
+       North center stays clear for the hoop. Own tileset via THRONE_TILESET. */
     skullLair: function (g) {
       stampBorder(g);
       var c = gCols(g), r = gRows(g);
@@ -1264,6 +1278,40 @@
       rectWall(g, c - 6, midY + 3, 3, 2);
       rectWall(g, c - 4, midY - 3, 1, 1);
       rectWall(g, c - 4, midY + 2, 1, 1);
+      rectWall(g, midX - 1, r - 3, 2, 1);
+    },
+    /* BB-V7.18 — mini-boss knight chamber: same floor tileset, more ceremonial
+       than a trash room, smaller than the Skull throne. Open center + side
+       pillars + east dais so the knight reads as a gate, not a random arena. */
+    knightChamber: function (g) {
+      stampBorder(g);
+      var c = gCols(g), r = gRows(g);
+      var midY = Math.floor(r / 2), midX = Math.floor(c / 2);
+      var pw = Math.max(2, Math.round(c / 14)), ph = Math.max(2, Math.round(r / 8));
+      rectWall(g, Math.round(c * 0.22), Math.round(r * 0.26), pw, ph);
+      rectWall(g, Math.round(c * 0.72), Math.round(r * 0.26), pw, ph);
+      rectWall(g, Math.round(c * 0.22), Math.round(r * 0.62), pw, ph);
+      rectWall(g, Math.round(c * 0.72), Math.round(r * 0.62), pw, ph);
+      rectWall(g, c - 5, midY - 3, 2, 2);
+      rectWall(g, c - 5, midY + 1, 2, 2);
+      rectWall(g, midX - 1, r - 3, 2, 1);
+    },
+    throneGate: function (g) {
+      stampBorder(g);
+      var c = gCols(g), r = gRows(g);
+      var midY = Math.floor(r / 2), midX = Math.floor(c / 2);
+      var rw = Math.max(2, Math.round(c * 0.08));
+      var rh = Math.max(2, Math.round(r * 0.14));
+      rectWall(g, 3, 3, rw, rh);
+      rectWall(g, c - 3 - rw, 3, rw, rh);
+      rectWall(g, 3, r - 3 - rh, rw, rh);
+      rectWall(g, c - 3 - rw, r - 3 - rh, rw, rh);
+      rectWall(g, Math.floor(c * 0.24), Math.floor(r * 0.34), 2, 2);
+      rectWall(g, Math.floor(c * 0.24), Math.floor(r * 0.60), 2, 2);
+      rectWall(g, Math.floor(c * 0.72), Math.floor(r * 0.34), 2, 2);
+      rectWall(g, Math.floor(c * 0.72), Math.floor(r * 0.60), 2, 2);
+      rectWall(g, c - 6, midY - 3, 2, 1);
+      rectWall(g, c - 6, midY + 2, 2, 1);
       rectWall(g, midX - 1, r - 3, 2, 1);
     },
     chambers: function (g) {
@@ -1316,10 +1364,48 @@
     { id: "ash", name: "ASHEN", walls: ["#3a3830", "#2c2418"], floor: ["#1a1610", "#14120e"], roster: ["wraith", "ashling", "charger", "voider"] },
     { id: "thorn", name: "THORN", walls: ["#243424", "#1a2818"], floor: ["#101810", "#0c140c"], roster: ["briar", "spitter", "golem", "witchling"] }
   ];
+  /* BB-V7.18/19 -- Skull Lord throne tileset (bone marble + cold gold). */
+  var THRONE_TILESET = {
+    id: "throne", name: "THRONE",
+    walls: ["#4a463c", "#2e2a24"],
+    floor: ["#1a1816", "#12100e"],
+    roster: ["skel", "wraith", "voider", "ashling"]
+  };
+  /* 1-12: four biomes x3 with bosses on 3/6/9/12. 13-16: all reincarnation knights, then Skull Lord. */
+  var SKULL_BIOME_START = 13;
+  var SKULL_LORD_FLOOR = 16;
+  var REVIVE_KNIGHTS = ["minibone", "miniforge", "miniash", "minithorn"];
+  var REVIVE_HP_MUL = [0.9, 1.05, 1.2, 1.4];
   function biomeOf(fl) {
-    if (fl <= 4) return BIOME[0];
-    if (fl <= 8) return BIOME[1];
-    if (fl <= 12) return BIOME[2];
+    if (fl >= SKULL_BIOME_START) return THRONE_TILESET;
+    if (fl <= 3) return BIOME[0];
+    if (fl <= 6) return BIOME[1];
+    if (fl <= 9) return BIOME[2];
+    return BIOME[3];
+  }
+  function isBiomeBossFloor(fl) { return fl > 0 && fl <= 12 && fl % 3 === 0; }
+  function isSkullReviveFloor(fl) { return fl >= SKULL_BIOME_START && fl <= SKULL_LORD_FLOOR; }
+  function reviveIndex(fl) { return fl - SKULL_BIOME_START; }
+  function floorBossType(fl) {
+    if (fl === 3) return "boneking";
+    if (fl === 6) return "slagking";
+    if (fl === 9) return "ashtitan";
+    if (fl === 12) return "thornqueen";
+    if (fl === SKULL_LORD_FLOOR) return "skulllord";
+    return "boneking";
+  }
+  function knightTypeForFloor(fl) {
+    var id = biomeOf(fl).id;
+    if (id === "crypt") return "minibone";
+    if (id === "forge") return "miniforge";
+    if (id === "ash") return "miniash";
+    if (id === "thorn") return "minithorn";
+    return "minibone";
+  }
+  function originBiomeForKnight(type) {
+    if (type === "minibone") return BIOME[0];
+    if (type === "miniforge") return BIOME[1];
+    if (type === "miniash") return BIOME[2];
     return BIOME[3];
   }
 
@@ -1341,7 +1427,9 @@
       spitter: { hp: 22, r: 22, spd: 17, kind: "range", col: "#80b040", name: "NEEDLE" },
       golem: { hp: 48, r: 30, spd: 23, kind: "chase", col: "#687060", name: "GOLEM" },
       witchling: { hp: 26, r: 20, spd: 49, kind: "orbit", col: "#70a058", name: "WITCHLING" },
-      skulllord: { hp: 260, r: 56, spd: 50, kind: "boss", col: "#e8e0d0", name: "SKULL LORD", boss: "bone" },
+      boneking: { hp: 220, r: 42, spd: 32, kind: "boss", col: "#e8e0d0", name: "BONE KING", boss: "bone" },
+      slagking: { hp: 300, r: 44, spd: 30, kind: "boss", col: "#d07030", name: "SLAG KING", boss: "slag" },
+      skulllord: { hp: 260, r: 56, spd: 50, kind: "boss", col: "#e8e0d0", name: "SKULL LORD", boss: "lord" },
       ashtitan: { hp: 420, r: 51, spd: 23, kind: "boss", col: "#c06030", name: "ASH TITAN", boss: "ash" },
       thornqueen: { hp: 640, r: 45, spd: 29, kind: "boss", col: "#50a060", name: "THORN QUEEN", boss: "thorn" },
       minibone: { hp: 90, r: 32, spd: 35, kind: "boss", col: "#c8b898", name: "BONE KNIGHT", boss: "mini" },
@@ -1363,9 +1451,10 @@
     return spd;
   }
 
-  function spawnEnemy(type, x, y, fl, isBoss) {
+  function spawnEnemy(type, x, y, fl, isBoss, opts) {
     var d = enemyDef(type);
     var hp = Math.max(1, Math.floor(scaleStat(d.hp, fl) * diff().hp));
+    if (opts && opts.hpMul) hp = Math.max(1, Math.floor(hp * opts.hpMul));
     var e = {
       type: type, name: d.name, x: x, y: y,
       /* artR locks the sprite size; fitSilhouette then sets body/hurt from paint */
@@ -1396,13 +1485,19 @@
       body = u * 0.52;
       hurt = u * 0.82;
       lift = u * 1.08;
-    } else if (e.boss === "bone") {
+    } else if (e.boss === "lord") {
       /* Skull Lord: ribs + skull are solid; spiked pauldrons fair to hit;
          wide cape is drama only. u matches drawSkullLord. */
       u = ar * 1.48 * vis;
       body = u * 0.46;
       hurt = u * 0.70;
       lift = u * 1.18;
+    } else if (e.boss === "bone" || e.boss === "slag") {
+      /* Bone / Slag King: blocky torso + head (legacy art). */
+      u = ar * vis;
+      body = u * 0.92;
+      hurt = u * 1.08;
+      lift = u * 0.55;
     } else if (e.boss === "ash") {
       /* Fixed-pixel ash block, then bossScale 1.2 * BOSS_VIS. */
       u = 28 * 1.2 * vis;
@@ -1489,25 +1584,19 @@
   function buildFloor(fl) {
     seedRng("F" + fl);
     var bio = biomeOf(fl);
-    var isBossFloor = fl % 5 === 0;
-    var nRooms = isBossFloor ? irnd(3, 4) : irnd(3, 5);
+    var bossFloor = isBiomeBossFloor(fl);
+    var skullRevive = isSkullReviveFloor(fl);
+    var skullLordHere = fl === SKULL_LORD_FLOOR;
+    /* BB-V7.19 -- doubled trash; every floor ends with a knight room.
+       Every 3rd floor (3/6/9/12) then appends the biome boss.
+       Floors 13-16: reincarnation gates; floor 16 also appends Skull Lord
+       ONLY after all four revive knights (player must clear them first). */
+    var nRooms = (bossFloor || skullLordHere) ? irnd(6, 8) : irnd(6, 10);
     var list = [];
     var roomPool = ["arena", "pillars", "aisle", "corners", "diamond", "teeth", "choke", "chambers", "lbend", "ring", "plus", "stagger"];
     var hallPool = ["hallH", "hallV"];
-    for (var i = 0; i < nRooms; i++) {
-      var last = i === nRooms - 1;
-      var kind, piece, doors;
-      if (last && isBossFloor) {
-        kind = "boss";
-        /* floor-5 bone line gets a curated Skull Lord lair; ash/thorn keep generic boss piece for now */
-        piece = (fl % 15 !== 0 && fl % 10 !== 0) ? "skullLair" : "boss";
-      }
-      else if (last) { kind = "mini"; piece = pick(["arena", "pillars", "boss", "chambers"]); }
-      else if (i > 0 && i < nRooms - 1 && rnd() < 0.42) { kind = "corridor"; piece = pick(hallPool); }
-      else { kind = "room"; piece = pick(roomPool); }
-      if (i === 0) doors = ["e"];
-      else if (last) doors = ["w"];
-      else doors = ["w", "e"];
+
+    function pushRoom(kind, piece, doors, fillEnts, extra) {
       var made = makeRoomGrid(kind, piece, doors);
       var g = made.grid, spawn = made.spawn;
       var cols = made.cols, open = reachableTiles(g, spawn, 4);
@@ -1538,42 +1627,90 @@
         if (g[t.ty]) g[t.ty][t.tx] = 0;
         return t;
       }
-      if (kind === "boss") {
-        var btype = fl % 15 === 0 ? "thornqueen" : fl % 10 === 0 ? "ashtitan" : "skulllord";
-        var bt = forceTile();
-        ents.push({ kind: "enemy", type: btype, tx: bt.tx, ty: bt.ty });
-      } else if (kind === "mini") {
-        var mt = bio.id === "crypt" ? "minibone" : bio.id === "forge" ? "miniforge" : bio.id === "ash" ? "miniash" : "minithorn";
-        var kt = forceTile();
-        ents.push({ kind: "enemy", type: mt, tx: kt.tx, ty: kt.ty });
-        if (rnd() < 0.5) {
-          var ct = takeTile();
-          if (ct) ents.push({ kind: "chest", tx: ct.tx, ty: ct.ty });
-        }
-      } else if (kind === "corridor") {
-        var cN = 1 + (fl > 4 ? 1 : 0), c;
-        for (c = 0; c < cN; c++) {
-          var et = takeTile();
-          if (et) ents.push({ kind: "enemy", type: pick(bio.roster), tx: et.tx, ty: et.ty });
-        }
-      } else {
-        var budget = 2 + Math.min(4, Math.floor(fl / 3));
-        if (piece === "choke" || piece === "plus") budget = Math.max(2, budget - 1);
-        var e;
-        for (e = 0; e < budget; e++) {
-          var rt = takeTile();
-          if (rt) ents.push({ kind: "enemy", type: pick(bio.roster), tx: rt.tx, ty: rt.ty });
-        }
-        if (rnd() < 0.45) {
-          var ch = takeTile();
-          if (ch) ents.push({ kind: "chest", tx: ch.tx, ty: ch.ty });
-        }
-      }
-      list.push({
+      fillEnts(ents, { takeTile: takeTile, forceTile: forceTile, g: g, cols: cols, spawn: spawn });
+      var spec = {
         piece: piece, kind: kind, grid: g, ents: ents, cleared: false, blocks: [],
         spawn: spawn, cols: cols, rows: made.rows, pathOk: made.pathOk,
+        tileset: null, centerTileset: null, bossIntro: false,
         wallH: pickWallH(kind, piece, cols, made.rows)
-      });
+      };
+      if (extra) {
+        if (extra.tileset) spec.tileset = extra.tileset;
+        if (extra.centerTileset) spec.centerTileset = extra.centerTileset;
+        if (extra.bossIntro) spec.bossIntro = true;
+      }
+      list.push(spec);
+      return spec;
+    }
+
+    for (var i = 0; i < nRooms; i++) {
+      var kind, piece, doors;
+      if (i > 0 && i < nRooms - 1 && rnd() < 0.42) { kind = "corridor"; piece = pick(hallPool); }
+      else { kind = "room"; piece = pick(roomPool); }
+      if (i === 0) doors = ["e"];
+      else doors = ["w", "e"];
+      pushRoom(kind, piece, doors, function (ents, api) {
+        if (kind === "corridor") {
+          var cN = 1 + (fl > 4 ? 1 : 0), c;
+          for (c = 0; c < cN; c++) {
+            var et = api.takeTile();
+            if (et) ents.push({ kind: "enemy", type: pick(bio.roster), tx: et.tx, ty: et.ty });
+          }
+        } else {
+          var budget = 2 + Math.min(4, Math.floor(fl / 3));
+          if (piece === "choke" || piece === "plus") budget = Math.max(2, budget - 1);
+          var e;
+          for (e = 0; e < budget; e++) {
+            var rt = api.takeTile();
+            if (rt) ents.push({ kind: "enemy", type: pick(bio.roster), tx: rt.tx, ty: rt.ty });
+          }
+          if (rnd() < 0.45) {
+            var ch = api.takeTile();
+            if (ch) ents.push({ kind: "chest", tx: ch.tx, ty: ch.ty });
+          }
+        }
+      }, skullRevive ? { tileset: THRONE_TILESET } : null);
+    }
+
+    /* Knight room -- always. Revive knights on 13-16; biome knights before that. */
+    var moreAfterKnight = bossFloor || skullLordHere;
+    var knightDoors = moreAfterKnight ? ["w", "e"] : ["w"];
+    if (skullRevive) {
+      var ri = reviveIndex(fl);
+      var rtype = REVIVE_KNIGHTS[Math.max(0, Math.min(REVIVE_KNIGHTS.length - 1, ri))];
+      var rmul = REVIVE_HP_MUL[Math.max(0, Math.min(REVIVE_HP_MUL.length - 1, ri))];
+      pushRoom("mini", "throneGate", knightDoors, function (ents, api) {
+        var kt = api.forceTile();
+        ents.push({ kind: "enemy", type: rtype, tx: kt.tx, ty: kt.ty, hpMul: rmul, revive: true });
+        if (rnd() < 0.45) {
+          var ct = api.takeTile();
+          if (ct) ents.push({ kind: "chest", tx: ct.tx, ty: ct.ty });
+        }
+      }, { tileset: THRONE_TILESET, centerTileset: originBiomeForKnight(rtype) });
+    } else {
+      var mt = knightTypeForFloor(fl);
+      pushRoom("mini", "knightChamber", knightDoors, function (ents, api) {
+        var kt = api.forceTile();
+        ents.push({ kind: "enemy", type: mt, tx: kt.tx, ty: kt.ty });
+        if (rnd() < 0.5) {
+          var ct = api.takeTile();
+          if (ct) ents.push({ kind: "chest", tx: ct.tx, ty: ct.ty });
+        }
+      }, null);
+    }
+
+    if (bossFloor) {
+      var btype = floorBossType(fl);
+      pushRoom("boss", "boss", ["w"], function (ents, api) {
+        var bt = api.forceTile();
+        ents.push({ kind: "enemy", type: btype, tx: bt.tx, ty: bt.ty });
+      }, null);
+    } else if (skullLordHere) {
+      /* Skull Lord ONLY after the four reincarnation rooms (last is this floor's knight). */
+      pushRoom("boss", "skullLair", ["w"], function (ents, api) {
+        var bt = api.forceTile();
+        ents.push({ kind: "enemy", type: "skulllord", tx: bt.tx, ty: bt.ty });
+      }, { tileset: THRONE_TILESET, bossIntro: true });
     }
     return list;
   }
@@ -1989,8 +2126,12 @@
     for (var i = 0; i < spec.ents.length; i++) {
       var e = spec.ents[i];
       var x = (e.tx + 0.5) * TILE, y = (e.ty + 0.5) * TILE;
-      if (e.kind === "enemy") ents.push(spawnEnemy(e.type, x, y, S.floor, spec.kind === "boss"));
-      else if (e.kind === "chest") chests.push({ x: x, y: y, open: false, r: 14 });
+      if (e.kind === "enemy") {
+        ents.push(spawnEnemy(e.type, x, y, S.floor, spec.kind === "boss", {
+          hpMul: e.hpMul || 0
+        }));
+        if (e.revive && ents.length) ents[ents.length - 1].revive = true;
+      } else if (e.kind === "chest") chests.push({ x: x, y: y, open: false, r: 14 });
     }
     room = {
       spec: spec,
@@ -2004,8 +2145,11 @@
       spawnX: spec.spawn ? (spec.spawn.tx + 0.5) * TILE : 2.5 * TILE,
       spawnY: spec.spawn ? (spec.spawn.ty + 0.5) * TILE : (doorY(spec.grid) + 0.5) * TILE,
       hoop: null,
+      tileset: spec.tileset || null,
+      centerTileset: spec.centerTileset || null,
       wallH: applySpecWallH(spec)
     };
+    S.lordZoom = null;
     if (spec.kind === "boss") room.hoop = makeBossHoop(spec);
     var spawnEnt = spec.ents.filter(function (e) { return e.kind === "spawn"; })[0];
     if (spawnEnt) {
@@ -2076,6 +2220,14 @@
   function nextRoomOrFloor() {
     S.rooms[S.roomI].cleared = true;
     if (S.roomI < S.rooms.length - 1) {
+      var nxt = S.rooms[S.roomI + 1];
+      if (nxt && nxt.bossIntro) {
+        showBossSplash(function () {
+          loadRoom(S.roomI + 1);
+          toast("SKULL LORD");
+        });
+        return;
+      }
       loadRoom(S.roomI + 1);
       toast("NEXT HALL");
       return;
@@ -2209,7 +2361,7 @@
     if (rnd() < 0.32 * diff().killLoot || en.boss) dropLoot(en.x, en.y, !!en.boss);
     maybeDropHeart(en.x, en.y, en);
     if (en.boss === "mini") startMiniDeath(en);
-    else if (en.boss === "ash" || en.boss === "bone" || en.boss === "thorn") startBossDeath(en);
+    else if (en.boss === "ash" || en.boss === "bone" || en.boss === "slag" || en.boss === "lord" || en.boss === "thorn") startBossDeath(en);
   }
 
   /* BB-V7.3 — a mini kill was indistinguishable from killing a slime: no beat, no
@@ -2437,6 +2589,7 @@
     ball.dmg = currentDmg();
     ball.affix = (player.ballAffix || []).slice();
     ball.trail = [];
+    ball.lift = 0; ball.squash = 0; ball.dribble = 0;
     sfx("throw");
     if (!S.seenAimHelp) { S.seenAimHelp = true; store.aimHelp = true; saveStore(); }
   }
@@ -2446,7 +2599,9 @@
       /* CHIEF BB-V5.3 — the ball at rest used to be drawn over the hero's face.
          It now sits in the throwing hand, out to the side and low.
          BB-V7.19 — match the hero's south-wall ground bias so the held ball
-         does not sit on the wall's lifted top while he stands on the floor. */
+         does not sit on the wall's lifted top while he stands on the floor.
+         BB-V7.23 — dribble while walking (bounce + soft tap); cradle when aiming
+         or downed so the shot read stays clean. */
       var handBias = 0;
       if (room && room.grid) {
         var ptx = Math.floor(player.x / TILE), pty = Math.floor(player.y / TILE);
@@ -2454,8 +2609,44 @@
           handBias = -Math.round(TILE * WALL_Z);
         }
       }
-      ball.x = player.x + player.facing * 30;
-      ball.y = player.y - 8 + handBias;
+      var moving = Math.hypot(player.vx || 0, player.vy || 0) > 12;
+      var groundY = player.y - 8 + handBias;
+      var side = player.facing * 30;
+      var lift = 0;
+      var squash = 0;
+      ball.dribble = ball.dribble || 0;
+      if (S.aim || S.downed) {
+        /* pick up into a throw cradle; freeze the bounce clock */
+        lift = S.downed ? 4 : 18;
+        side = player.facing * 22;
+        ball.dribble = 0;
+      } else if (moving) {
+        var top = player.spd * (1 + player.spdLv * 0.05) || 1;
+        var sp = Math.hypot(player.vx, player.vy);
+        var rate = 9.5 + (sp / top) * 4.5;
+        var prevPhase = ball.dribble;
+        ball.dribble += dt * rate;
+        /* sin² bounce: soft hang at the top, snappy floor contact */
+        var wave = Math.sin(ball.dribble);
+        var bounce = wave * wave;
+        lift = 4 + bounce * 22;
+        squash = bounce < 0.08 ? (1 - bounce / 0.08) * 0.22 : 0;
+        side = player.facing * (26 + bounce * 4);
+        /* soft tap each time the ball kisses the floor */
+        var crossed = Math.floor(prevPhase / Math.PI) !== Math.floor(ball.dribble / Math.PI);
+        if (crossed && bounce < 0.15) sfx("dribble");
+      } else {
+        /* idle: gentle pocket bounce so the held ball still has life */
+        ball.dribble += dt * 3.2;
+        var idle = Math.sin(ball.dribble) * Math.sin(ball.dribble);
+        lift = 10 + idle * 5;
+        side = player.facing * 28;
+      }
+      ball.lift = lift;
+      ball.squash = squash;
+      ball.groundY = groundY;
+      ball.x = player.x + side;
+      ball.y = groundY - lift;
       return;
     }
     if (ball.ret) {
@@ -2618,10 +2809,11 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
         }
       }
       /* Skull Lord / knight authored melee owns damage during active frames —
-         body bump would stack and muddy the animation read. */
-      var authoredAtk = (e.boss === "bone" || e.boss === "mini") && e.atk &&
+         body bump would stack and muddy the animation read.
+         (lord = Skull Lord; bone is Bone King again and has no melee clock.) */
+      var authoredAtk = (e.boss === "lord" || e.boss === "mini") && e.atk &&
         e.atkT >= e.atkWind && e.atkT < e.atkWind + e.atkActive &&
-        (e.boss === "bone" || e.atk === "reap" || e.atk === "charge" ||
+        (e.boss === "lord" || e.atk === "reap" || e.atk === "charge" ||
          e.atk === "blink" || e.atk === "slam" || e.atk === "briar");
       if (!authoredAtk && Math.hypot(e.x - player.x, e.y - player.y) < bodyR(e) + player.r - 2) {
         hurtPlayer(1 + Math.floor(S.floor / 6));
@@ -3553,8 +3745,28 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
           e.cd = 1.4;
         }
       }
-    } else if (e.boss === "bone") {
+    } else if (e.boss === "lord") {
       updateSkullLord(e, dt, dx, dy, dist);
+    } else if (e.boss === "bone") {
+      /* BB-V7.18 -- Bone King: slow chase + radial bone volley. */
+      if (e.cd <= 0) {
+        for (var k = 0; k < 6; k++) {
+          var a = k * Math.PI / 3 + e.phase;
+          fireShot(e.x, e.y, Math.cos(a), Math.sin(a), 170, 1, "knife", { owner: e });
+        }
+        e.cd = 2.0;
+      }
+      moveToward(e, dx / dist * 0.3, dy / dist * 0.3, e.spd, dt);
+    } else if (e.boss === "slag") {
+      /* BB-V7.19 -- Slag King: forge biome boss, radial hot knives + chase. */
+      if (e.cd <= 0) {
+        for (var sk = 0; sk < 8; sk++) {
+          var sa = sk * Math.PI / 4 + e.phase * 0.7;
+          fireShot(e.x, e.y, Math.cos(sa), Math.sin(sa), 185, 1, "knife", { owner: e });
+        }
+        e.cd = 1.85;
+      }
+      moveToward(e, dx / dist * 0.35, dy / dist * 0.35, e.spd, dt);
     } else if (e.boss === "thorn") {
       if (e.cd <= 0) {
         fireShot(e.x, e.y, dx / dist, dy / dist, 210, 2, "knife", { owner: e });
@@ -3801,7 +4013,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      a max-content right column per stack so neighbours line up exactly.
      BB-V7.11 — landscape copy right-justified so labels sit against their buttons.
      BB-V7.12 — placed cubes: 2 HP, normal mob chips, knight+ one-shots, ball clears.
-     BB-V7.12b — Skull Lord replaces Bone King: curated lair, melee cleave+lunge,
+     BB-V7.12b — Skull Lord (was Bone King slot): curated lair, melee cleave+lunge,
      trash waves at 75/50/25, arena wipe on death.
      BB-V7.13 — NBA hoop + cinematic swish; HEART pips collapse to a bar after 8.
      BB-V7.14 — larger translucent walk/shot rings; phone HUD sized off viewport.
@@ -3813,7 +4025,10 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      BB-V7.17 — no auto exit-pull on clear; closed/open east door.
      BB-V7.18 — mini knights each get a special / normal / wild kit with
      distinct weapons, telegraphs, and pose clocks.
-     BB-V7.19 — row-sort walls with actors so south cubes occlude feet; softer
+     BB-V7.18-realm — doubled rooms, knight chambers, Bone King restored.
+     BB-V7.19 — Bosses on 3/6/9/12; floors 13-16 reincarnation gauntlet before
+     Skull Lord; landscape boss splash; throneGate origin-biome centers.
+     BB-V7.19-wall — row-sort walls with actors so south cubes occlude feet; softer
      hero bob/shadow against a south wall so he stops floating on the block.
      BB-V7.20 — paint-only back-wall HEIGHT 1–4 (half/wall/high/deep); solid
      walls; per-room wallH from procedural/curated rules + builder share.
@@ -3821,6 +4036,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      telegraph + early lane lock, attack mix stops lunge spam.
      BB-V7.22 — difficulty tiers; loot hops settle at drop point; FEEL controls
      and dungeon builder entry hidden from player menus.
+     BB-V7.23 — held-ball dribble while walking (bounce, squash, soft tap, arm).
      BB-V7.24 — large rooms zoom out toward TILE_CSS_MIN + smoothed cam pan. */
   var BUILD = "v7.24";
   var FEEL_DEF = { spd: 250, accel: 2600, brake: 3600, throwSpd: 620, aimMode: "drag", aimDead: 2, aimHold: 64 };
@@ -4012,6 +4228,9 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       softWant = want + (wantMin - want) * softT;
     }
     var scale = Math.max(fit, softWant);
+    /* Post-boss hoop flourish (track ball → swish punch) lives in cameraFit/cine,
+       not a continuous skullLair scale mul — softWant already frames the throne. */
+    S.lordZoom = null;
     var viewW = cw / scale, viewH = ch / scale;
     var px = (player && S.mode === "play") ? player.x : ww * 0.5;
     var py = (player && S.mode === "play") ? player.y : hh * 0.5;
@@ -4276,6 +4495,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
   function pickWallH(kind, piece, cols, rows) {
     var area = (cols || 20) * (rows || 12);
     if (piece === "skullLair") return 4;
+    if (piece === "throneGate") return 3;
     if (kind === "boss" || piece === "boss") return 3;
     if (kind === "mini") return 3;
     if (kind === "corridor" || piece === "hallH" || piece === "hallV") return 1;
@@ -4396,15 +4616,20 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
   }
 
   function drawWorld(g) {
-    var bio = biomeOf(S.floor);
+    var bio = (room && room.tileset) || biomeOf(S.floor);
+    var center = room && room.centerTileset;
     var wz = Math.round(TILE * WALL_Z);
     var rows = playRows(), cols = playCols();
     var y, x, wall, b, c, i, L, s, sp, z, f, p;
+    var cx0 = Math.floor(cols * 0.28), cx1 = Math.ceil(cols * 0.72);
+    var cy0 = Math.floor(rows * 0.28), cy1 = Math.ceil(rows * 0.72);
     /* floor for EVERY tile first, or a wall's lifted top is painted over by the
        floor of the tile above it. */
     for (y = 0; y < rows; y++) {
       for (x = 0; x < cols; x++) {
-        g.fillStyle = bio.floor[(x + y) & 1];
+        var floorPal = bio.floor;
+        if (center && x >= cx0 && x < cx1 && y >= cy0 && y < cy1) floorPal = center.floor;
+        g.fillStyle = floorPal[(x + y) & 1];
         g.fillRect(x * TILE, y * TILE, TILE, TILE);
       }
     }
@@ -4424,7 +4649,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       for (L = 0; L < S.loot.length; L++) {
         if (sortRow(S.loot[L].y) === y) drawLoot(g, S.loot[L]);
       }
-      if (ball && !ball.live && sortRow(ball.y) === y) drawBallObj(g, ball, false);
+      if (ball && !ball.live && sortRow(ball.groundY != null ? ball.groundY : ball.y) === y) drawBallObj(g, ball, false);
       if (player && sortRow(player.y) === y) drawPlayer(g);
       if (ball && ball.live && sortRow(ball.y) === y) drawBallObj(g, ball, true);
       if (room) {
@@ -4824,6 +5049,13 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     cube(g, pxl + sc * (0.5 - bw / 2), pyt + sc * (1.25 - bh), sc * bw, sc * bh, sc * 0.22, pal.a);
 
     var armA = S.aim ? S.aim.ang : (f > 0 ? -0.15 : Math.PI + 0.15);
+    /* BB-V7.23 — while dribbling, the gauntlet taps toward the bounce instead of
+       hanging in a static throw pose. */
+    if (!S.aim && ball && !ball.live && !S.downed) {
+      var tap = Math.sin(ball.dribble || 0);
+      var base = f > 0 ? 1.05 : Math.PI - 1.05;
+      armA = base + tap * 0.55;
+    }
     var ax = x + Math.cos(armA) * sc * (bw * 0.5 + 0.14);
     var ay = pyt + sc * 0.7 + Math.sin(armA) * sc * 0.2;
     cube(g, ax - sc * 0.12, ay, sc * 0.24, sc * 0.3, sc * 0.1, pal.a);
@@ -4930,20 +5162,28 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     }
     /* CHIEF BB-V6.2 — Joe's `drawBallOn`: a radial-lit sphere with a shadow under it
        and four seam arcs that rotate with travel, instead of a flat disc with a cross
-       drawn on top. This is what gives the ball weight. */
+       drawn on top. This is what gives the ball weight.
+       BB-V7.23 — held dribble: shadow stays on the ground, shrinks with lift, and
+       the ball squashes slightly on each floor kiss. */
     var cols = ballCols();
-    b.rot = (b.rot || 0) + (b.live ? Math.hypot(b.vx, b.vy) * 0.0006 : 0.004);
-    g.fillStyle = "rgba(0,0,0,0.35)";
-    g.beginPath(); g.ellipse(b.x, b.y + b.r * 0.78, b.r * 0.78, b.r * 0.28, 0, 0, 6.3); g.fill();
-    var grd = g.createRadialGradient(b.x - b.r * 0.35, b.y - b.r * 0.38, b.r * 0.08, b.x, b.y, b.r);
+    var lift = (!b.live && b.lift) ? b.lift : 0;
+    var squash = (!b.live && b.squash) ? b.squash : 0;
+    var spin = b.live ? Math.hypot(b.vx, b.vy) * 0.0006 : (lift > 6 ? 0.035 : 0.004);
+    b.rot = (b.rot || 0) + spin;
+    var shadowY = b.y + b.r * 0.78 + lift;
+    var shadowS = 1 - Math.min(0.5, lift / 36);
+    g.fillStyle = "rgba(0,0,0," + (0.22 + 0.18 * shadowS) + ")";
+    g.beginPath(); g.ellipse(b.x, shadowY, b.r * 0.78 * shadowS, b.r * 0.28 * shadowS, 0, 0, 6.3); g.fill();
+    var rx = b.r * (1 + squash * 0.35), ry = b.r * (1 - squash * 0.45);
+    var grd = g.createRadialGradient(b.x - rx * 0.35, b.y - ry * 0.38, ry * 0.08, b.x, b.y, Math.max(rx, ry));
     grd.addColorStop(0, cols.hi);
     grd.addColorStop(1, cols.lo);
     g.fillStyle = grd;
-    g.beginPath(); g.arc(b.x, b.y, b.r, 0, 6.3); g.fill();
+    g.beginPath(); g.ellipse(b.x, b.y, rx, ry, 0, 0, 6.3); g.fill();
     g.strokeStyle = cols.seam;
     g.lineWidth = Math.max(1.5, b.r * 0.1);
     g.save();
-    g.translate(b.x, b.y); g.rotate(b.rot);
+    g.translate(b.x, b.y); g.rotate(b.rot); g.scale(rx / b.r, ry / b.r);
     g.beginPath(); g.arc(0, 0, b.r * 0.92, 0, 6.3); g.stroke();
     g.beginPath(); g.moveTo(0, -b.r * 0.92); g.lineTo(0, b.r * 0.92); g.stroke();
     g.beginPath(); g.arc(b.r * 0.95, 0, b.r * 0.85, Math.PI * 0.65, Math.PI * 1.35); g.stroke();
@@ -5503,7 +5743,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     g.translate(-e.x, -e.y);
     /* CHIEF BB-V5.2 — boss art is drawn from fixed pixel offsets, so it is scaled
        about the boss's own centre to match the radius it now carries. */
-    var bossScale = e.boss === "ash" ? 1.2 : (e.boss === "mini" || e.boss === "bone") ? 1 : e.boss ? 1.35 : 1;
+    var bossScale = e.boss === "ash" ? 1.2 : (e.boss === "mini" || e.boss === "bone" || e.boss === "slag" || e.boss === "lord") ? 1 : e.boss ? 1.35 : 1;
     if (bossScale !== 1) { g.save(); g.translate(e.x, e.y); g.scale(bossScale, bossScale); g.translate(-e.x, -e.y); }
     if (e.boss === "ash") {
       g.fillStyle = "#2a2018";
@@ -5536,8 +5776,27 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
         g.arc(e.x, e.y, e.ringR, e.gap - 0.575, e.gap + 0.575);
         g.stroke();
       }
-    } else if (e.boss === "bone") {
+    } else if (e.boss === "lord") {
       drawSkullLord(g, e);
+    } else if (e.boss === "bone") {
+      g.fillStyle = "#e8e0d0";
+      g.fillRect(e.x - 16, e.y - 18, 32, 40);
+      g.fillStyle = "#f4eee0";
+      g.fillRect(e.x - 14, e.y - 36, 28, 22);
+      g.fillStyle = "#1a120c";
+      g.fillRect(e.x - 8, e.y - 28, 6, 6); g.fillRect(e.x + 2, e.y - 28, 6, 6);
+      g.fillRect(e.x - 6, e.y - 18, 12, 3);
+      for (var r = 0; r < 4; r++) g.fillRect(e.x - 12, e.y - 8 + r * 7, 24, 3);
+    } else if (e.boss === "slag") {
+      g.fillStyle = "#d07030";
+      g.fillRect(e.x - 17, e.y - 18, 34, 42);
+      g.fillStyle = "#f0a050";
+      g.fillRect(e.x - 14, e.y - 38, 28, 22);
+      g.fillStyle = "#1a1008";
+      g.fillRect(e.x - 8, e.y - 30, 6, 6); g.fillRect(e.x + 2, e.y - 30, 6, 6);
+      g.fillStyle = "#ffd080";
+      g.fillRect(e.x - 6, e.y - 18, 12, 4);
+      for (var sr = 0; sr < 4; sr++) g.fillRect(e.x - 13, e.y - 8 + sr * 7, 26, 3);
     } else if (e.boss === "thorn") {
       g.fillStyle = "#245830";
       g.fillRect(e.x - 18, e.y - 10, 36, 36);
@@ -5711,6 +5970,30 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       document.getElementById(id).className = "panel";
     });
     if (typeof syncRotate === "function") syncRotate();
+  }
+
+  function showBossSplash(done) {
+    S.mode = "splash";
+    S.pause = true;
+    if (typeof syncRotate === "function") syncRotate();
+    hidePanels();
+    var el = document.getElementById("splashCard");
+    el.innerHTML =
+      "<h1 class=\"splashTitle bossTitle\">THE SKULL LORD</h1>" +
+      "<img class=\"splashArt bossArt\" alt=\"Skull Lord\" src=\"" + BOSS_ART + "\">" +
+      "<div class=\"splashGo\">TAP TO FACE HIM</div>";
+    var panel = document.getElementById("splashPanel");
+    panel.className = "panel splash show";
+    panel.onclick = function () {
+      panel.onclick = null;
+      hidePanels();
+      S.pause = false;
+      S.mode = "play";
+      if (typeof syncRotate === "function") syncRotate();
+      syncHud();
+      if (done) done();
+    };
+    syncHud();
   }
 
   function showSplash() {
@@ -6429,7 +6712,7 @@ function endRunToMenu() {
   window.__BB_SELFTEST = {
     /* read-only probe for the headless harness: position and velocity, nothing else */
     pos: function () { return player ? { x: Math.round(player.x), y: Math.round(player.y), vx: Math.round(player.vx), vy: Math.round(player.vy) } : null; },
-    ballState: function () { return ball ? { x: Math.round(ball.x), y: Math.round(ball.y), vx: Math.round(ball.vx), vy: Math.round(ball.vy), live: ball.live, bounces: ball.bounces, hits: ball.hits.length, pierced: !!ball.pierced, r: ball.r } : null; },
+    ballState: function () { return ball ? { x: Math.round(ball.x), y: Math.round(ball.y), vx: Math.round(ball.vx), vy: Math.round(ball.vy), live: ball.live, bounces: ball.bounces, hits: ball.hits.length, pierced: !!ball.pierced, r: ball.r, lift: Math.round(ball.lift || 0), squash: +(ball.squash || 0).toFixed(2), dribble: +(ball.dribble || 0).toFixed(2), groundY: Math.round(ball.groundY != null ? ball.groundY : ball.y) } : null; },
     enemies: function () { return room ? room.enemies.filter(function (e) { return e.alive; }).map(function (e) { return { type: e.type, x: Math.round(e.x), y: Math.round(e.y), r: e.r, artR: artR(e), bodyR: bodyR(e), hitR: e.hitR || e.r, hitLift: e.hitLift || 0, hp: e.hp, spd: e.spd, kind: e.kind, vis: enemyVis(e), boss: e.boss || null }; }) : []; },
     fire: function (ang, pow) { throwBall(ang, pow); },
     resetBall: function () { if (ball) { ball.live = false; ball.ret = false; resetBallHome(); } },
@@ -6470,7 +6753,7 @@ function endRunToMenu() {
       if (!who) return 1;
       if (typeof who === "object") return blockDmgFromEnemy(who);
       if (who === "knight" || who === "boss" || who === "mini" ||
-          who === "bone" || who === "ash" || who === "thorn") {
+          who === "bone" || who === "slag" || who === "lord" || who === "ash" || who === "thorn") {
         return blockDmgFromEnemy({ boss: who === "knight" || who === "boss" ? "mini" : who });
       }
       return 1;
@@ -6739,7 +7022,7 @@ function endRunToMenu() {
     killBossCleanup: function () {
       if (!room) return null;
       var boss = null, i;
-      for (i = 0; i < room.enemies.length; i++) if (room.enemies[i].boss === "bone" && room.enemies[i].alive) boss = room.enemies[i];
+      for (i = 0; i < room.enemies.length; i++) if (room.enemies[i].boss === "lord" && room.enemies[i].alive) boss = room.enemies[i];
       if (!boss) return null;
       /* plant a dummy shot then run the real death path */
       S.shots.push({ x: boss.x, y: boss.y, vx: 40, vy: 0, r: 4, life: 2, dmg: 1, kind: "knife" });
@@ -6756,7 +7039,7 @@ function endRunToMenu() {
     triggerWave: function (ratio) {
       if (!room) return null;
       var e = null, i;
-      for (i = 0; i < room.enemies.length; i++) if (room.enemies[i].boss === "bone" && room.enemies[i].alive) e = room.enemies[i];
+      for (i = 0; i < room.enemies.length; i++) if (room.enemies[i].boss === "lord" && room.enemies[i].alive) e = room.enemies[i];
       if (!e) return null;
       ensureSkullLord(e);
       e.hp = Math.floor(e.maxHp * ratio);
@@ -6766,7 +7049,7 @@ function endRunToMenu() {
     skullState: function () {
       if (!room) return null;
       var e = null, i;
-      for (i = 0; i < room.enemies.length; i++) if (room.enemies[i].boss === "bone") e = room.enemies[i];
+      for (i = 0; i < room.enemies.length; i++) if (room.enemies[i].boss === "lord") e = room.enemies[i];
       if (!e) return null;
       return {
         atk: e.atk, atkT: Math.round((e.atkT || 0) * 100) / 100,
@@ -6778,8 +7061,8 @@ function endRunToMenu() {
     },
     gotoSkullLair: function (seed) {
       startRun(seed || "SKULL-ARENA");
-      S.floor = 5;
-      S.rooms = buildFloor(5);
+      S.floor = SKULL_LORD_FLOOR;
+      S.rooms = buildFloor(SKULL_LORD_FLOOR);
       var i, idx = S.rooms.length - 1;
       for (i = 0; i < S.rooms.length; i++) if (S.rooms[i].kind === "boss") idx = i;
       loadRoom(idx);
@@ -6791,8 +7074,26 @@ function endRunToMenu() {
         cols: playCols(), rows: playRows(),
         piece: room && room.spec ? room.spec.piece : null,
         kind: room && room.kind, hoop: !!(room && room.hoop),
-        boss: this.enemies().filter(function (en) { return en.boss === "bone"; })[0] || null
+        tileset: room && room.tileset ? room.tileset.id : null,
+        rooms: S.rooms.map(function (r) { return { kind: r.kind, piece: r.piece }; }),
+        boss: this.enemies().filter(function (en) { return en.boss === "lord"; })[0] || null
       };
+    },
+    auditProgression: function () {
+      var out = [], f, list, last, kinds;
+      for (f = 1; f <= 16; f++) {
+        list = buildFloor(f);
+        kinds = list.map(function (r) { return r.kind; });
+        last = list[list.length - 1];
+        out.push({
+          f: f, n: list.length, kinds: kinds,
+          last: last.kind + "/" + last.piece,
+          boss: (last.ents.filter(function (e) { return e.kind === "enemy"; })[0] || {}).type,
+          center: last.centerTileset && last.centerTileset.id,
+          intro: !!last.bossIntro
+        });
+      }
+      return out;
     }
   };
 })();
