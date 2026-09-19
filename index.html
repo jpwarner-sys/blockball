@@ -958,28 +958,35 @@
   var AFFIX = ["Fire", "Split", "Heavy", "Homing", "Chain"];
 
   /* BB-V7.22 — EASY locks the current (v7.20/v7.21) combat + loot numbers.
-     Higher tiers raise enemy HP/damage and lean out drops, especially rare+. */
+     Higher tiers raise enemy HP/damage and lean out drops, especially rare+.
+     BB-V7.28 — richLeg/richEpic are absolute knight/boss ball rates (rest rare).
+     HARD targets ~80% rare / 15% epic / 4% legendary so the first knight
+     stop being a free power spike. */
   var DIFF_KEYS = ["easy", "normal", "hard", "nightmare"];
   var DIFFS = {
     easy: {
       id: "easy", label: "EASY", blurb: "Current balance — generous drops",
       hp: 1, dmg: 1, killLoot: 1, gear: 1, affix: 1,
-      rare: 1, epic: 1, legend: 1, fountain: 1, heart: 1, frag: 1, chest: 1
+      rare: 1, epic: 1, legend: 1, fountain: 1, heart: 1, frag: 1, chest: 1,
+      richLeg: 0.10, richEpic: 0.35
     },
     normal: {
       id: "normal", label: "NORMAL", blurb: "Tougher foes, leaner loot",
       hp: 1.40, dmg: 1.25, killLoot: 0.75, gear: 0.70, affix: 0.80,
-      rare: 0.70, epic: 0.55, legend: 0.40, fountain: 0.75, heart: 0.80, frag: 0.85, chest: 0.70
+      rare: 0.70, epic: 0.55, legend: 0.40, fountain: 0.75, heart: 0.80, frag: 0.85, chest: 0.70,
+      richLeg: 0.06, richEpic: 0.22
     },
     hard: {
-      id: "hard", label: "HARD", blurb: "Heavy hits, scarce rare gear",
+      id: "hard", label: "HARD", blurb: "Heavy hits; rare is the usual knight drop",
       hp: 1.85, dmg: 1.55, killLoot: 0.55, gear: 0.50, affix: 0.55,
-      rare: 0.45, epic: 0.30, legend: 0.18, fountain: 0.50, heart: 0.55, frag: 0.70, chest: 0.45
+      rare: 0.45, epic: 0.30, legend: 0.18, fountain: 0.50, heart: 0.55, frag: 0.70, chest: 0.45,
+      richLeg: 0.04, richEpic: 0.15
     },
     nightmare: {
       id: "nightmare", label: "NIGHTMARE", blurb: "Brutal — legendary drops nearly gone",
       hp: 2.50, dmg: 2.05, killLoot: 0.35, gear: 0.35, affix: 0.35,
-      rare: 0.25, epic: 0.14, legend: 0.08, fountain: 0.30, heart: 0.35, frag: 0.50, chest: 0.25
+      rare: 0.25, epic: 0.14, legend: 0.08, fountain: 0.30, heart: 0.35, frag: 0.50, chest: 0.25,
+      richLeg: 0.02, richEpic: 0.08
     }
   };
   function diff() {
@@ -2534,7 +2541,9 @@
      fast. Prefer shards over gear, and make power rarer when gear does drop.
      BB-V7.22 — gear chance + rarity thresholds scale with difficulty.
      BB-V7.22 — restY anchors the hop settle at the drop point (enemy/chest),
-     not the bottom of the playfield. */
+     not the bottom of the playfield.
+     BB-V7.28 — knight/boss rich rarity uses absolute richLeg/richEpic per
+     difficulty (rare fills the rest); HARD ≈ 4% / 15% / 81%. */
   function dropLoot(x, y, rich) {
     var d = diff();
     var table = rnd();
@@ -2547,8 +2556,8 @@
       var rar;
       if (rich) {
         var rr = rnd();
-        var legT = 0.10 * d.legend;
-        var epicT = legT + 0.35 * d.epic;
+        var legT = d.richLeg;
+        var epicT = legT + d.richEpic;
         rar = rr < legT ? "legendary" : (rr < epicT ? "epic" : "rare");
       } else {
         rar = rarityForFloor(S.floor);
@@ -4155,8 +4164,9 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      screen-space aim power; same control scheme, no separate iPad fork.
      BB-V7.26 — iPad HUD drops below status bar by one heart row.
      BB-V7.27 — pad canvas DPR 1.0 + pixel budget; park canvas on menus;
-     pause rAF when hidden — older iPads were jetsamming Safari. */
-  var BUILD = "v7.27";
+     pause rAF when hidden — older iPads were jetsamming Safari.
+     BB-V7.28 — HARD knight/boss rich balls: ~80% rare / 15% epic / 4% legendary. */
+  var BUILD = "v7.28";
   var FEEL_DEF = { spd: 250, accel: 2600, brake: 3600, throwSpd: 620, aimMode: "drag", aimDead: 2, aimHold: 64 };
   var FEEL = (function () {
     var f = {};
