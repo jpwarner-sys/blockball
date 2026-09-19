@@ -1721,8 +1721,30 @@
     if (ty < 0 || tx < 0 || ty >= rows || tx >= cols) return 1;
     return g[ty][tx];
   }
+  /* BB-V7.25 — rim hangs on the wall face (boardY < 0). Open a narrow north-wall
+     corridor so a hoop-ready heave can reach the net instead of bouncing off stone. */
+  function hoopLaneOpen(tx, ty) {
+    if (ty !== 0) return false;
+    if (!S.hoopReady || !room || !room.hoop || room.hoop.swished) return false;
+    var hx = Math.floor(room.hoop.x / TILE);
+    return Math.abs(tx - hx) <= 2;
+  }
+  function tileAtBall(g, x, y) {
+    var tx = Math.floor(x / TILE), ty = Math.floor(y / TILE);
+    if (hoopLaneOpen(tx, ty)) return 0;
+    return tileAt(g, x, y);
+  }
   function circleBlocked(g, blocks, x, y, r) {
     if (tileAt(g, x - r, y) || tileAt(g, x + r, y) || tileAt(g, x, y - r) || tileAt(g, x, y + r) || tileAt(g, x, y)) return true;
+    for (var i = 0; i < blocks.length; i++) {
+      var b = blocks[i];
+      if (Math.abs(x - b.x) < r + TILE * 0.45 && Math.abs(y - b.y) < r + TILE * 0.45) return true;
+    }
+    return false;
+  }
+  function ballCircleBlocked(g, blocks, x, y, r) {
+    if (tileAtBall(g, x - r, y) || tileAtBall(g, x + r, y) || tileAtBall(g, x, y - r) ||
+        tileAtBall(g, x, y + r) || tileAtBall(g, x, y)) return true;
     for (var i = 0; i < blocks.length; i++) {
       var b = blocks[i];
       if (Math.abs(x - b.x) < r + TILE * 0.45 && Math.abs(y - b.y) < r + TILE * 0.45) return true;
@@ -1739,6 +1761,20 @@
       o.y -= o.vy * DT * 1.1; o.vy *= -1; hit = true;
     }
     if (circleBlocked(g, blocks, o.x, o.y, o.r)) {
+      o.x -= o.vx * DT; o.y -= o.vy * DT;
+    }
+    return hit;
+  }
+  function resolveBallCircle(g, blocks, o) {
+    if (!ballCircleBlocked(g, blocks, o.x, o.y, o.r)) return false;
+    var hit = false;
+    if (tileAtBall(g, o.x + o.r, o.y) || tileAtBall(g, o.x - o.r, o.y) || blockHit(blocks, o.x, o.y, o.r, true)) {
+      o.x -= o.vx * DT * 1.1; o.vx *= -1; hit = true;
+    }
+    if (tileAtBall(g, o.x, o.y + o.r) || tileAtBall(g, o.x, o.y - o.r) || blockHit(blocks, o.x, o.y, o.r, false)) {
+      o.y -= o.vy * DT * 1.1; o.vy *= -1; hit = true;
+    }
+    if (ballCircleBlocked(g, blocks, o.x, o.y, o.r)) {
       o.x -= o.vx * DT; o.y -= o.vy * DT;
     }
     return hit;
@@ -2704,7 +2740,7 @@
     ball.life -= dt;
     checkHoopSwish(prevX, prevY);
     var ballBlock = blockAt(room.blocks, ball.x, ball.y, ball.r);
-    if (resolveCircle(room.grid, room.blocks, ball)) {
+    if (resolveBallCircle(room.grid, room.blocks, ball)) {
       ball.bounces += 1;
       sfx("bounce");
       if (ballBlock >= 0) hurtBlockAt(ballBlock, BLOCK_HITS);
@@ -2776,11 +2812,12 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     var vx = Math.cos(ang), vy = Math.sin(ang);
     pts.push({ x: x, y: y });
     var bounced = false;
+    var probe = (S.hoopReady && room && room.hoop && !room.hoop.swished) ? tileAtBall : tileAt;
     for (var i = 0; i < 90; i++) {
       x += vx * 8; y += vy * 8;
-      if (tileAt(room.grid, x, y) || blockHit(room.blocks, x, y, 6, true)) {
-        var hx = tileAt(room.grid, x + vx * 8, y) || blockHit(room.blocks, x + 4, y, 6, true);
-        var hy = tileAt(room.grid, x, y + vy * 8) || blockHit(room.blocks, x, y + 4, 6, false);
+      if (probe(room.grid, x, y) || blockHit(room.blocks, x, y, 6, true)) {
+        var hx = probe(room.grid, x + vx * 8, y) || blockHit(room.blocks, x + 4, y, 6, true);
+        var hy = probe(room.grid, x, y + vy * 8) || blockHit(room.blocks, x, y + 4, 6, false);
         if (hx) vx *= -1;
         if (hy) vy *= -1;
         if (!hx && !hy) { vx *= -1; vy *= -1; }
