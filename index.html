@@ -3176,7 +3176,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      BB-V7.16 — Skull Lord hall ~2.3× the v7.12 lair; cleave/lunge ease,
      real dash travel, blade sweeps the telegraph fan.
      BB-V7.17 — no auto exit-pull on clear; closed/open east door.
-     BB-V7.18 — paint-only back-wall stack (try 2 vs 3); grid schema unchanged. */
+     BB-V7.18 — paint-only back-wall HEIGHT via front-face extrusion (not thickness). */
   var BUILD = "v7.18";
   var FEEL_DEF = { spd: 250, accel: 2600, brake: 3600, throwSpd: 620, aimMode: "drag", aimDead: 2, aimHold: 64 };
   var FEEL = (function () {
@@ -3360,7 +3360,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     var py = (player && S.mode === "play") ? player.y : hh * 0.5;
     var wallPad = wallVisualPad();
     var camX = viewW >= ww ? (ww - viewW) * 0.5 : Math.max(0, Math.min(ww - viewW, px - viewW * 0.5));
-    /* Allow a little negative camY so stacked north-wall cubes are not clipped. */
+    /* Allow a little negative camY so tall north-wall tops are not clipped. */
     var camY = viewH >= hh + wallPad ? (hh - viewH) * 0.5
       : Math.max(-wallPad, Math.min(hh - viewH, py - viewH * 0.5));
     return { scale: scale, ox: -camX * scale, oy: -camY * scale, camX: camX, camY: camY, viewW: viewW, viewH: viewH };
@@ -3520,24 +3520,22 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      and the floor delivered a top-down checkerboard. The old LP build got this right:
      walls are blocks lifted by their own height, ~48% of a tile. That one number is
      the difference between a room and a grid.
-     BB-V7.17 — visual height is paint-only. The grid stays 0/1; collision, pieces,
-     and room gen are unchanged. Each solid cell is still one footprint; BACK_WALL_STACK
-     stacks extra cubes upward on the north border so the back wall can read as a
-     2-high or 3-high backdrop. Interior / side / south walls stay single-cube. */
+     BB-V7.18 — visual HEIGHT is paint-only (grid stays 0/1). In this projection,
+     height is the cube front-face (z), not extra top-face rows — stacking tops
+     reads as wall thickness. BACK_WALL_H is north-border height in block units;
+     interior/side/south keep WALL_Z. */
   var WALL_Z = 0.48;
-  var BACK_WALL_STACK = 3;
-  var WALL_STACK = 1;
+  var BACK_WALL_H = 3;
 
-  function wallStackAt(x, y, cols, rows) {
-    if (y === 0) return Math.max(1, BACK_WALL_STACK | 0);
-    return Math.max(1, WALL_STACK | 0);
+  function wallHeightPx(x, y, cols, rows) {
+    if (y === 0) return Math.max(1, BACK_WALL_H | 0) * TILE;
+    return Math.round(TILE * WALL_Z);
   }
 
   function wallVisualPad() {
-    var stacks = Math.max(1, BACK_WALL_STACK | 0);
-    if (stacks <= 1) return 0;
-    /* Top cube sits at -wz - (stacks-1)*TILE; pad must cover that full top face. */
-    return (stacks - 1) * TILE + Math.round(TILE * WALL_Z);
+    var h = Math.max(1, BACK_WALL_H | 0) * TILE;
+    var base = Math.round(TILE * WALL_Z);
+    return Math.max(0, h - base);
   }
 
   /* Exit door: sealed plank slab before clear, swings open with a warm hall glow after. */
@@ -3640,17 +3638,27 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       }
     }
     /* then walls as blocks, top row first so a lower wall occludes the one above it.
-       North-row cells may stack several cubes upward (paint only). */
+       North border: one footprint, taller front face (height, not thickness). */
     for (y = 0; y < rows; y++) {
       for (x = 0; x < cols; x++) {
         wall = room ? room.grid[y][x] : 1;
         if (!wall) continue;
-        var stacks = wallStackAt(x, y, cols, rows);
-        var baseCol = bio.walls[(x + y) & 1];
-        var k;
-        for (k = stacks - 1; k >= 0; k--) {
-          cube(g, x * TILE, y * TILE - wz - k * TILE, TILE, TILE, wz,
-            bio.walls[(x + y + k) & 1] || baseCol);
+        var wh = wallHeightPx(x, y, cols, rows);
+        var col = bio.walls[(x + y) & 1];
+        var foot = y * TILE;
+        cube(g, x * TILE, foot - wh, TILE, TILE, wh, col);
+        /* seam lines on tall faces so N-block height reads as stories, not a slab */
+        if (wh > TILE + 1) {
+          var frontTop = foot - wh + TILE;
+          var s;
+          g.strokeStyle = shade(col, 0.42);
+          g.lineWidth = 1;
+          for (s = TILE; s < wh; s += TILE) {
+            g.beginPath();
+            g.moveTo(x * TILE + 1.5, frontTop + s);
+            g.lineTo(x * TILE + TILE - 1.5, frontTop + s);
+            g.stroke();
+          }
         }
       }
     }
@@ -3719,18 +3727,30 @@ g.beginPath(); g.arc(S.splits[sp].x, S.splits[sp].y, S.splits[sp].r, 0, 6.3); g.
   }
 
   function drawScaleProbe(g, wz) {
+    /* Same metaphor as the back wall: one footprint, taller front face — not stacked tops. */
     var x2 = player.x + 70;
     var x3 = player.x + 70 + TILE + 10;
     var baseY = player.y;
-    var n, k;
-    for (n = 0; n < 2; n++) {
-      k = n;
-      cube(g, x2 - TILE * 0.5, baseY - TILE * 0.5 - wz - k * TILE, TILE, TILE, wz, n ? "#8a7a60" : "#6a5a44");
-    }
-    for (n = 0; n < 3; n++) {
-      k = n;
-      cube(g, x3 - TILE * 0.5, baseY - TILE * 0.5 - wz - k * TILE, TILE, TILE, wz, n === 2 ? "#c4a060" : "#6a5a44");
-    }
+    var h2 = 2 * TILE, h3 = 3 * TILE;
+    var foot = baseY - TILE * 0.5;
+    cube(g, x2 - TILE * 0.5, foot - h2, TILE, TILE, h2, "#6a5a44");
+    cube(g, x3 - TILE * 0.5, foot - h3, TILE, TILE, h3, "#6a5a44");
+    g.strokeStyle = shade("#6a5a44", 0.42);
+    g.lineWidth = 1;
+    g.beginPath();
+    g.moveTo(x2 - TILE * 0.5 + 1.5, foot - h2 + TILE + TILE);
+    g.lineTo(x2 + TILE * 0.5 - 1.5, foot - h2 + TILE + TILE);
+    g.stroke();
+    g.beginPath();
+    g.moveTo(x3 - TILE * 0.5 + 1.5, foot - h3 + TILE + TILE);
+    g.lineTo(x3 + TILE * 0.5 - 1.5, foot - h3 + TILE + TILE);
+    g.stroke();
+    g.beginPath();
+    g.moveTo(x3 - TILE * 0.5 + 1.5, foot - h3 + TILE + 2 * TILE);
+    g.lineTo(x3 + TILE * 0.5 - 1.5, foot - h3 + TILE + 2 * TILE);
+    g.stroke();
+    g.fillStyle = "#c4a060";
+    g.fillRect(x3 - TILE * 0.5, foot - h3, TILE, 4);
     g.fillStyle = "#f0e6d4";
     g.font = "bold 11px -apple-system, sans-serif";
     g.textAlign = "center";
@@ -5504,14 +5524,14 @@ function endRunToMenu() {
       return { rooms: roomsN, fails: fails, sizes: sizes, pieces: pieces };
     },
     scaleProbe: function (on) { S.scaleProbe = !!on; },
-    /* Paint-only back-wall height. Schema/collision unchanged. Try 2 vs 3. */
+    /* Paint-only back-wall HEIGHT in block units (front-face extrusion, not thickness). */
     wallBackStack: function (n) {
-      if (n != null) BACK_WALL_STACK = Math.max(1, n | 0);
-      return BACK_WALL_STACK;
+      if (n != null) BACK_WALL_H = Math.max(1, n | 0);
+      return BACK_WALL_H;
     },
-    wallStack: function (n) {
-      if (n != null) WALL_STACK = Math.max(1, n | 0);
-      return WALL_STACK;
+    wallBackH: function (n) {
+      if (n != null) BACK_WALL_H = Math.max(1, n | 0);
+      return BACK_WALL_H;
     },
     placeGhost: placeGhostCell,
     placeNow: tryPlaceAtGhost,
