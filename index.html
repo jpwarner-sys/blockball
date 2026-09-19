@@ -839,6 +839,10 @@
     else if (name === "boss") beep("sawtooth", 70, 0.4, 0.09, 30);
     else if (name === "cleave") { beep("sawtooth", 90, 0.12, 0.07, 40); beep("triangle", 160, 0.18, 0.05, 60); }
     else if (name === "lunge") { beep("square", 70, 0.1, 0.06, 30); beep("sawtooth", 120, 0.16, 0.07, 50); }
+    else if (name === "slam") { beep("sawtooth", 55, 0.16, 0.09, 28); beep("triangle", 110, 0.2, 0.06, 40); }
+    else if (name === "spire") { beep("square", 200, 0.07, 0.05, 90); beep("triangle", 140, 0.12, 0.05, 60); }
+    else if (name === "blink") { beep("sine", 520, 0.08, 0.05, 180); beep("triangle", 280, 0.14, 0.05, 90); }
+    else if (name === "briar") { beep("sawtooth", 160, 0.1, 0.05, 70); beep("square", 90, 0.14, 0.05, 40); }
     else if (name === "win") { beep("square", 330, 0.2, 0.07, 660); setTimeout(function(){ beep("square", 440, 0.25, 0.07, 880); }, 180); }
     else if (name === "swish") {
       beep("sine", 880, 0.08, 0.05, 1320);
@@ -2426,10 +2430,13 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
           e.cd = 1.6 + rnd() * 0.6;
         }
       }
-      /* Skull Lord owns damage during cleave/lunge active frames — body bump
-         would stack with the authored hit and muddy the animation read. */
-      var skullAtk = e.boss === "bone" && e.atk && e.atkT >= e.atkWind && e.atkT < e.atkWind + e.atkActive;
-      if (!skullAtk && Math.hypot(e.x - player.x, e.y - player.y) < bodyR(e) + player.r - 2) {
+      /* Skull Lord / knight authored melee owns damage during active frames —
+         body bump would stack and muddy the animation read. */
+      var authoredAtk = (e.boss === "bone" || e.boss === "mini") && e.atk &&
+        e.atkT >= e.atkWind && e.atkT < e.atkWind + e.atkActive &&
+        (e.boss === "bone" || e.atk === "reap" || e.atk === "charge" ||
+         e.atk === "blink" || e.atk === "slam" || e.atk === "briar");
+      if (!authoredAtk && Math.hypot(e.x - player.x, e.y - player.y) < bodyR(e) + player.r - 2) {
         hurtPlayer(1 + Math.floor(S.floor / 6));
         var px = player.x - e.x, py = player.y - e.y, pd = Math.hypot(px, py) || 1;
         /* CHIEF FIX BB-V6.10 — THE clipping cause, found by instrumenting rather
@@ -2503,6 +2510,440 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     sfx("throw");
     burst(sx, sy, k.accent, 8);
     return s;
+  }
+
+  /* BB-V7.18 — each mini knight gets a real kit: one special, one normal, one
+     theme wild-card. Shared wind/active/recover clock; drawKnight reads poses. */
+  function ensureKnight(e) {
+    if (e.knightReady) return;
+    e.knightReady = true;
+    e.atk = null;
+    e.atkT = 0;
+    e.atkWind = 0;
+    e.atkActive = 0;
+    e.atkRecover = 0;
+    e.atkHit = false;
+    e.aimX = 1;
+    e.aimY = 0;
+    e.lean = 0;
+    e.crouch = 0;
+    e.bladeLift = 0;
+    e.swing = 0;
+    e.ghost = 1;
+    e.slashTrail = [];
+    e.volleysLeft = 0;
+    e.volleyCd = 0;
+    e.spireStep = -1;
+    e.dashLen = 0;
+    e.dashFromX = 0;
+    e.dashFromY = 0;
+    e.dashToX = 0;
+    e.dashToY = 0;
+    e.blinkX = 0;
+    e.blinkY = 0;
+    e.blinkArmed = false;
+    e.kitRing = false;
+    e.kitRingR = 0;
+    e.kitRingHit = false;
+    e.kitRingMax = 0;
+    e.kitRingCol = "#ff6030";
+  }
+
+  function knightAim(e, dx, dy, dist) {
+    var n = dist || 1;
+    e.aimX = dx / n;
+    e.aimY = dy / n;
+  }
+
+  function startKnightAtk(e, kind, dx, dy, dist) {
+    ensureKnight(e);
+    e.atk = kind;
+    e.atkT = 0;
+    e.atkHit = false;
+    e.slashTrail = [];
+    e.spireStep = -1;
+    e.blinkArmed = false;
+    knightAim(e, dx, dy, dist);
+    e.kitRing = false;
+    e.kitRingHit = false;
+    if (kind === "throw") {
+      e.atkWind = 0.78; e.atkActive = 0.08; e.atkRecover = 0.35;
+      e.tell = e.atkWind; e.tellMax = e.atkWind;
+    } else if (kind === "knives" || kind === "embers" || kind === "needles") {
+      e.atkWind = 0.22; e.atkActive = 0.55; e.atkRecover = 0.28;
+      e.volleysLeft = kind === "needles" ? 1 : (1 + (rnd() < 0.55 ? 1 : 0));
+      e.volleyCd = 0;
+      e.tell = 0; e.tellMax = 0;
+    } else if (kind === "spire") {
+      e.atkWind = 0.72; e.atkActive = 0.55; e.atkRecover = 0.4;
+      e.tell = e.atkWind; e.tellMax = e.atkWind;
+    } else if (kind === "slam") {
+      e.atkWind = 0.95; e.atkActive = 0.85; e.atkRecover = 0.45;
+      e.kitRingMax = 132; e.kitRingCol = "#ff7040";
+      e.tell = e.atkWind; e.tellMax = e.atkWind;
+    } else if (kind === "reap") {
+      e.atkWind = 0.55; e.atkActive = 0.32; e.atkRecover = 0.42;
+      e.tell = e.atkWind; e.tellMax = e.atkWind;
+    } else if (kind === "blink") {
+      e.atkWind = 0.48; e.atkActive = 0.38; e.atkRecover = 0.4;
+      e.tell = e.atkWind; e.tellMax = e.atkWind;
+    } else if (kind === "charge") {
+      e.atkWind = 0.7; e.atkActive = 0.28; e.atkRecover = 0.48;
+      e.dashLen = Math.max(110, Math.min(210, (dist || 140) + 40));
+      e.dashFromX = e.x; e.dashFromY = e.y;
+      e.dashToX = e.x + e.aimX * e.dashLen;
+      e.dashToY = e.y + e.aimY * e.dashLen;
+      e.tell = e.atkWind; e.tellMax = e.atkWind;
+    } else if (kind === "briar") {
+      e.atkWind = 0.7; e.atkActive = 0.7; e.atkRecover = 0.4;
+      e.kitRingMax = 108; e.kitRingCol = "#60c050";
+      e.tell = e.atkWind; e.tellMax = e.atkWind;
+    } else {
+      e.atkWind = 0.4; e.atkActive = 0.3; e.atkRecover = 0.3;
+    }
+  }
+
+  function pickKnightAtk(e, dist) {
+    var t = e.type;
+    var roll = rnd();
+    /* Distance nudges: close → melee/slam; far → throw/volleys. */
+    if (t === "minibone") {
+      if (dist < 95 && roll < 0.45) return "spire";
+      if (roll < 0.36) return "throw";
+      if (roll < 0.72) return "knives";
+      return "spire";
+    }
+    if (t === "miniforge") {
+      if (dist < 110 && roll < 0.5) return "slam";
+      if (roll < 0.34) return "slam";
+      if (roll < 0.7) return "embers";
+      return "throw";
+    }
+    if (t === "miniash") {
+      if (dist < 100 && roll < 0.48) return "reap";
+      if (roll < 0.34) return "reap";
+      if (roll < 0.68) return "knives";
+      return "blink";
+    }
+    /* minithorn */
+    if (dist > 100 && roll < 0.5) return "charge";
+    if (roll < 0.34) return "charge";
+    if (roll < 0.7) return "needles";
+    return "briar";
+  }
+
+  function fireKnightVolley(e, kind) {
+    var k = KNIGHT[e.type] || KNIGHT.minibone;
+    var ux = e.aimX, uy = e.aimY;
+    var n = Math.hypot(ux, uy) || 1;
+    ux /= n; uy /= n;
+    if (kind === "knives") {
+      fireShot(e.x, e.y, ux, uy, 210, 1, "knife", {
+        owner: e, col: k.trim, accent: k.accent, body: k.accent
+      });
+      sfx("throw");
+    } else if (kind === "embers") {
+      var j = (rnd() - 0.5) * 0.28;
+      var j2 = (rnd() - 0.5) * 0.28;
+      fireShot(e.x, e.y, ux + j, uy + j * 0.4, 150, 1, "ember", {
+        owner: e, r: 7, life: 2.4, col: k.accent, accent: "#ff4020"
+      });
+      fireShot(e.x, e.y, ux + j2, uy + j2 * 0.4, 130, 1, "ember", {
+        owner: e, r: 6, life: 2.2, col: "#ff9040", accent: "#ff6030"
+      });
+      sfx("throw");
+      burst(e.x + ux * 18, e.y + uy * 18, k.accent, 5);
+    } else if (kind === "needles") {
+      var spreads = [-0.32, 0, 0.32];
+      for (var i = 0; i < spreads.length; i++) {
+        var a = Math.atan2(uy, ux) + spreads[i];
+        fireShot(e.x, e.y, Math.cos(a), Math.sin(a), 230, 1, "needle", {
+          owner: e, r: 4, life: 2.2, col: k.trim, accent: k.accent
+        });
+      }
+      sfx("throw");
+    }
+  }
+
+  function fireBoneSpire(e, step) {
+    var k = KNIGHT[e.type] || KNIGHT.minibone;
+    var dist = 42 + step * 38;
+    var sx = e.x + e.aimX * dist;
+    var sy = e.y + e.aimY * dist;
+    fireShot(sx, sy, e.aimX, e.aimY, 28, 2, "bone", {
+      owner: e, r: 9, life: 0.7, col: k.body, accent: k.accent, body: k.trim
+    });
+    burst(sx, sy, k.accent, 6);
+    sfx("spire");
+    S.shake = Math.max(S.shake, 0.18);
+  }
+
+  function knightReapHit(e) {
+    if (e.atkHit || !player) return;
+    var px = player.x - e.x, py = player.y - e.y;
+    var pr = Math.hypot(px, py) || 1;
+    var reach = artR(e) * 2.55;
+    if (pr > reach + player.r) return;
+    var pang = Math.atan2(py, px);
+    var base = Math.atan2(e.aimY, e.aimX);
+    var face = e.aimX < 0 ? -1 : 1;
+    var sweep = face > 0
+      ? (-1.05 + e.swing * 2.2)
+      : (1.05 - e.swing * 2.2);
+    var blade = base + sweep;
+    var ad = Math.abs(Math.atan2(Math.sin(pang - blade), Math.cos(pang - blade)));
+    if (ad < 0.78) {
+      e.atkHit = true;
+      hurtPlayer(2 + Math.floor(S.floor / 5));
+      S.shake = Math.max(S.shake, 0.36);
+      burst(player.x, player.y, "#a8dce4", 12);
+      sfx("cleave");
+    }
+  }
+
+  function knightChargeHit(e) {
+    if (e.atkHit || !player) return;
+    var tipX = e.x + e.aimX * artR(e) * 1.8;
+    var tipY = e.y + e.aimY * artR(e) * 1.8;
+    if (Math.hypot(player.x - tipX, player.y - tipY) < player.r + artR(e) * 0.85 ||
+        Math.hypot(player.x - e.x, player.y - e.y) < player.r + bodyR(e) * 1.2) {
+      e.atkHit = true;
+      hurtPlayer(2 + Math.floor(S.floor / 4));
+      S.shake = Math.max(S.shake, 0.4);
+      burst(player.x, player.y, "#c0e070", 14);
+      sfx("lunge");
+    }
+  }
+
+  function knightBlinkHit(e) {
+    if (e.atkHit || !player) return;
+    if (Math.hypot(player.x - e.x, player.y - e.y) < player.r + artR(e) * 1.7) {
+      e.atkHit = true;
+      hurtPlayer(2 + Math.floor(S.floor / 5));
+      S.shake = Math.max(S.shake, 0.34);
+      burst(player.x, player.y, "#9fe8f0", 12);
+      sfx("cleave");
+    }
+  }
+
+  function updateKitRing(e, dt, dmg) {
+    e.kitRingR += 160 * dt;
+    if (!e.kitRingHit && player) {
+      var pr = Math.hypot(player.x - e.x, player.y - e.y);
+      if (Math.abs(pr - e.kitRingR) < 16) {
+        e.kitRingHit = true;
+        hurtPlayer(dmg);
+        S.shake = Math.max(S.shake, 0.3);
+        burst(player.x, player.y, e.kitRingCol, 10);
+        sfx("hit");
+      }
+    }
+    if (e.kitRingR >= e.kitRingMax) {
+      e.kitRing = false;
+    }
+  }
+
+  function endKnightAtk(e) {
+    e.atk = null;
+    e.tell = 0;
+    e.tellMax = 0;
+    e.bladeLift = 0;
+    e.lean = 0;
+    e.crouch = 0;
+    e.swing = 0;
+    e.ghost = 1;
+    e.slashTrail = [];
+    e.cd = 0.55 + rnd() * 0.35;
+  }
+
+  function updateKnight(e, dt, dx, dy, dist) {
+    ensureKnight(e);
+    var k = KNIGHT[e.type] || KNIGHT.minibone;
+    if (e.rearm > 0) e.rearm -= dt;
+    if (e.disarm && e.rearm <= 0 && !weaponFlying(e)) {
+      e.disarm = false;
+      e.thrown = null;
+    }
+
+    if (e.atk) {
+      e.atkT += dt;
+      var wind = e.atkWind, active = e.atkActive, recover = e.atkRecover;
+      var t = e.atkT;
+      var face = e.aimX < 0 ? -1 : 1;
+
+      if (e.atk === "throw") {
+        if (t < wind) {
+          var w = t / wind;
+          e.bladeLift = w;
+          e.crouch = w * 0.12;
+          e.tell = wind - t;
+          if (dist > 50) moveToward(e, dx / dist * 0.25, dy / dist * 0.25, e.spd * 0.4, dt);
+        } else if (t < wind + active) {
+          if (!e.atkHit) {
+            e.atkHit = true;
+            e.tell = 0;
+            throwKnightWeapon(e, e.aimX, e.aimY);
+          }
+        } else if (t < wind + active + recover) {
+          e.bladeLift = Math.max(0, 1 - (t - wind - active) / recover);
+        } else endKnightAtk(e);
+      } else if (e.atk === "knives" || e.atk === "embers" || e.atk === "needles") {
+        var chaseN = 0.7;
+        moveToward(e, dx / dist * chaseN, dy / dist * chaseN, e.spd, dt);
+        knightAim(e, dx, dy, dist);
+        e.bladeLift = 0.2;
+        if (t < wind) {
+          e.bladeLift = 0.35 * (t / wind);
+        } else if (t < wind + active) {
+          if (e.volleyCd > 0) e.volleyCd -= dt;
+          if (e.volleysLeft > 0 && e.volleyCd <= 0) {
+            fireKnightVolley(e, e.atk);
+            e.volleysLeft--;
+            e.volleyCd = e.atk === "needles" ? 0.55 : 0.42;
+          }
+        } else endKnightAtk(e);
+      } else if (e.atk === "spire") {
+        if (t < wind) {
+          var ws = t / wind;
+          e.crouch = ws * 0.22;
+          e.bladeLift = ws * 0.55;
+          e.tell = wind - t;
+          knightAim(e, dx, dy, dist);
+        } else if (t < wind + active) {
+          e.tell = 0;
+          e.crouch = 0.18;
+          var step = Math.floor((t - wind) / 0.12);
+          if (step > e.spireStep && step < 5) {
+            e.spireStep = step;
+            fireBoneSpire(e, step);
+          }
+        } else if (t < wind + active + recover) {
+          e.crouch *= 0.9;
+        } else endKnightAtk(e);
+      } else if (e.atk === "slam" || e.atk === "briar") {
+        if (t < wind) {
+          var wl = t / wind;
+          e.bladeLift = wl * 1.15;
+          e.crouch = wl * 0.28;
+          e.tell = wind - t;
+          if (dist > 40) moveToward(e, dx / dist * 0.2, dy / dist * 0.2, e.spd * 0.3, dt);
+        } else if (t < wind + active) {
+          if (!e.kitRing) {
+            e.kitRing = true;
+            e.kitRingR = 24;
+            e.kitRingHit = false;
+            e.tell = 0;
+            e.bladeLift = 0.15;
+            e.crouch = 0.08;
+            sfx(e.atk === "slam" ? "slam" : "briar");
+            burst(e.x, e.y, e.kitRingCol, 14);
+            S.shake = Math.max(S.shake, 0.38);
+          }
+          updateKitRing(e, dt, e.atk === "slam" ? (2 + Math.floor(S.floor / 4)) : (2 + Math.floor(S.floor / 5)));
+        } else {
+          e.kitRing = false;
+          endKnightAtk(e);
+        }
+      } else if (e.atk === "reap") {
+        if (t < wind) {
+          var wr = t / wind;
+          e.bladeLift = wr * 0.9;
+          e.lean = -face * wr * 0.45;
+          e.swing = 0;
+          e.tell = wind - t;
+          if (dist > 45) moveToward(e, dx / dist * 0.2, dy / dist * 0.2, e.spd * 0.35, dt);
+          knightAim(e, dx, dy, dist);
+        } else if (t < wind + active) {
+          var sr = (t - wind) / active;
+          e.swing = sr;
+          e.bladeLift = 0.9 - sr * 0.7;
+          e.lean = face * (-0.45 + sr * 1.15);
+          e.tell = 0;
+          if (!e.slashTrail) e.slashTrail = [];
+          var rad = artR(e) * 2.2;
+          var bang = Math.atan2(e.aimY, e.aimX) + (face > 0 ? (-1.05 + sr * 2.2) : (1.05 - sr * 2.2));
+          e.slashTrail.push({
+            x: e.x + Math.cos(bang) * rad,
+            y: e.y + Math.sin(bang) * rad - artR(e) * 0.3,
+            a: 1 - sr
+          });
+          if (e.slashTrail.length > 12) e.slashTrail.shift();
+          knightReapHit(e);
+          if (sr > 0.1 && sr < 0.5) burst(e.x + Math.cos(bang) * rad * 0.7, e.y + Math.sin(bang) * rad * 0.7, k.accent, 1);
+        } else if (t < wind + active + recover) {
+          e.lean *= 0.85;
+          e.bladeLift *= 0.85;
+        } else endKnightAtk(e);
+      } else if (e.atk === "blink") {
+        if (t < wind) {
+          var wb = t / wind;
+          e.ghost = 1 - wb * 0.85;
+          e.bladeLift = wb * 0.5;
+          e.tell = wind - t;
+          if (wb > 0.55 && !e.blinkArmed) {
+            var ang = Math.atan2(dy, dx) + (rnd() < 0.5 ? 2.2 : -2.2);
+            e.blinkX = player.x + Math.cos(ang) * 58;
+            e.blinkY = player.y + Math.sin(ang) * 58;
+            e.blinkArmed = true;
+            burst(e.x, e.y, k.accent, 10);
+            sfx("blink");
+          }
+        } else if (t < wind + active) {
+          if (e.blinkArmed) {
+            e.x = e.blinkX; e.y = e.blinkY;
+            resolveCircle(room.grid, room.blocks, e);
+            e.blinkArmed = false;
+            e.ghost = 1;
+            e.tell = 0;
+            knightAim(e, player.x - e.x, player.y - e.y, Math.hypot(player.x - e.x, player.y - e.y) || 1);
+            burst(e.x, e.y, k.accent, 10);
+          }
+          var sb = (t - wind) / active;
+          e.swing = sb;
+          e.bladeLift = 0.7 - sb * 0.5;
+          knightBlinkHit(e);
+        } else endKnightAtk(e);
+      } else if (e.atk === "charge") {
+        if (t < wind) {
+          var wc = t / wind;
+          e.bladeLift = 0.15;
+          e.crouch = wc * 0.2;
+          e.lean = face * wc * 0.35;
+          e.tell = wind - t;
+          /* square up; keep aim locked from start for readable lane */
+        } else if (t < wind + active) {
+          var sc = (t - wind) / active;
+          /* ease-out dash along committed lane */
+          var ease = 1 - (1 - sc) * (1 - sc);
+          e.x = e.dashFromX + (e.dashToX - e.dashFromX) * ease;
+          e.y = e.dashFromY + (e.dashToY - e.dashFromY) * ease;
+          resolveCircle(room.grid, room.blocks, e);
+          e.crouch = 0.08;
+          e.lean = face * 0.5;
+          e.tell = 0;
+          knightChargeHit(e);
+          if (sc < 0.5) burst(e.x - e.aimX * 10, e.y - e.aimY * 10, "#6a5a44", 1);
+        } else if (t < wind + active + recover) {
+          e.lean *= 0.88;
+          e.crouch *= 0.88;
+        } else endKnightAtk(e);
+      } else {
+        endKnightAtk(e);
+      }
+      return;
+    }
+
+    /* idle chase — slow while disarmed or rearming */
+    var chase = (e.disarm || e.rearm > 0) ? 0.55 : 1;
+    moveToward(e, dx / dist * chase, dy / dist * chase, e.spd, dt);
+    e.bladeLift = 0;
+    e.lean = Math.sin(e.phase * 2.2) * 0.04;
+    e.crouch = 0;
+    e.ghost = 1;
+    if (e.disarm) return; /* wait for weapon to land before next kit pick */
+    if (e.cd <= 0) {
+      startKnightAtk(e, pickKnightAtk(e, dist), dx, dy, dist);
+    }
   }
 
   /* BB-V7.12 — Skull Lord (was Bone King): melee only. Two attacks with long
@@ -2904,43 +3345,16 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       if (Math.floor(e.phase) % 4 === 0 && e.tell <= 0) e.tell = 0.01;
       moveToward(e, dx / dist * 0.5, dy / dist * 0.5, e.spd, dt);
     } else {
-      /* BB-V7.5 — mini knights: lift the held weapon (drawKnight already does this
-         on e.tell), throw it as a slow high-damage projectile, then toss 1–2 knife
-         volleys while it flies. The yellow-dot fireShot every 1.5s is gone. */
-      var chase = e.tell > 0 ? 0.4 : 1;
-      moveToward(e, dx / dist * chase, dy / dist * chase, e.spd, dt);
-      if (e.rearm > 0) e.rearm -= dt;
-      if (e.disarm && e.rearm <= 0 && !weaponFlying(e)) {
-        e.disarm = false;
-        e.thrown = null;
-        /* knives AFTER the throw so they cannot i-frame the big hit */
-        e.knivesLeft = 1 + (rnd() < 0.65 ? 1 : 0);
-        e.cd = 0.32;
-      }
-      if (e.tell > 0) {
-        e.tell -= dt;
-        if (e.tell <= 0) {
-          throwKnightWeapon(e, dx, dy);
-          e.cd = 0.4;
-        }
-      } else if (e.cd <= 0) {
-        if (e.disarm) {
-          /* hold fire while the weapon is in the air */
-        } else if (e.knivesLeft > 0) {
-          fireShot(e.x, e.y, dx / dist, dy / dist, 210, 1, "knife", { owner: e });
-          e.knivesLeft--;
-          e.cd = 0.48;
-        } else {
-          e.tell = 0.8 + rnd() * 0.15;
-          e.tellMax = e.tell;
-        }
-      }
+      /* BB-V7.18 — per-knight kits (special / normal / wild) */
+      updateKnight(e, dt, dx, dy, dist);
     }
   }
 
   function killShot(i) {
     var s = S.shots[i];
-    if (s && s.kind === "weapon") burst(s.x, s.y, s.col || "#c8d0d8", 10);
+    if (s && (s.kind === "weapon" || s.kind === "ember" || s.kind === "bone" || s.kind === "needle")) {
+      burst(s.x, s.y, s.col || s.accent || "#c8d0d8", s.kind === "weapon" ? 10 : 6);
+    }
     S.shots.splice(i, 1);
   }
 
@@ -3175,8 +3589,10 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      BB-V7.16-spend — upgrade menu at 90% scale, top-center origin.
      BB-V7.16 — Skull Lord hall ~2.3× the v7.12 lair; cleave/lunge ease,
      real dash travel, blade sweeps the telegraph fan.
-     BB-V7.17 — no auto exit-pull on clear; closed/open east door. */
-  var BUILD = "v7.17";
+     BB-V7.17 — no auto exit-pull on clear; closed/open east door.
+     BB-V7.18 — mini knights each get a special / normal / wild kit with
+     distinct weapons, telegraphs, and pose clocks. */
+  var BUILD = "v7.18";
   var FEEL_DEF = { spd: 250, accel: 2600, brake: 3600, throwSpd: 620, aimMode: "drag", aimDead: 2, aimHold: 64 };
   var FEEL = (function () {
     var f = {};
@@ -3767,23 +4183,33 @@ g.beginPath(); g.arc(S.splits[sp].x, S.splits[sp].y, S.splits[sp].r, 0, 6.3); g.
   }
 
   /* BB-V7.5 — shots used to be one yellow arc. Knives are a small blade along
-     velocity; thrown knight weapons are the same silhouette he holds, just flying. */
+     velocity; thrown knight weapons are the same silhouette he holds, just flying.
+     BB-V7.18 — ember / bone / needle for themed knight volleys. */
   function drawShot(g, s) {
     if (s.inert) {
       g.save();
       g.globalAlpha = Math.max(0.12, Math.min(0.55, s.life * 1.2));
-      if (s.kind === "weapon") drawThrownWeapon(g, s);
-      else drawKnife(g, s);
+      drawShotLive(g, s);
       g.restore();
       return;
     }
+    drawShotLive(g, s);
+  }
+
+  function drawShotLive(g, s) {
     if (s.kind === "weapon") drawThrownWeapon(g, s);
+    else if (s.kind === "ember") drawEmber(g, s);
+    else if (s.kind === "bone") drawBoneShard(g, s);
+    else if (s.kind === "needle") drawNeedle(g, s);
     else drawKnife(g, s);
   }
 
   function drawKnife(g, s) {
     var ang = Math.atan2(s.vy, s.vx);
     var sc = s.dmg >= 2 ? 1.45 : 1.2;
+    var lo = s.col || "#9aa4b0";
+    var hi = s.accent || "#c8d0d8";
+    var pom = s.body || "#c9a44c";
     g.save();
     g.translate(s.x, s.y);
     g.rotate(ang);
@@ -3791,7 +4217,7 @@ g.beginPath(); g.arc(S.splits[sp].x, S.splits[sp].y, S.splits[sp].r, 0, 6.3); g.
     g.fillStyle = "#0a0806";
     g.beginPath(); g.ellipse(-2 * sc, 5 * sc, 7 * sc, 2.4 * sc, 0, 0, 6.3); g.fill();
     g.globalAlpha = 1;
-    g.fillStyle = "#9aa4b0";
+    g.fillStyle = lo;
     g.beginPath();
     g.moveTo(10 * sc, 0);
     g.lineTo(1 * sc, 3.2 * sc);
@@ -3799,7 +4225,7 @@ g.beginPath(); g.arc(S.splits[sp].x, S.splits[sp].y, S.splits[sp].r, 0, 6.3); g.
     g.lineTo(-6 * sc, 0);
     g.closePath();
     g.fill();
-    g.fillStyle = "#c8d0d8";
+    g.fillStyle = hi;
     g.beginPath();
     g.moveTo(10 * sc, 0);
     g.lineTo(1 * sc, -3.2 * sc);
@@ -3807,10 +4233,64 @@ g.beginPath(); g.arc(S.splits[sp].x, S.splits[sp].y, S.splits[sp].r, 0, 6.3); g.
     g.lineTo(-6 * sc, 0);
     g.closePath();
     g.fill();
-    g.fillStyle = "#6a7380";
+    g.fillStyle = shade(lo, 0.7);
     g.fillRect(-8 * sc, -1.6 * sc, 3.4 * sc, 3.2 * sc);
-    g.fillStyle = "#c9a44c";
+    g.fillStyle = pom;
     g.fillRect(-9.4 * sc, -1.1 * sc, 2.2 * sc, 2.2 * sc);
+    g.restore();
+  }
+
+  function drawEmber(g, s) {
+    var pulse = 0.85 + 0.15 * Math.sin(S.t * 18 + s.x * 0.05);
+    g.save();
+    g.globalAlpha = 0.3;
+    g.fillStyle = "#0a0806";
+    g.beginPath(); g.ellipse(s.x, s.y + 5, 8, 3, 0, 0, 6.3); g.fill();
+    g.globalAlpha = 1;
+    g.fillStyle = s.accent || "#ff4020";
+    g.beginPath(); g.arc(s.x, s.y, 7 * pulse, 0, 6.3); g.fill();
+    g.fillStyle = s.col || "#ffb040";
+    g.beginPath(); g.arc(s.x - 1, s.y - 1.5, 4.2 * pulse, 0, 6.3); g.fill();
+    g.fillStyle = "#fff2c0";
+    g.beginPath(); g.arc(s.x - 1.5, s.y - 2, 1.8, 0, 6.3); g.fill();
+    g.restore();
+  }
+
+  function drawBoneShard(g, s) {
+    var ang = Math.atan2(s.vy, s.vx) + Math.PI / 2;
+    var body = s.col || "#d8cdb4";
+    var trim = s.body || "#79808c";
+    g.save();
+    g.translate(s.x, s.y);
+    g.rotate(ang);
+    g.globalAlpha = 0.28;
+    g.fillStyle = "#0a0806";
+    g.beginPath(); g.ellipse(0, 6, 7, 2.5, 0, 0, 6.3); g.fill();
+    g.globalAlpha = 1;
+    cube(g, -4, -12, 8, 24, 4, body);
+    cube(g, -6, -14, 12, 5, 3, trim);
+    cube(g, -3, 8, 6, 6, 3, shade(body, 0.8));
+    g.restore();
+  }
+
+  function drawNeedle(g, s) {
+    var ang = Math.atan2(s.vy, s.vx);
+    var col = s.accent || "#c0e070";
+    var shaft = s.col || "#24381f";
+    g.save();
+    g.translate(s.x, s.y);
+    g.rotate(ang);
+    g.globalAlpha = 0.25;
+    g.fillStyle = "#0a0806";
+    g.beginPath(); g.ellipse(-2, 4, 8, 2, 0, 0, 6.3); g.fill();
+    g.globalAlpha = 1;
+    g.fillStyle = shaft;
+    g.fillRect(-10, -1.4, 16, 2.8);
+    g.fillStyle = col;
+    g.beginPath();
+    g.moveTo(12, 0); g.lineTo(4, 3.2); g.lineTo(4, -3.2); g.closePath(); g.fill();
+    g.fillStyle = shade(col, 0.7);
+    g.fillRect(-12, -2.2, 3, 4.4);
     g.restore();
   }
 
@@ -4033,7 +4513,8 @@ g.beginPath(); g.arc(S.splits[sp].x, S.splits[sp].y, S.splits[sp].r, 0, 6.3); g.
      hero and the trash mobs were rebuilt on cube() and the bosses were never
      revisited, so the biggest thing in the room was the least-lit thing in it.
      Each knight now gets its own helm, shoulders and weapon on a shared skeleton,
-     drawn with the same cube() the hero uses. No sprite sheet, no added bytes. */
+     drawn with the same cube() the hero uses. No sprite sheet, no added bytes.
+     BB-V7.18 — pose clock from each kit attack; weapons read more distinct mid-swing. */
   var KNIGHT = {
     minibone:  { body: "#d8cdb4", trim: "#79808c", accent: "#c9a44c", eye: "#ff7a2a",
                  helm: "crest",  arms: "pauldron", weap: "sword",  cloak: "#5a2230" },
@@ -4045,26 +4526,148 @@ g.beginPath(); g.arc(S.splits[sp].x, S.splits[sp].y, S.splits[sp].r, 0, 6.3); g.
                  helm: "antler", arms: "bramble",  weap: "lance",  cloak: "#243a20" }
   };
 
+  function drawKnightWeapon(g, k, wx, yt, u, face, lift, swing, pose) {
+    var sw = swing || 0;
+    if (k.weap === "sword") {
+      /* bone-blade: notched edge + gold crossguard */
+      var sx = pose === "spire" ? wx - face * u * 0.1 : wx;
+      var sy = yt - lift;
+      cube(g, sx - u * 0.13, sy + u * 0.86, u * 0.26, u * 0.46, u * 0.12, shade(k.body, 0.72));
+      cube(g, sx - u * 0.11, sy - u * 0.10, u * 0.22, u * 1.00, u * 0.10, k.trim);
+      cube(g, sx - u * 0.06, sy + u * 0.10, u * 0.08, u * 0.14, u * 0.04, shade(k.body, 1.1));
+      cube(g, sx - u * 0.06, sy + u * 0.36, u * 0.08, u * 0.14, u * 0.04, shade(k.body, 1.1));
+      cube(g, sx - u * 0.25, sy + u * 0.80, u * 0.50, u * 0.14, u * 0.08, k.accent);
+    } else if (k.weap === "hammer") {
+      /* slag maul: thick head, ember stripe, short haft on slam wind */
+      var hl = pose === "slam" ? lift * 1.15 : lift;
+      cube(g, wx - u * 0.09, yt + u * 0.10 - hl, u * 0.18, u * 1.36, u * 0.09, shade(k.body, 0.6));
+      cube(g, wx - u * 0.34, yt - u * 0.28 - hl, u * 0.68, u * 0.50, u * 0.24, k.trim);
+      g.fillStyle = k.accent; g.fillRect(wx - u * 0.34, yt - u * 0.08 - hl, u * 0.68, u * 0.09);
+      g.fillStyle = "#ff6030"; g.fillRect(wx - u * 0.28, yt - u * 0.22 - hl, u * 0.56, u * 0.06);
+    } else if (k.weap === "scythe") {
+      /* ash reaper: long crook, blade sweeps with swing */
+      var hook = face * (u * 0.34 + sw * u * 0.55);
+      var tipY = yt - u * 0.44 - lift + sw * u * 0.35;
+      cube(g, wx - u * 0.08, yt - u * 0.10 - lift, u * 0.16, u * 1.66, u * 0.08, shade(k.body, 0.6));
+      cube(g, wx - hook, tipY, u * 0.52, u * 0.16, u * 0.08, k.accent);
+      cube(g, wx - hook, tipY + u * 0.14, u * 0.16, u * 0.28, u * 0.06, k.accent);
+      cube(g, wx - hook - face * u * 0.12, tipY - u * 0.08, u * 0.18, u * 0.10, u * 0.05, shade(k.accent, 1.15));
+    } else {
+      /* thorn lance: barbed tip, leveled on charge */
+      var lx = pose === "charge" ? wx + face * u * (0.2 + lift * 0.4) : wx;
+      var ly = pose === "charge" ? yt + u * 0.15 : yt;
+      var ll = pose === "charge" ? lift * 0.2 : lift;
+      cube(g, lx - u * 0.07, ly - u * 0.30 - ll, u * 0.14, u * 1.96, u * 0.07, shade(k.body, 0.6));
+      cube(g, lx - u * 0.15, ly - u * 0.52 - ll, u * 0.30, u * 0.26, u * 0.10, k.accent);
+      cube(g, lx - u * 0.20, ly - u * 0.18 - ll, u * 0.10, u * 0.12, u * 0.04, k.accent);
+      cube(g, lx + u * 0.10, ly - u * 0.02 - ll, u * 0.10, u * 0.12, u * 0.04, k.accent);
+      g.fillStyle = shade(k.accent, 1.2);
+      g.beginPath();
+      g.moveTo(lx + u * 0.07, ly - u * 0.52 - ll);
+      g.lineTo(lx + face * u * 0.28, ly - u * 0.38 - ll);
+      g.lineTo(lx + u * 0.07, ly - u * 0.24 - ll);
+      g.closePath(); g.fill();
+    }
+  }
+
   function drawKnight(g, e) {
+    ensureKnight(e);
     var k = KNIGHT[e.type] || KNIGHT.minibone;
     var body = e.flash > 0 ? "#ffffff" : k.body;
     var u = artR(e) * 1.35;
     var x = e.x;
-    e.artH = u * 2.86;   /* tells drawEnemy where the bar and the name go */
+    e.artH = u * 2.86;
     if (e.bobPhase == null) e.bobPhase = Math.random() * 6.3;
-    /* wind-up: tell counts down, lift grows toward release so the throw reads */
     var tell = 0;
     if (e.tell > 0) {
       tell = e.tellMax > 0 ? 1 - Math.max(0, e.tell) / e.tellMax : Math.min(1, e.tell);
     }
-    var bob = Math.sin(S.t * 2.0 + e.bobPhase) * u * 0.05 - tell * u * 0.10;
-    var yt = e.y - u * 2.05 + bob;
-    var face = e.x < player.x ? 1 : -1;
+    var liftPose = (e.bladeLift != null && e.bladeLift > 0) ? e.bladeLift : tell;
+    var bob = Math.sin(S.t * 2.0 + e.bobPhase) * u * 0.05 - liftPose * u * 0.08;
+    var crouch = (e.crouch || 0) * u;
+    var lean = (e.lean || 0) * u;
+    var yt = e.y - u * 2.05 + bob + crouch;
+    var face = (e.aimX != null && e.atk) ? (e.aimX < 0 ? -1 : 1)
+             : (e.x < player.x ? 1 : -1);
+    var ghost = e.ghost != null ? e.ghost : 1;
+    var pose = e.atk || "";
 
-    g.globalAlpha = (g.globalAlpha || 1);
-    /* a heavier shadow than any trash mob gets — this is how weight reads */
-    g.save(); g.globalAlpha = 0.44; g.fillStyle = "#0a0806";
-    g.beginPath(); g.ellipse(x, e.y + u * 0.22, u * 0.88, u * 0.27, 0, 0, 6.3); g.fill(); g.restore();
+    g.save();
+    g.globalAlpha = (g.globalAlpha || 1) * Math.max(0.12, ghost);
+
+    /* kit rings (slag slam / thorn briar) */
+    if (e.kitRing) {
+      g.strokeStyle = e.kitRingCol || "#ff6030";
+      g.lineWidth = 7;
+      g.globalAlpha = 0.85 * ghost;
+      g.beginPath(); g.arc(x, e.y, e.kitRingR, 0, 6.3); g.stroke();
+      g.globalAlpha = ghost;
+    }
+
+    /* telegraphs */
+    if (e.tell > 0) {
+      if (pose === "charge") {
+        g.strokeStyle = "rgba(192,224,112," + (0.35 + 0.4 * tell) + ")";
+        g.lineWidth = 3;
+        g.setLineDash([8, 7]);
+        g.beginPath();
+        g.moveTo(x, e.y);
+        g.lineTo(e.dashToX || (x + face * 160), e.dashToY || e.y);
+        g.stroke();
+        g.setLineDash([]);
+      } else if (pose === "spire") {
+        g.strokeStyle = "rgba(216,205,180," + (0.35 + 0.4 * tell) + ")";
+        g.lineWidth = 3;
+        g.setLineDash([5, 6]);
+        g.beginPath();
+        g.moveTo(x, e.y);
+        g.lineTo(x + (e.aimX || face) * 190, e.y + (e.aimY || 0) * 190);
+        g.stroke();
+        g.setLineDash([]);
+      } else if (pose === "slam" || pose === "briar") {
+        var ringCol = pose === "slam" ? "rgba(255,112,64," : "rgba(96,192,80,";
+        g.strokeStyle = ringCol + (0.35 + 0.4 * tell) + ")";
+        g.lineWidth = 2.5;
+        g.beginPath();
+        g.arc(x, e.y, (e.kitRingMax || 120) * (0.35 + 0.65 * tell), 0, 6.3);
+        g.stroke();
+      } else if (pose === "reap") {
+        g.strokeStyle = "rgba(168,220,228," + (0.35 + 0.4 * tell) + ")";
+        g.lineWidth = 2.5;
+        g.beginPath();
+        g.arc(x, e.y - u * 0.2, u * 1.8, 0, 6.3);
+        g.stroke();
+      } else if (pose === "blink") {
+        g.strokeStyle = "rgba(159,232,240," + (0.3 + 0.45 * tell) + ")";
+        g.lineWidth = 2;
+        g.beginPath();
+        g.arc(x, e.y - u * 0.3, u * (0.9 + tell * 0.5) + Math.sin(S.t * 16) * u * 0.08, 0, 6.3);
+        g.stroke();
+      } else {
+        g.strokeStyle = "rgba(240,220,140," + (0.4 + 0.45 * tell) + ")";
+        g.lineWidth = 2.5;
+        g.beginPath();
+        g.arc(x, e.y - u * 0.4, u * 1.2 + Math.sin(S.t * 14) * u * 0.06, 0, 6.3);
+        g.stroke();
+      }
+    }
+
+    /* slash trail for reap / blink */
+    if (e.slashTrail && e.slashTrail.length) {
+      for (var ti = 0; ti < e.slashTrail.length; ti++) {
+        var tr = e.slashTrail[ti];
+        g.globalAlpha = Math.max(0, tr.a) * 0.55 * ghost;
+        g.fillStyle = k.accent;
+        g.fillRect(tr.x - 3, tr.y - 3, 6, 6);
+      }
+      g.globalAlpha = ghost;
+    }
+
+    g.save(); g.globalAlpha = 0.44 * ghost; g.fillStyle = "#0a0806";
+    g.beginPath(); g.ellipse(x + lean * 0.3, e.y + u * 0.22, u * 0.88, u * 0.27, 0, 0, 6.3); g.fill(); g.restore();
+    g.globalAlpha = ghost;
+
+    x = x + lean;
 
     /* cloak behind everything */
     cube(g, x - u * 0.60, yt + u * 0.60, u * 1.20, u * 1.02, u * 0.08, k.cloak);
@@ -4095,25 +4698,12 @@ g.beginPath(); g.arc(S.splits[sp].x, S.splits[sp].y, S.splits[sp].r, 0, 6.3); g.
       cube(g, x + u * 0.76, yt + u * 0.38, u * 0.16, u * 0.20, u * 0.06, k.accent);
     }
 
-    /* weapon, on the side he is facing, lifted on the tell; empty hand while thrown */
-    var wx = x + face * u * 0.74, lift = tell * u * 0.42;
+    /* weapon, on the side he is facing; empty hand while thrown */
+    var wx = x + face * u * 0.74, lift = liftPose * u * 0.42;
     if (e.disarm) {
       cube(g, wx - u * 0.12, yt + u * 0.98, u * 0.22, u * 0.20, u * 0.10, body);
-    } else if (k.weap === "sword") {
-      cube(g, wx - u * 0.13, yt + u * 0.86 - lift, u * 0.26, u * 0.46, u * 0.12, shade(k.body, 0.72));
-      cube(g, wx - u * 0.11, yt - u * 0.10 - lift, u * 0.22, u * 1.00, u * 0.10, k.trim);
-      cube(g, wx - u * 0.25, yt + u * 0.80 - lift, u * 0.50, u * 0.14, u * 0.08, k.accent);
-    } else if (k.weap === "hammer") {
-      cube(g, wx - u * 0.09, yt + u * 0.10 - lift, u * 0.18, u * 1.36, u * 0.09, shade(k.body, 0.6));
-      cube(g, wx - u * 0.30, yt - u * 0.22 - lift, u * 0.60, u * 0.44, u * 0.20, k.trim);
-      g.fillStyle = k.accent; g.fillRect(wx - u * 0.30, yt - u * 0.06 - lift, u * 0.60, u * 0.07);
-    } else if (k.weap === "scythe") {
-      cube(g, wx - u * 0.08, yt - u * 0.10 - lift, u * 0.16, u * 1.66, u * 0.08, shade(k.body, 0.6));
-      cube(g, wx - face * u * 0.34, yt - u * 0.44 - lift, u * 0.46, u * 0.16, u * 0.08, k.accent);
-      cube(g, wx - face * u * 0.34, yt - u * 0.30 - lift, u * 0.14, u * 0.22, u * 0.06, k.accent);
     } else {
-      cube(g, wx - u * 0.07, yt - u * 0.30 - lift, u * 0.14, u * 1.96, u * 0.07, shade(k.body, 0.6));
-      cube(g, wx - u * 0.15, yt - u * 0.52 - lift, u * 0.30, u * 0.26, u * 0.10, k.accent);
+      drawKnightWeapon(g, k, wx, yt, u, face, lift, e.swing || 0, pose);
     }
 
     /* head */
@@ -4122,11 +4712,11 @@ g.beginPath(); g.arc(S.splits[sp].x, S.splits[sp].y, S.splits[sp].r, 0, 6.3); g.
     g.fillRect(x - u * 0.28, yt + u * 0.26, u * 0.22, u * 0.19);
     g.fillRect(x + u * 0.06, yt + u * 0.26, u * 0.22, u * 0.19);
     g.fillStyle = k.eye;
-    var glow = 0.6 + 0.4 * Math.sin(S.t * 3 + e.bobPhase) + tell * 0.6;
-    g.globalAlpha = Math.min(1, glow);
+    var glow = 0.6 + 0.4 * Math.sin(S.t * 3 + e.bobPhase) + liftPose * 0.6;
+    g.globalAlpha = Math.min(1, glow) * ghost;
     g.fillRect(x - u * 0.24 + face * u * 0.02, yt + u * 0.31, u * 0.13, u * 0.09);
     g.fillRect(x + u * 0.10 + face * u * 0.02, yt + u * 0.31, u * 0.13, u * 0.09);
-    g.globalAlpha = 1;
+    g.globalAlpha = ghost;
 
     /* helm — the one silhouette a player reads from across the room */
     cube(g, x - u * 0.44, yt - u * 0.18, u * 0.88, u * 0.30, u * 0.14, k.trim);
@@ -4148,13 +4738,7 @@ g.beginPath(); g.arc(S.splits[sp].x, S.splits[sp].y, S.splits[sp].r, 0, 6.3); g.
       cube(g, x - u * 0.52, yt - u * 0.64, u * 0.26, u * 0.10, u * 0.04, k.accent);
       cube(g, x + u * 0.26, yt - u * 0.64, u * 0.26, u * 0.10, u * 0.04, k.accent);
     }
-    if (e.tell > 0) {
-      g.strokeStyle = "rgba(240,220,140," + (0.4 + 0.45 * tell) + ")";
-      g.lineWidth = 2.5;
-      g.beginPath();
-      g.arc(x, e.y - u * 0.4, u * 1.2 + Math.sin(S.t * 14) * u * 0.06, 0, 6.3);
-      g.stroke();
-    }
+    g.restore();
   }
 
 
@@ -5488,6 +6072,31 @@ function endRunToMenu() {
       room.enemies.push(e);
       return { x: Math.round(e.x), y: Math.round(e.y), r: e.r, artR: artR(e), bodyR: bodyR(e), hitR: e.hitR || e.r, hitLift: e.hitLift || 0, boss: e.boss };
     },
+    /* harness-only: start a kit attack on the most recently spawned live enemy */
+    forceKnightAtk: function (kind) {
+      if (!room || !room.enemies.length || !player) return null;
+      var e = room.enemies[room.enemies.length - 1];
+      if (!e.alive || e.boss !== "mini") return null;
+      var dx = player.x - e.x, dy = player.y - e.y;
+      var dist = Math.hypot(dx, dy) || 1;
+      e.spd = 0; e.disarm = false; e.thrown = null; e.rearm = 0;
+      startKnightAtk(e, kind || "throw", dx, dy, dist);
+      return { type: e.type, atk: e.atk, wind: e.atkWind, active: e.atkActive };
+    },
+    knightState: function () {
+      if (!room || !room.enemies.length) return null;
+      var e = null, i;
+      for (i = room.enemies.length - 1; i >= 0; i--) {
+        if (room.enemies[i].alive && room.enemies[i].boss === "mini") { e = room.enemies[i]; break; }
+      }
+      if (!e) return null;
+      return {
+        type: e.type, name: e.name, atk: e.atk, atkT: e.atkT,
+        tell: e.tell, disarm: !!e.disarm, kitRing: !!e.kitRing,
+        kitRingR: e.kitRingR, ghost: e.ghost, swing: e.swing,
+        bladeLift: e.bladeLift, shots: S.shots.map(function (s) { return s.kind; })
+      };
+    },
     /* harness-only: mutate the most recently spawned live enemy (for pose screenshots) */
     mutLast: function (patch) {
       if (!room || !room.enemies.length) return null;
@@ -5505,6 +6114,18 @@ function endRunToMenu() {
         e.alive = false;
         e.deadT = 0;
       }
+      S.shots = [];
+      return n;
+    },
+    clearAll: function () {
+      if (!room) return 0;
+      var n = 0, i;
+      for (i = 0; i < room.enemies.length; i++) {
+        if (room.enemies[i].alive) n++;
+        room.enemies[i].alive = false;
+        room.enemies[i].deadT = 0;
+      }
+      room.enemies = [];
       S.shots = [];
       return n;
     },
