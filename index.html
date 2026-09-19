@@ -2206,7 +2206,9 @@
 
   /* BB-V7.20 — overall loot was too generous: trash kills spilled balls, rich
      tables were epic/legendary-only, and frag piles fed the upgrade menu too
-     fast. Prefer shards over gear, and make power rarer when gear does drop. */
+     fast. Prefer shards over gear, and make power rarer when gear does drop.
+     BB-V7.22 — restY anchors the hop settle at the drop point (enemy/chest),
+     not the bottom of the playfield. */
   function dropLoot(x, y, rich) {
     var table = rnd();
     var it;
@@ -2221,16 +2223,16 @@
       } else {
         rar = rarityForFloor(S.floor);
       }
-      it = { kind: "ball", x: x, y: y, r: 13, vy: -40, life: 12, rar: rar, affix: aff, taken: false };
+      it = { kind: "ball", x: x, y: y, restY: y, r: 13, vy: -40, life: 12, rar: rar, affix: aff, taken: false };
     } else {
-      it = { kind: "frag", x: x, y: y, r: 8, vy: -30, life: 10, rar: "common", n: 1, taken: false };
+      it = { kind: "frag", x: x, y: y, restY: y, r: 8, vy: -30, life: 10, rar: "common", n: 1, taken: false };
     }
     S.loot.push(it);
     sfx("loot");
   }
 
   function dropHeart(x, y) {
-    S.loot.push({ kind: "heart", x: x, y: y, r: 10, vy: -52, life: 12, rar: "heart", n: 1, taken: false });
+    S.loot.push({ kind: "heart", x: x, y: y, restY: y, r: 10, vy: -52, life: 12, rar: "heart", n: 1, taken: false });
     sfx("loot");
   }
 
@@ -3542,8 +3544,11 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
   function updateLoot(dt) {
     for (var i = S.loot.length - 1; i >= 0; i--) {
       var it = S.loot[i];
+      /* BB-V7.22 — settle at the drop point (last enemy / chest location), not
+         the bottom of the screen. restY falls back for any legacy loot. */
+      var floorY = (it.restY != null) ? it.restY : (playH() - 40);
       it.life -= dt; it.vy += 80 * dt; it.y += it.vy * dt;
-      if (it.y > playH() - 40) { it.y = playH() - 40; it.vy *= -0.3; }
+      if (it.y > floorY) { it.y = floorY; it.vy *= -0.3; }
       if (!it.taken && Math.hypot(it.x - player.x, it.y - player.y) < 28) takeLoot(it);
       if (it.life <= 0 || it.taken) S.loot.splice(i, 1);
     }
@@ -3741,7 +3746,9 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      BB-V7.20 — paint-only back-wall HEIGHT 1–4 (half/wall/high/deep); solid
      walls; per-room wallH from procedural/curated rules + builder share.
      BB-V7.21 — soft DOWN beat before room reset; Skull Lord lunge longer
-     telegraph + early lane lock, attack mix stops lunge spam. */
+     telegraph + early lane lock, attack mix stops lunge spam.
+     BB-V7.22 — loot hops settle at the drop point (enemy/chest), not screen bottom;
+     FEEL controls and dungeon builder entry hidden from player menus. */
   var BUILD = "v7.22";
   var FEEL_DEF = { spd: 250, accel: 2600, brake: 3600, throwSpd: 620, aimMode: "drag", aimDead: 2, aimHold: 64 };
   var FEEL = (function () {
@@ -5611,7 +5618,6 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       "<h2>RUN</h2>" +
       "<div class='row'>" +
       "<button class='bb pri' id='btnPlay'>PLAY</button>" +
-      "<button class='bb' id='btnBuilder'>DUNGEON BUILDER</button>" +
       "</div>" +
       "<p class='muted' style='margin:2px 0 0'>" + BUILD + "</p>" +
       "<h2>PROFILE</h2><div class='row' id='profRow'>" + profs + "</div>" +
@@ -5641,7 +5647,6 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       showMenu();
     };
     document.getElementById("btnPlay").onclick = function () { startRun(makeSeed(), null); };
-    document.getElementById("btnBuilder").onclick = function () { openBuilder(null); };
     document.getElementById("btnSeed").onclick = function () { startRun(document.getElementById("seedIn").value, null); };
     document.getElementById("btnRand").onclick = function () { S.seed = makeSeed(); showMenu(); };
     document.getElementById("btnLoadCode").onclick = function () {
@@ -6314,6 +6319,14 @@ function endRunToMenu() {
     downed: function () { return S.downed ? { t: S.downed.t, dur: S.downed.dur } : null; },
     forceDown: function () { if (!player) return; player.inv = 0; player.hp = 0; startDowned(); },
     dropHeart: dropHeart,
+    dropLoot: dropLoot,
+    loot: function () {
+      return S.loot.map(function (it) {
+        return { kind: it.kind, x: Math.round(it.x), y: Math.round(it.y),
+          restY: it.restY != null ? Math.round(it.restY) : null, vy: Math.round(it.vy) };
+      });
+    },
+    playH: function () { return playH(); },
     blocks: function () { return room ? room.blocks.map(function (b) { return { tx: b.tx, ty: b.ty, life: b.life, maxLife: b.maxLife, hp: b.hp, maxHp: b.maxHp }; }) : []; },
     setBlockLife: function (t) { if (room && room.blocks[0]) room.blocks[0].life = t; },
     hurtBlock: function (i, n) { return hurtBlockAt(i == null ? 0 : i, n == null ? 1 : n); },
