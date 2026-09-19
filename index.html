@@ -332,7 +332,16 @@
   }
   /* BB-V7.10 — landscape type sized off the wide axis so copy fills the
      unused width. Each shop stack is a two-track grid: names wrap, BUY
-     sits in a shared max-content column so neighbours share one vertical edge. */
+     sits in a shared max-content column so neighbours share one vertical edge.
+     BB-V7.16 — spend/upgrade menu scaled to 90%: origin top-center keeps the
+     top edge and horizontal centering, while DONE lifts clear of landscape
+     chrome that was eating taps. Shop panel stacks above the install bar
+     (z 60) so the card bottom stays tappable when that banner is up. */
+  #shopPanel { z-index: 70; }
+  #shopCard {
+    transform: scale(0.9);
+    transform-origin: top center;
+  }
   @media (orientation: landscape) and (max-height: 500px) {
     .panel { padding: 8px 16px; }
     .card {
@@ -555,7 +564,6 @@
   <div class="panel" id="menuPanel"><div class="card" id="menuCard"></div></div>
   <div class="panel" id="pausePanel"><div class="card" id="pauseCard"></div></div>
   <div class="panel" id="shopPanel"><div class="card" id="shopCard"></div></div>
-  <div class="panel" id="passPanel"><div class="card" id="passCard"></div></div>
   <div class="panel" id="floorPanel"><div class="card" id="floorCard"></div></div>
   <div class="panel" id="builderPanel"><div class="card" id="builderCard"></div></div>
   <div class="panel" id="feelPanel"><div class="card" id="feelCard"></div></div>
@@ -630,8 +638,6 @@
     score: 0,
     trickAll: 0,
     runTricks: 0,
-    passPlay: false,
-    passWho: 0,
     builderLevel: null,
     customPlay: false,
     pause: false,
@@ -728,6 +734,27 @@
       if (o.aimHelp) store.aimHelp = true;
       S.seenAimHelp = !!o.aimHelp;
     } catch (e) {}
+  }
+  /* TEMP — for now, every fresh page load wipes carried items and any
+     profile-side stat boosts. Cosmetics (token + look) stay. Revisit when
+     meta progression should persist across reloads. */
+  function bareProfile(p, i) {
+    var base = PROFILES[i] || PROFILES[0];
+    var def = store.profiles[i] || store.profiles[0];
+    var cosSrc = (p && p.cos) || (def && def.cos) || defaultCos();
+    return {
+      token: (p && p.token) || (def && def.token) || base.token,
+      cos: JSON.parse(JSON.stringify(cosSrc))
+    };
+  }
+  function resetItemsAndBoostsOnLoad() {
+    store.stash = [];
+    store.profiles = (store.profiles || []).map(bareProfile);
+    while (store.profiles.length < PROFILES.length) {
+      var i = store.profiles.length;
+      store.profiles.push(bareProfile(null, i));
+    }
+    saveStore();
   }
   function saveStore() {
     try {
@@ -1059,7 +1086,10 @@
   function pickRoomSize(kind, piece) {
     if (piece === "hallH") return { cols: irnd(20, 32), rows: irnd(8, 11) };
     if (piece === "hallV") return { cols: irnd(12, 16), rows: irnd(14, 18) };
-    if (piece === "skullLair") return { cols: irnd(28, 34), rows: irnd(16, 20) };
+    /* BB-V7.16 — playtest: 28–34×16–20 still cramped for the cleave/lunge kit.
+       ~1.5× each side of that (~2.3× floor) so the camera scrolls and the
+       charge lanes actually have a destination. */
+    if (piece === "skullLair") return { cols: irnd(44, 52), rows: irnd(24, 30) };
     if (kind === "boss" || piece === "boss") return { cols: irnd(18, 24), rows: irnd(12, 15) };
     var roll = rnd();
     if (roll < 0.38) return { cols: irnd(16, 20), rows: irnd(10, 13) };
@@ -1139,19 +1169,28 @@
       rectWall(g, 2, 2, 2, 2); rectWall(g, c - 4, 2, 2, 2);
       rectWall(g, 2, r - 4, 2, 2); rectWall(g, c - 4, r - 4, 2, 2);
     },
-    /* BB-V7.12 — Skull Lord lair: wide open center for cleave arcs, side ruins
-       to bank the ball, east throne jaws so the charge lane has a destination. */
+    /* BB-V7.16 — Skull Lord hall: huge open nave for cleave fans, side ruins
+       to bank the ball, east throne jaws as the charge destination. North
+       center stays clear for the hoop. Pillars sit off the mid charge lane. */
     skullLair: function (g) {
       stampBorder(g);
-      var c = gCols(g), r = gRows(g), midY = Math.floor(r / 2);
-      rectWall(g, 3, 3, 2, 3); rectWall(g, c - 5, 3, 2, 3);
-      rectWall(g, 3, r - 6, 2, 3); rectWall(g, c - 5, r - 6, 2, 3);
-      rectWall(g, Math.floor(c * 0.30), midY - 1, 2, 2);
-      rectWall(g, Math.floor(c * 0.66), midY - 1, 2, 2);
-      rectWall(g, c - 5, midY - 3, 2, 1);
-      rectWall(g, c - 5, midY + 2, 2, 1);
-      /* north-center kept clear for the NBA hoop (BB-V7.13) */
-      rectWall(g, Math.floor(c * 0.48), r - 3, 2, 1);
+      var c = gCols(g), r = gRows(g);
+      var midY = Math.floor(r / 2), midX = Math.floor(c / 2);
+      var rw = Math.max(3, Math.round(c * 0.07));
+      var rh = Math.max(3, Math.round(r * 0.14));
+      rectWall(g, 3, 3, rw, rh);
+      rectWall(g, c - 3 - rw, 3, rw, rh);
+      rectWall(g, 3, r - 3 - rh, rw, rh);
+      rectWall(g, c - 3 - rw, r - 3 - rh, rw, rh);
+      rectWall(g, Math.floor(c * 0.22), Math.floor(r * 0.32), 2, 2);
+      rectWall(g, Math.floor(c * 0.22), Math.floor(r * 0.62), 2, 2);
+      rectWall(g, Math.floor(c * 0.74), Math.floor(r * 0.32), 2, 2);
+      rectWall(g, Math.floor(c * 0.74), Math.floor(r * 0.62), 2, 2);
+      rectWall(g, c - 6, midY - 5, 3, 2);
+      rectWall(g, c - 6, midY + 3, 3, 2);
+      rectWall(g, c - 4, midY - 3, 1, 1);
+      rectWall(g, c - 4, midY + 2, 1, 1);
+      rectWall(g, midX - 1, r - 3, 2, 1);
     },
     chambers: function (g) {
       stampBorder(g);
@@ -1228,7 +1267,7 @@
       spitter: { hp: 22, r: 22, spd: 17, kind: "range", col: "#80b040", name: "NEEDLE" },
       golem: { hp: 48, r: 30, spd: 23, kind: "chase", col: "#687060", name: "GOLEM" },
       witchling: { hp: 26, r: 20, spd: 49, kind: "orbit", col: "#70a058", name: "WITCHLING" },
-      skulllord: { hp: 260, r: 56, spd: 34, kind: "boss", col: "#e8e0d0", name: "SKULL LORD", boss: "bone" },
+      skulllord: { hp: 260, r: 56, spd: 50, kind: "boss", col: "#e8e0d0", name: "SKULL LORD", boss: "bone" },
       ashtitan: { hp: 420, r: 51, spd: 23, kind: "boss", col: "#c06030", name: "ASH TITAN", boss: "ash" },
       thornqueen: { hp: 640, r: 45, spd: 29, kind: "boss", col: "#50a060", name: "THORN QUEEN", boss: "thorn" },
       minibone: { hp: 90, r: 32, spd: 35, kind: "boss", col: "#c8b898", name: "BONE KNIGHT", boss: "mini" },
@@ -1492,6 +1531,31 @@
     }
     return hit;
   }
+  /* Step-slide so a long Skull Lord dash can not teleport through stone.
+     resolveCircle only rewinds vx*DT, which is useless on a 300px lunge. */
+  function skullSlide(e, nx, ny) {
+    if (!room) { e.x = nx; e.y = ny; return; }
+    var dx = nx - e.x, dy = ny - e.y;
+    var dist = Math.hypot(dx, dy);
+    if (dist < 0.5) return;
+    var step = 7, n = Math.max(1, Math.ceil(dist / step)), i, ox, oy;
+    e.vx = dx; e.vy = dy;
+    for (i = 0; i < n; i++) {
+      ox = e.x; oy = e.y;
+      e.x += dx / n;
+      e.y += dy / n;
+      if (circleBlocked(room.grid, room.blocks, e.x, e.y, e.r)) {
+        e.x = ox; e.y = oy;
+        e.x += dx / n;
+        if (circleBlocked(room.grid, room.blocks, e.x, e.y, e.r)) e.x = ox;
+        e.y += dy / n;
+        if (circleBlocked(room.grid, room.blocks, e.x, e.y, e.r)) e.y = oy;
+        break;
+      }
+    }
+    var bi = blockAt(room.blocks, e.x, e.y, e.r);
+    if (bi >= 0) enemyBumpBlock(e, bi);
+  }
   function blockAt(blocks, x, y, r) {
     if (!blocks) return -1;
     for (var i = 0; i < blocks.length; i++) {
@@ -1579,6 +1643,10 @@
   function easeOutCubic(t) {
     t = Math.max(0, Math.min(1, t));
     return 1 - Math.pow(1 - t, 3);
+  }
+  function easeInCubic(t) {
+    t = Math.max(0, Math.min(1, t));
+    return t * t * t;
   }
   function easeInOutQuad(t) {
     t = Math.max(0, Math.min(1, t));
@@ -1877,7 +1945,7 @@
     if (!S.seenAimHelp) toast("LEFT RING to walk · DRAG anywhere to throw");
   }
 
-  function startRun(seed, pass, custom) {
+  function startRun(seed, custom) {
     S.seed = parseSeed(seed || makeSeed());
     S.floor = 1;
     S.score = 0;
@@ -1885,8 +1953,6 @@
     S.hoopReady = false;
     S.bossBeat = 0;
     S.cine = null;
-    S.passPlay = !!pass;
-    S.passWho = 0;
     S.customPlay = !!custom;
     S.builderLevel = custom || null;
     player = freshPlayer();
@@ -1942,10 +2008,6 @@
     var wasBoss = S.rooms[S.roomI].kind === "boss";
     if (S.floor > store.bestFloor) store.bestFloor = S.floor;
     saveStore();
-    if (S.passPlay) {
-      S.passWho = 1 - S.passWho;
-      showPassCard();
-    }
     S.floor += 1;
     S.rooms = buildFloor(S.floor);
     S.floorHeal = healPlayer(wasBoss ? 2 : 1);
@@ -2454,7 +2516,31 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
 
   /* BB-V7.12 — Skull Lord (was Bone King): melee only. Two attacks with long
      multi-phase animation clocks that drawSkullLord reads. Trash waves fire once
-     each at 75/50/25% of max HP. */
+     each at 75/50/25% of max HP.
+     BB-V7.16 — blade sweeps the telegraph fan; lunge actually covers the
+     dashed lane (was ~40px of travel vs a 400px tell). Ease-in slash, ease-out
+     dash, stride/cape on the pose clock. */
+  var SKULL_CLEAVE_BACK = 1.32;
+  var SKULL_CLEAVE_FWD = 1.18;
+
+  function skullAimAng(e) {
+    return Math.atan2(e.aimY || 0, e.aimX || 1);
+  }
+  /* canvas rotate 0 = blade graphic pointing up; tip world angle = -PI/2 + bang */
+  function skullBladeBang(aimAng, sweep) {
+    return aimAng + sweep + Math.PI / 2;
+  }
+  function skullTipAng(e) {
+    return (e.bladeAng || 0) - Math.PI / 2;
+  }
+  function skullCleaveReach(e) {
+    return artR(e) * 1.48 * 3.05;
+  }
+  function skullDashLen(e, dist) {
+    var ar = artR(e);
+    return Math.max(ar * 4.4, Math.min(ar * 8.2, (dist || 0) + 70));
+  }
+
   function ensureSkullLord(e) {
     if (e.skullReady) return;
     e.skullReady = true;
@@ -2462,6 +2548,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     e.atk = null;
     e.atkT = 0;
     e.atkHit = false;
+    e.atkSwingSfx = false;
     e.aimX = 1;
     e.aimY = 0;
     e.slashTrail = [];
@@ -2473,6 +2560,17 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     e.crouch = 0;
     e.shieldFwd = 0;
     e.capesway = 0;
+    e.capeFlare = 0;
+    e.stride = 0;
+    e.stridePhase = 0;
+    e.dashLen = 0;
+    e.dashFromX = 0;
+    e.dashFromY = 0;
+    e.dashToX = 0;
+    e.dashToY = 0;
+    e.dashCommit = false;
+    e.prevX = e.x;
+    e.prevY = e.y;
   }
 
   function spawnSkullAdds(boss, n) {
@@ -2494,8 +2592,8 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       if (!t) {
         ang = (i / n) * Math.PI * 2 + rnd();
         t = {
-          tx: Math.max(2, Math.min(playCols() - 3, Math.floor((boss.x + Math.cos(ang) * 120) / TILE))),
-          ty: Math.max(2, Math.min(playRows() - 3, Math.floor((boss.y + Math.sin(ang) * 90) / TILE)))
+          tx: Math.max(2, Math.min(playCols() - 3, Math.floor((boss.x + Math.cos(ang) * 160) / TILE))),
+          ty: Math.max(2, Math.min(playRows() - 3, Math.floor((boss.y + Math.sin(ang) * 120) / TILE)))
         };
         if (room.grid[t.ty]) room.grid[t.ty][t.tx] = 0;
       }
@@ -2528,21 +2626,26 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     e.atk = kind;
     e.atkT = 0;
     e.atkHit = false;
+    e.atkSwingSfx = false;
     e.slashTrail = [];
+    e.dashCommit = false;
+    e.capeFlare = 0;
     var n = dist || 1;
     e.aimX = dx / n;
     e.aimY = dy / n;
     e.face = e.aimX < 0 ? -1 : 1;
+    e.dashLen = skullDashLen(e, dist);
     if (kind === "cleave") {
-      e.atkWind = 0.62;
-      e.atkActive = 0.34;
-      e.atkRecover = 0.52;
-      e.bladeAng = e.face > 0 ? -1.15 : 1.15;
+      /* longer tell, snappier cut so the fan is readable in the bigger hall */
+      e.atkWind = 0.74;
+      e.atkActive = 0.22;
+      e.atkRecover = 0.50;
+      e.bladeAng = skullBladeBang(skullAimAng(e), e.face * -SKULL_CLEAVE_BACK * 0.2);
     } else {
-      e.atkWind = 0.72;
-      e.atkActive = 0.26;
-      e.atkRecover = 0.55;
-      e.bladeAng = e.face > 0 ? -0.35 : 0.35;
+      e.atkWind = 0.80;
+      e.atkActive = 0.34;
+      e.atkRecover = 0.62;
+      e.bladeAng = e.face * -0.35;
     }
     e.atkTotal = e.atkWind + e.atkActive + e.atkRecover;
   }
@@ -2551,16 +2654,12 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     if (e.atkHit || !player) return;
     var px = player.x - e.x, py = player.y - e.y;
     var pr = Math.hypot(px, py) || 1;
-    var reach = artR(e) * 3.15;
+    var reach = skullCleaveReach(e);
     if (pr > reach + player.r) return;
     var pang = Math.atan2(py, px);
-    var base = Math.atan2(e.aimY, e.aimX);
-    /* sweeping arc: starts behind the aim and finishes past it */
-    var sweep = e.face > 0 ? (-1.1 + (e.atkT - e.atkWind) / e.atkActive * 2.35)
-                           : (1.1 - (e.atkT - e.atkWind) / e.atkActive * 2.35);
-    var blade = base + sweep;
+    var blade = skullTipAng(e);
     var ad = Math.abs(Math.atan2(Math.sin(pang - blade), Math.cos(pang - blade)));
-    if (ad < 0.72) {
+    if (ad < 0.70) {
       e.atkHit = true;
       hurtPlayer(2 + Math.floor(S.floor / 4));
       S.shake = Math.max(S.shake, 0.42);
@@ -2571,13 +2670,24 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
 
   function skullLungeHit(e) {
     if (e.atkHit || !player) return;
-    var tipX = e.x + e.aimX * artR(e) * 2.45;
-    var tipY = e.y + e.aimY * artR(e) * 2.45;
-    if (Math.hypot(player.x - tipX, player.y - tipY) < player.r + artR(e) * 0.95 ||
-        Math.hypot(player.x - e.x, player.y - e.y) < player.r + bodyR(e) * 1.15) {
+    var pr = player.r;
+    var tipX = e.x + e.aimX * artR(e) * 2.6;
+    var tipY = e.y + e.aimY * artR(e) * 2.6;
+    var hit = Math.hypot(player.x - tipX, player.y - tipY) < pr + artR(e) * 0.95 ||
+              Math.hypot(player.x - e.x, player.y - e.y) < pr + bodyR(e) * 1.2;
+    /* capsule along this frame's travel so a real dash cannot skip over you */
+    if (!hit && e.prevX != null) {
+      var vx = e.x - e.prevX, vy = e.y - e.prevY;
+      var len = Math.hypot(vx, vy) || 1;
+      var t = ((player.x - e.prevX) * vx + (player.y - e.prevY) * vy) / (len * len);
+      t = Math.max(0, Math.min(1, t));
+      var cx = e.prevX + vx * t, cy = e.prevY + vy * t;
+      hit = Math.hypot(player.x - cx, player.y - cy) < pr + bodyR(e) * 1.15;
+    }
+    if (hit) {
       e.atkHit = true;
       hurtPlayer(3 + Math.floor(S.floor / 3));
-      S.shake = Math.max(S.shake, 0.5);
+      S.shake = Math.max(S.shake, 0.55);
       burst(player.x, player.y, "#e8e0d0", 16);
       sfx("hit");
     }
@@ -2588,114 +2698,166 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     skullLordWaves(e);
     e.capesway += dt;
     e.dustT = Math.max(0, e.dustT - dt);
+    e.capeFlare = Math.max(0, (e.capeFlare || 0) - dt * 1.8);
+    e.prevX = e.x;
+    e.prevY = e.y;
 
     if (e.atk) {
       e.atkT += dt;
       var wind = e.atkWind, active = e.atkActive, recover = e.atkRecover;
       var t = e.atkT;
+      var aimAng = skullAimAng(e);
+      if (!e.atkSwingSfx && t >= wind) {
+        e.atkSwingSfx = true;
+        sfx(e.atk === "cleave" ? "cleave" : "lunge");
+        S.shake = Math.max(S.shake, e.atk === "lunge" ? 0.28 : 0.18);
+      }
       if (e.atk === "cleave") {
         if (t < wind) {
-          var w = t / wind;
+          var w = easeOutCubic(Math.min(1, t / (wind * 0.78)));
           e.bladeLift = w * 1.0;
-          e.bladeAng = e.face * (-1.15 - w * 0.35);
-          e.lean = -e.face * w * 0.55;
-          e.crouch = w * 0.18;
-          e.shieldFwd = -0.2 * w;
-          /* slow square-up toward player during wind so the arc aims true */
-          if (dist > 40) moveToward(e, dx / dist * 0.15, dy / dist * 0.15, e.spd * 0.35, dt);
-        } else if (t < wind + active) {
-          var s = (t - wind) / active;
-          e.bladeLift = 1.0 - s * 0.85;
-          e.bladeAng = e.face * (-1.5 + s * 2.55);
-          e.lean = e.face * (-0.55 + s * 1.35);
-          e.crouch = 0.18 - s * 0.1;
-          e.shieldFwd = -0.2 + s * 0.35;
-          /* slash trail samples for the draw pass */
-          if (!e.slashTrail) e.slashTrail = [];
-          var rad = artR(e) * 2.85;
-          var bang = Math.atan2(e.aimY, e.aimX) + e.bladeAng;
-          e.slashTrail.push({
-            x: e.x + Math.cos(bang) * rad,
-            y: e.y + Math.sin(bang) * rad - artR(e) * 0.35,
-            a: 1 - s
-          });
-          if (e.slashTrail.length > 14) e.slashTrail.shift();
-          skullCleaveHit(e);
-          if (s > 0.15 && s < 0.55) {
-            burst(e.x + Math.cos(bang) * rad * 0.7, e.y + Math.sin(bang) * rad * 0.7, "#c9a44c", 1);
-          }
-        } else {
-          var r = (t - wind - active) / recover;
-          e.bladeLift = 0.15 * (1 - r);
-          e.bladeAng = e.face * (1.05 - r * 1.4);
-          e.lean *= 0.88;
-          e.crouch *= 0.9;
-          e.shieldFwd *= 0.92;
-          if (e.slashTrail) {
-            for (var si = 0; si < e.slashTrail.length; si++) e.slashTrail[si].a *= 0.86;
-          }
-        }
-      } else { /* lunge / charge stab */
-        if (t < wind) {
-          var lw = t / wind;
-          e.bladeLift = lw * 0.25;
-          e.bladeAng = e.face * (-0.25 - lw * 0.55);
-          e.lean = -e.face * lw * 0.85;
-          e.crouch = lw * 0.42;
-          e.shieldFwd = lw * 0.9;
-          e.dustT = 0.2;
-          if (dist > 50) moveToward(e, dx / dist * 0.1, dy / dist * 0.1, e.spd * 0.25, dt);
-          /* re-aim through most of the wind so the lane tracks the hero */
-          if (lw < 0.82 && dist > 1) {
+          e.bladeAng = skullBladeBang(aimAng, e.face * (-SKULL_CLEAVE_BACK * w));
+          e.lean = -e.face * w * 0.62;
+          e.crouch = w * 0.22;
+          e.shieldFwd = -0.28 * w;
+          e.capeFlare = w * 0.25;
+          if (dist > 40) moveToward(e, dx / dist * 0.12, dy / dist * 0.12, e.spd * 0.28, dt);
+          if (t < wind * 0.88 && dist > 1) {
             e.aimX = dx / dist;
             e.aimY = dy / dist;
             e.face = e.aimX < 0 ? -1 : 1;
           }
         } else if (t < wind + active) {
+          var s = easeInCubic((t - wind) / active);
+          e.bladeLift = 1.0 - s * 0.88;
+          e.bladeAng = skullBladeBang(aimAng, e.face * (-SKULL_CLEAVE_BACK + s * (SKULL_CLEAVE_BACK + SKULL_CLEAVE_FWD)));
+          e.lean = e.face * (-0.62 + s * 1.55);
+          e.crouch = 0.22 - s * 0.12;
+          e.shieldFwd = -0.28 + s * 0.5;
+          e.capeFlare = 0.25 + s * 0.85;
+          if (!e.slashTrail) e.slashTrail = [];
+          var rad = skullCleaveReach(e) * 0.92;
+          var tip = skullTipAng(e);
+          e.slashTrail.push({
+            x: e.x + Math.cos(tip) * rad,
+            y: e.y + Math.sin(tip) * rad - artR(e) * 0.2,
+            a: 1 - s
+          });
+          if (e.slashTrail.length > 16) e.slashTrail.shift();
+          skullCleaveHit(e);
+          if (s > 0.2 && s < 0.85) {
+            burst(e.x + Math.cos(tip) * rad * 0.72, e.y + Math.sin(tip) * rad * 0.72, "#c9a44c", 1);
+          }
+        } else {
+          var r = (t - wind - active) / recover;
+          var hold = 1 - easeOutCubic(r);
+          e.bladeLift = 0.12 * hold;
+          e.bladeAng = skullBladeBang(aimAng, e.face * SKULL_CLEAVE_FWD) * hold + (e.face * -0.45) * (1 - hold);
+          e.lean *= 0.86;
+          e.crouch *= 0.88;
+          e.shieldFwd *= 0.9;
+          e.capeFlare *= 0.9;
+          if (e.slashTrail) {
+            for (var si = 0; si < e.slashTrail.length; si++) e.slashTrail[si].a *= 0.84;
+          }
+        }
+      } else { /* lunge / charge stab */
+        if (t < wind) {
+          var lw = t / wind;
+          var coil = easeOutCubic(Math.min(1, lw / 0.82));
+          e.bladeLift = coil * 0.55;
+          /* raise the slab vertical, then it will snap into the stab lane */
+          e.bladeAng = (e.face * -0.45) * (1 - coil) + coil * (aimAng + Math.PI / 2 - e.face * 0.15);
+          e.lean = -e.face * coil * 0.95;
+          e.crouch = coil * 0.52;
+          e.shieldFwd = coil * 1.05;
+          e.dustT = 0.25;
+          e.stride = coil * 0.22;
+          if (dist > 50) moveToward(e, dx / dist * 0.08, dy / dist * 0.08, e.spd * 0.22, dt);
+          if (lw < 0.78 && dist > 1) {
+            e.aimX = dx / dist;
+            e.aimY = dy / dist;
+            e.face = e.aimX < 0 ? -1 : 1;
+            e.dashLen = skullDashLen(e, dist);
+          }
+          if (lw >= 0.78 && !e.dashCommit) {
+            e.dashCommit = true;
+            e.dashFromX = e.x;
+            e.dashFromY = e.y;
+            e.dashLen = skullDashLen(e, dist);
+            e.dashToX = e.x + e.aimX * e.dashLen;
+            e.dashToY = e.y + e.aimY * e.dashLen;
+          }
+        } else if (t < wind + active) {
+          if (!e.dashCommit) {
+            e.dashCommit = true;
+            e.dashFromX = e.x;
+            e.dashFromY = e.y;
+            e.dashLen = skullDashLen(e, dist);
+            e.dashToX = e.x + e.aimX * e.dashLen;
+            e.dashToY = e.y + e.aimY * e.dashLen;
+          }
           var ls = (t - wind) / active;
-          e.bladeLift = 0.25 + ls * 0.55;
-          e.bladeAng = e.face * (-0.8 + ls * 1.1);
-          e.lean = e.face * (-0.85 + ls * 1.6);
-          e.crouch = 0.42 - ls * 0.35;
-          e.shieldFwd = 0.9 - ls * 0.5;
-          var rush = e.spd * (4.8 - ls * 1.2);
-          moveToward(e, e.aimX, e.aimY, rush, dt);
-          e.dustT = 0.35;
+          var fly = easeOutCubic(ls);
+          e.bladeLift = 0.55 + fly * 0.35;
+          e.bladeAng = aimAng + Math.PI / 2;
+          e.lean = e.face * (-0.95 + fly * 1.85);
+          e.crouch = 0.52 - fly * 0.42;
+          e.shieldFwd = 1.05 - fly * 0.55;
+          e.capeFlare = 0.4 + fly * 0.9;
+          e.stride = 0.22 - fly * 0.4;
+          skullSlide(e, e.dashFromX + (e.dashToX - e.dashFromX) * fly,
+                        e.dashFromY + (e.dashToY - e.dashFromY) * fly);
+          e.dustT = 0.4;
           burst(e.x - e.aimX * artR(e), e.y - e.aimY * artR(e) + artR(e) * 0.5, "#6a5a44", 2);
           skullLungeHit(e);
         } else {
           var lr = (t - wind - active) / recover;
-          e.bladeLift = (0.8 * (1 - lr));
-          e.bladeAng = e.face * (0.3 - lr * 0.7);
-          e.lean *= 0.85;
-          e.crouch *= 0.88;
-          e.shieldFwd *= 0.9;
-          moveToward(e, e.aimX * 0.2, e.aimY * 0.2, e.spd * 0.4 * (1 - lr), dt);
+          var plant = easeOutCubic(Math.min(1, lr / 0.28));
+          var rest = easeOutCubic(lr);
+          e.bladeLift = 0.9 * (1 - rest);
+          e.bladeAng = (aimAng + Math.PI / 2) * (1 - rest) + (e.face * -0.45) * rest;
+          e.lean = e.face * 0.9 * (1 - rest);
+          e.crouch = 0.1 + plant * 0.22 * (1 - rest);
+          e.shieldFwd *= 0.88;
+          e.capeFlare *= 0.86;
+          e.stride *= 0.85;
+          if (lr < 0.18) {
+            e.dustT = 0.45;
+            S.shake = Math.max(S.shake, 0.22);
+          }
+          moveToward(e, e.aimX * 0.12, e.aimY * 0.12, e.spd * 0.22 * (1 - rest), dt);
         }
       }
 
+      e.stridePhase = (e.stridePhase || 0) + dt * 6;
       if (e.atkT >= e.atkTotal) {
+        var finished = e.atk;
         e.atk = null;
         e.atkT = 0;
-        e.cd = 1.15 + rnd() * 0.45;
+        e.cd = (finished === "lunge" ? 1.05 : 0.92) + rnd() * 0.38;
         e.bladeLift = 0;
         e.bladeAng = e.face * -0.45;
         e.lean = 0;
         e.crouch = 0;
         e.shieldFwd = 0;
+        e.capeFlare = 0;
         e.slashTrail = [];
+        e.dashCommit = false;
       }
       return;
     }
 
-    /* idle chase — close for cleave, line up for lunge when farther */
-    var chase = dist > 150 ? 0.85 : dist > 90 ? 0.55 : 0.35;
+    /* idle chase — close for cleave; lunge is the gap-closer in the big hall */
+    var chase = dist > 240 ? 1.25 : dist > 150 ? 0.9 : dist > 90 ? 0.55 : 0.32;
     moveToward(e, dx / dist * chase, dy / dist * chase, e.spd, dt);
     e.face = dx < 0 ? -1 : 1;
     e.bladeAng = e.face * -0.45;
     e.lean = Math.sin(e.phase * 2.1) * 0.06;
+    e.stridePhase = (e.stridePhase || 0) + dt * (dist > 50 ? 9 : 3.5);
+    e.stride = Math.sin(e.stridePhase) * 0.14;
     if (e.cd <= 0) {
-      if (dist < 120 || (dist < 170 && rnd() < 0.55)) {
+      if (dist < 135) {
         startSkullAtk(e, "cleave", dx, dy, dist);
         sfx("cleave");
       } else {
@@ -2936,11 +3098,34 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
   /* CHIEF BB-V5.1 — solid test and axis-separated movement. Axis-separated so a hero
      pushing into a corner slides along the wall instead of sticking to it, which is
      the difference between a control that feels alive and one that feels broken. */
+  /* East exit span matches carveDoor("e"): two tiles on the right wall at doorY. */
+  function eastDoorSpan() {
+    if (!room || !room.grid) return null;
+    var cols = playCols(), rows = playRows();
+    var dy = doorY(room.grid);
+    var y0 = Math.max(1, dy - 1), y1 = Math.min(rows - 2, dy);
+    if (y1 === y0) y1 = Math.min(rows - 2, y0 + 1);
+    if (!(room.grid[y0] && room.grid[y0][cols - 1] === 0)) return null;
+    return { tx: cols - 1, y0: y0, y1: y1, cols: cols, rows: rows };
+  }
+  function isEastDoorTile(tx, ty) {
+    var d = eastDoorSpan();
+    return !!(d && tx === d.tx && ty >= d.y0 && ty <= d.y1);
+  }
+  /* 0 = sealed, 1 = fully open. Opens over clearWait so the swing is readable. */
+  function exitDoorOpenAmt() {
+    if (!room || !room.cleared) return 0;
+    if (room.clearWait > 0) return 1 - Math.min(1, room.clearWait / 0.7);
+    return 1;
+  }
+
   function solidAt(x, y) {
     if (!room) return true;
     var tx = Math.floor(x / TILE), ty = Math.floor(y / TILE);
     if (tx < 0 || ty < 0 || tx >= playCols() || ty >= playRows()) return true;
     if (room.grid[ty] && room.grid[ty][tx]) return true;
+    /* Sealed exit reads as stone until the room is cleared. */
+    if (!room.cleared && isEastDoorTile(tx, ty)) return true;
     var bl = room.blocks || [];
     for (var i = 0; i < bl.length; i++) {
       if (Math.abs(bl[i].x - x) < TILE * 0.5 && Math.abs(bl[i].y - y) < TILE * 0.5) return true;
@@ -2996,9 +3181,13 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      BB-V7.14 — larger translucent walk/shot rings; phone HUD sized off viewport.
      BB-V7.15 — silhouette hitboxes: contact matches painted body for hero,
      trash, knights, and Skull Lord; split KNIGHT_VIS / LORD_VIS.
-     BB-V7.16 — row-sort walls with actors so south cubes occlude feet; softer
+     BB-V7.16-spend — upgrade menu at 90% scale, top-center origin.
+     BB-V7.16 — Skull Lord hall ~2.3× the v7.12 lair; cleave/lunge ease,
+     real dash travel, blade sweeps the telegraph fan.
+     BB-V7.17 — no auto exit-pull on clear; closed/open east door.
+     BB-V7.18 — row-sort walls with actors so south cubes occlude feet; softer
      hero bob/shadow against a south wall so he stops floating on the block. */
-  var BUILD = "v7.16";
+  var BUILD = "v7.18";
   var FEEL_DEF = { spd: 250, accel: 2600, brake: 3600, throwSpd: 620, aimMode: "drag", aimDead: 2, aimHold: 64 };
   var FEEL = (function () {
     var f = {};
@@ -3074,10 +3263,9 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
 
   function walkPlayer(dt) {
     var rr = player.r * 0.6;
-    /* Not while the room is clearing: the exit walk deliberately carries him into
-       the doorway, and the doorway reads as out of bounds. Rescuing him there would
-       be fighting the game. One toast a second at most — a rescue that fires every
-       frame is a spinner, not a message. */
+    /* Not while standing in a cleared doorway: the exit tile reads as out of
+       bounds, and rescuing him there would fight walking through. One toast a
+       second at most — a rescue that fires every frame is a spinner, not a message. */
     if (!(room && room.cleared) && unstick(rr)) {
       if (!(S.placeCd > 0) && S.t - (S.lastUnstick || -9) > 1) { S.lastUnstick = S.t; toast("UNSTUCK"); }
     }
@@ -3109,12 +3297,15 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     if (!(room && room.cleared)) unstick(player.r * 0.6);
     if (S.aim && S.aim.x < player.x - 8) player.facing = -1;
     else if (S.aim && S.aim.x > player.x + 8) player.facing = 1;
+    /* Room clear opens the exit; do not auto-pull toward it. Advance only once
+       the hero walks close to the right-hand doorway on their own. */
     if (room && room.cleared && room.doorReady && S.bossBeat <= 0 && room.kind !== "boss") {
       if (room.clearWait > 0) room.clearWait -= dt;
       else {
-        /* CHIEF FIX BB-V6.8 — the exit walk used to move him straight through stone. */
-        slide("x", 200 * dt, player.r * 0.6);
-        if (player.x > (playCols() - 2) * TILE - 10) nextRoomOrFloor();
+        var exitCy = (doorY(room.grid) + 0.5) * TILE;
+        var nearExit = player.x > (playCols() - 2) * TILE - 10 &&
+          Math.abs(player.y - exitCy) < TILE * 1.25;
+        if (nearExit) nextRoomOrFloor();
       }
     }
   }
@@ -3141,7 +3332,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
        paused, so pausing and turning the phone upright locked you out of MENU with
        a screen that only says "turn sideways". A card does not need landscape;
        only the live field does. */
-    var panelOpen = ["splashPanel", "menuPanel", "pausePanel", "shopPanel", "passPanel",
+    var panelOpen = ["splashPanel", "menuPanel", "pausePanel", "shopPanel",
                      "floorPanel", "builderPanel", "feelPanel"].some(function (id) {
       var el = document.getElementById(id);
       return el && el.className.indexOf("show") >= 0;
@@ -3344,6 +3535,93 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     var rows = playRows();
     return Math.max(0, Math.min(rows - 1, Math.floor(py / TILE)));
   }
+
+  /* Exit door: sealed plank slab before clear, swings open with a warm hall glow after. */
+  function drawExitDoor(g, wz) {
+    var d = eastDoorSpan();
+    if (!d) return;
+    var open = exitDoorOpenAmt();
+    var x = d.tx * TILE;
+    var top = d.y0 * TILE;
+    var h = (d.y1 - d.y0 + 1) * TILE;
+    var doorCol = "#6a4a28";
+    var bandCol = "#2a2218";
+    var glow = "#e8c060";
+    var leafW = Math.max(6, Math.round(TILE * 0.28));
+
+    /* Arch frame always sits in the wall so the hole is readable either state. */
+    cube(g, x, top - wz - 4, TILE, 6, 4, shade(doorCol, 0.55));
+    g.fillStyle = shade(bandCol, 0.9);
+    g.fillRect(x + 2, top - 2, TILE - 4, 3);
+
+    if (open < 0.02) {
+      /* CLOSED — full slab, iron bands, latch facing into the room. */
+      cube(g, x + 2, top - wz + 2, TILE - 4, h - 4, wz - 2, doorCol);
+      g.fillStyle = shade(bandCol, 1.1);
+      g.fillRect(x + 4, top + h * 0.28, TILE - 8, 3);
+      g.fillRect(x + 4, top + h * 0.62, TILE - 8, 3);
+      g.fillStyle = shade("#c0a050", 1.05);
+      g.beginPath();
+      g.arc(x + 8, top + h * 0.5, 3.2, 0, 6.3);
+      g.fill();
+      g.fillStyle = shade("#1a140e", 1);
+      g.fillRect(x + 4, top + 6, 3, h - 12);
+      return;
+    }
+
+    /* OPEN — void beyond, light spill, leaves hinged to the sides. */
+    var voidX = x + Math.round(TILE * 0.18);
+    var voidW = TILE - Math.round(TILE * 0.22);
+    /* Lit hall beyond the threshold — brighter than the room so the hole pops. */
+    g.fillStyle = shade("#3a2a10", 1);
+    g.fillRect(voidX, top + 2, voidW, h - 4);
+    g.fillStyle = shade("#c09030", 1.15);
+    g.fillRect(voidX + 3, top + 5, voidW - 6, h - 10);
+    g.fillStyle = shade("#f0d070", 1.2);
+    g.fillRect(voidX + 6, top + 10, Math.max(4, voidW - 14), h - 20);
+
+    var pulse = 0.6 + 0.4 * Math.sin(S.t * 4.5);
+    g.save();
+    g.globalAlpha = (0.55 + 0.35 * pulse) * open;
+    var grad = g.createLinearGradient(x - TILE * 2.2, top + h * 0.5, x + TILE * 0.4, top + h * 0.5);
+    grad.addColorStop(0, "rgba(232,192,96,0)");
+    grad.addColorStop(0.45, "rgba(232,192,96,0.28)");
+    grad.addColorStop(1, "rgba(255,236,150,0.85)");
+    g.fillStyle = grad;
+    g.fillRect(x - TILE * 2.2, top - 6, TILE * 3.0, h + 12);
+    g.restore();
+
+    /* Floor path glow leading into the hall. */
+    g.save();
+    g.globalAlpha = (0.25 + 0.2 * pulse) * open;
+    g.fillStyle = glow;
+    g.fillRect(x - TILE * 1.4, top + h * 0.38, TILE * 1.5, h * 0.24);
+    g.restore();
+
+    /* Door leaves swing outward (open=0 flat, open=1 tucked to the frame). */
+    var swing = open * 0.85;
+    var leftW = Math.max(4, Math.round(leafW * (1 - swing * 0.7)));
+    var rightW = Math.max(4, Math.round(leafW * (1 - swing * 0.5)));
+    cube(g, x + 1, top - wz + 4, leftW, h - 8, Math.max(4, wz - 4), doorCol, false);
+    cube(g, x + TILE - rightW - 1, top - wz + 4, rightW, h - 8, Math.max(4, wz - 4), shade(doorCol, 0.85), false);
+
+    g.save();
+    g.globalAlpha = (0.75 + 0.25 * pulse) * open;
+    g.strokeStyle = "#fff0a8";
+    g.lineWidth = 2.5;
+    g.strokeRect(voidX + 1.5, top + 3.5, voidW - 3, h - 7);
+    /* Bold chevron pointing into the hall. */
+    var cx = x + TILE * 0.55, cy = top + h * 0.5;
+    g.fillStyle = "#fff0a8";
+    g.beginPath();
+    g.moveTo(cx - 6, cy - 10);
+    g.lineTo(cx + 8, cy);
+    g.lineTo(cx - 6, cy + 10);
+    g.closePath();
+    g.fill();
+    g.restore();
+  }
+
   function drawWorld(g) {
     var bio = biomeOf(S.floor);
     var wz = Math.round(TILE * WALL_Z);
@@ -3357,11 +3635,6 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
         g.fillRect(x * TILE, y * TILE, TILE, TILE);
       }
     }
-    if (room && room.cleared) {
-      g.fillStyle = "#d0a040";
-      g.fillRect((cols - 1) * TILE + 6, (doorY(room.grid) - 1) * TILE, 10, 2 * TILE);
-    }
-    /* hoop / scale probe hang on the north end — behind the room's walkers */
     if (room && room.hoop) drawHoop(g, room.hoop);
     if (S.scaleProbe && player) drawScaleProbe(g, wz);
 
@@ -3400,6 +3673,8 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
         cube(g, x * TILE, y * TILE - wz, TILE, TILE, wz, bio.walls[(x + y) & 1]);
       }
     }
+    /* East exit after wall pass so sealed/open leaves sit on the carved hole. */
+    drawExitDoor(g, wz);
 
     for (s = 0; s < S.shots.length; s++) drawShot(g, S.shots[s]);
     for (sp = 0; sp < S.splits.length; sp++) {
@@ -3954,25 +4229,26 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     if (e.atk === "cleave" && e.atkT < e.atkWind) {
       var tw = e.atkT / e.atkWind;
       var base = Math.atan2(e.aimY, e.aimX);
+      var fanR = skullCleaveReach(e);
       g.save();
-      g.globalAlpha = 0.14 + tw * 0.32;
+      g.globalAlpha = 0.14 + tw * 0.34;
       g.fillStyle = "#c9a44c";
       g.beginPath();
       g.moveTo(x, e.y);
-      g.arc(x, e.y, u * 3.0, base + face * (-1.25), base + face * 1.3, face < 0);
+      g.arc(x, e.y, fanR, base + face * (-SKULL_CLEAVE_BACK), base + face * SKULL_CLEAVE_FWD, face < 0);
       g.closePath();
       g.fill();
       g.strokeStyle = "rgba(240,200,90," + (0.4 + tw * 0.5) + ")";
       g.lineWidth = 2.5;
       g.beginPath();
-      g.arc(x, e.y, u * 3.0, base + face * (-1.25), base + face * 1.3, face < 0);
+      g.arc(x, e.y, fanR, base + face * (-SKULL_CLEAVE_BACK), base + face * SKULL_CLEAVE_FWD, face < 0);
       g.stroke();
       g.restore();
     }
     if (e.atk === "lunge" && e.atkT < e.atkWind) {
       var lw = e.atkT / e.atkWind;
       var lx = x + e.aimX * u * 0.6, ly = e.y + e.aimY * u * 0.12;
-      var len = u * (4.0 + lw * 1.6);
+      var len = e.dashLen || skullDashLen(e, 0);
       g.save();
       g.globalAlpha = 0.24 + lw * 0.48;
       g.strokeStyle = "#f0e0b0";
@@ -3990,8 +4266,8 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       g.lineTo(lx + e.aimY * u * 0.48, ly - e.aimX * u * 0.48);
       g.closePath();
       g.fill();
-      for (var ch = 0; ch < 4; ch++) {
-        var ct = ((lw * 3 + ch * 0.22 + S.t * 1.8) % 1);
+      for (var ch = 0; ch < 5; ch++) {
+        var ct = ((lw * 3 + ch * 0.18 + S.t * 1.8) % 1);
         var cx = lx + e.aimX * len * ct;
         var cy = ly + e.aimY * len * ct;
         g.globalAlpha = 0.4 + lw * 0.45;
@@ -4029,6 +4305,19 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       }
       g.restore();
     }
+    if (e.atk === "lunge" && e.atkT >= e.atkWind + e.atkActive && e.atkT < e.atkTotal) {
+      var rec = (e.atkT - e.atkWind - e.atkActive) / e.atkRecover;
+      if (rec < 0.42) {
+        g.save();
+        g.globalAlpha = 0.4 * (1 - rec / 0.42);
+        g.strokeStyle = "#c9a44c";
+        g.lineWidth = 3;
+        g.beginPath();
+        g.ellipse(x, e.y + u * 0.28, u * (0.85 + rec * 2.0), u * (0.22 + rec * 0.4), 0, 0, 6.3);
+        g.stroke();
+        g.restore();
+      }
+    }
 
     /* weight shadow — wider than any knight */
     g.save(); g.globalAlpha = 0.52; g.fillStyle = "#0a0806";
@@ -4040,15 +4329,17 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     g.translate(lean, 0);
 
     /* ===== CAPE — dominant width, purple outside / crimson lining ===== */
-    var sway = Math.sin((e.capesway || 0) * 1.35) * u * 0.08 - lean * 0.12;
-    var capeDrop = (e.crouch || 0) * u * 0.25;
+    var flare = (e.capeFlare || 0);
+    var sway = Math.sin((e.capesway || 0) * 1.35) * u * 0.08 - lean * 0.12 - face * flare * u * 0.12;
+    var capeDrop = (e.crouch || 0) * u * 0.25 + flare * u * 0.18;
+    var capeWide = flare * u * 0.22;
     /* back lining flaps */
-    cube(g, x - u * 1.15 + sway, yt + u * 0.55, u * 0.42, u * 1.55 + capeDrop, u * 0.08, LINING);
-    cube(g, x + u * 0.72 + sway * 0.6, yt + u * 0.58, u * 0.42, u * 1.48 + capeDrop, u * 0.08, LINING);
+    cube(g, x - u * 1.15 - capeWide + sway, yt + u * 0.55, u * 0.42, u * 1.55 + capeDrop, u * 0.08, LINING);
+    cube(g, x + u * 0.72 + capeWide + sway * 0.6, yt + u * 0.58, u * 0.42, u * 1.48 + capeDrop, u * 0.08, LINING);
     /* main cloak panels — much wider than Bone Knight's strip */
-    cube(g, x - u * 0.95 + sway * 0.7, yt + u * 0.42, u * 0.55, u * 1.72 + capeDrop, u * 0.10, PURPLE_D);
+    cube(g, x - u * 0.95 - capeWide + sway * 0.7, yt + u * 0.42, u * 0.55, u * 1.72 + capeDrop, u * 0.10, PURPLE_D);
     cube(g, x - u * 0.42 + sway * 0.5, yt + u * 0.38, u * 0.84, u * 1.82 + capeDrop, u * 0.12, PURPLE);
-    cube(g, x + u * 0.40 + sway * 0.4, yt + u * 0.42, u * 0.55, u * 1.65 + capeDrop, u * 0.10, PURPLE_D);
+    cube(g, x + u * 0.40 + capeWide + sway * 0.4, yt + u * 0.42, u * 0.55, u * 1.65 + capeDrop, u * 0.10, PURPLE_D);
     /* ragged hem notches */
     g.fillStyle = shade(PURPLE, 0.55);
     g.fillRect(x - u * 0.85 + sway, yt + u * 2.05 + capeDrop, u * 0.18, u * 0.16);
@@ -4061,9 +4352,10 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       g.globalAlpha = 1;
     }
 
-    /* ===== LEGS — short stubby bone blocks ===== */
-    cube(g, x - u * 0.42, yt + u * 1.78, u * 0.32, u * 0.36, u * 0.18, BONE_D);
-    cube(g, x + u * 0.10, yt + u * 1.78, u * 0.32, u * 0.36, u * 0.18, BONE_D);
+    /* ===== LEGS — short stubby bone blocks, stride on chase/lunge ===== */
+    var stride = (e.stride || 0) * u;
+    cube(g, x - u * 0.42, yt + u * 1.78 + stride, u * 0.32, u * 0.36, u * 0.18, BONE_D);
+    cube(g, x + u * 0.10, yt + u * 1.78 - stride, u * 0.32, u * 0.36, u * 0.18, BONE_D);
 
     /* ===== RIBCAGE — exposed, not a solid cuirass like the knight ===== */
     cube(g, x - u * 0.48, yt + u * 0.78, u * 0.96, u * 1.00, u * 0.30, body);
@@ -4372,7 +4664,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       }
     }
     var fl = document.getElementById("flNum");
-    if (fl) fl.textContent = S.floor + (S.passPlay ? "·" + (S.passWho + 1) : "");
+    if (fl) fl.textContent = S.floor;
     var sc = document.getElementById("scNum");
     if (sc) sc.textContent = fmt(S.score);
     var fr = document.getElementById("frNum");
@@ -4426,7 +4718,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
   function hidePanels() {
     S.placeArmed = false;
     S.placeMode = false;
-    ["splashPanel", "menuPanel", "pausePanel", "shopPanel", "passPanel", "floorPanel", "builderPanel", "feelPanel"].forEach(function (id) {
+    ["splashPanel", "menuPanel", "pausePanel", "shopPanel", "floorPanel", "builderPanel", "feelPanel"].forEach(function (id) {
       document.getElementById(id).className = "panel";
     });
     if (typeof syncRotate === "function") syncRotate();
@@ -4468,7 +4760,6 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       "<h2>RUN</h2>" +
       "<div class='row'>" +
       "<button class='bb pri' id='btnPlay'>PLAY</button>" +
-      "<button class='bb' id='btnPass'>PASS AND PLAY</button>" +
       "<button class='bb' id='btnBuilder'>DUNGEON BUILDER</button>" +
       /* FEEL lives here as well as on the pause card — you should not have to be
          mid-fight to change how the game feels */
@@ -4503,15 +4794,14 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       showMenu();
     };
     document.getElementById("btnFeelMenu").onclick = function () { showFeel(); };
-    document.getElementById("btnPlay").onclick = function () { startRun(makeSeed(), false, null); };
-    document.getElementById("btnPass").onclick = function () { startRun(makeSeed(), true, null); };
+    document.getElementById("btnPlay").onclick = function () { startRun(makeSeed(), null); };
     document.getElementById("btnBuilder").onclick = function () { openBuilder(null); };
-    document.getElementById("btnSeed").onclick = function () { startRun(document.getElementById("seedIn").value, false, null); };
+    document.getElementById("btnSeed").onclick = function () { startRun(document.getElementById("seedIn").value, null); };
     document.getElementById("btnRand").onclick = function () { S.seed = makeSeed(); showMenu(); };
     document.getElementById("btnLoadCode").onclick = function () {
       var lv = decodeShare(document.getElementById("codeIn").value);
       if (!lv) { toast("BAD CODE"); return; }
-      startRun("BLK-CODE", false, lv);
+      startRun("BLK-CODE", lv);
     };
     syncHud();
   }
@@ -4730,21 +5020,6 @@ function endRunToMenu() {
     renderShop();
   }
 
-  function showPassCard() {
-    document.getElementById("passPanel").className = "panel show";
-    document.getElementById("passCard").innerHTML =
-      "<div class='landSplit'><div class='landCopy'>" +
-      "<h1>PASS THE DEVICE</h1>" +
-      "<p>Player " + (S.passWho + 1) + " takes floor " + S.floor + ".</p>" +
-      "<p class='muted'>Shared score " + fmt(S.score) + " · shared fragments " + player.frag + "</p>" +
-      "</div><div class='landBtns'>" +
-      "<button class='bb pri' id='btnPassGo'>READY</button>" +
-      "</div></div>";
-    document.getElementById("btnPassGo").onclick = function () {
-      document.getElementById("passPanel").className = "panel";
-    };
-  }
-
   function showFloorCard(boss) {
     S.shopBoss = !!boss;          /* remembered so UPGRADE -> DONE comes back correctly */
     hidePanels();
@@ -4843,7 +5118,7 @@ function endRunToMenu() {
     document.getElementById("btnPlayLv").onclick = function () {
       var lv = levelFromBld();
       hidePanels();
-      startRun("BLK-CODE", false, lv);
+      startRun("BLK-CODE", lv);
     };
     document.getElementById("btnBldMenu").onclick = function () { S.mode = "menu"; hidePanels(); showMenu(); };
     document.getElementById("btnCopy").onclick = function () {
@@ -5104,7 +5379,6 @@ function endRunToMenu() {
     if (!player || !room) return;
     if (document.getElementById("shopPanel").className.indexOf("show") >= 0) return;
     if (document.getElementById("floorPanel").className.indexOf("show") >= 0) return;
-    if (document.getElementById("passPanel").className.indexOf("show") >= 0) return;
     updatePlayer(dt);
     updateBall(dt);
     updateSplits(dt);
@@ -5143,6 +5417,7 @@ function endRunToMenu() {
 
   /* ---------- boot ---------- */
   loadStore();
+  resetItemsAndBoostsOnLoad();
   setupInstall();
   resize();
   showSplash();
@@ -5384,6 +5659,37 @@ function endRunToMenu() {
       e.hp = Math.floor(e.maxHp * ratio);
       skullLordWaves(e);
       return { hp: e.hp, maxHp: e.maxHp, flags: e.waveFlags.slice(), alive: room.enemies.filter(function (o) { return o.alive; }).length };
+    },
+    skullState: function () {
+      if (!room) return null;
+      var e = null, i;
+      for (i = 0; i < room.enemies.length; i++) if (room.enemies[i].boss === "bone") e = room.enemies[i];
+      if (!e) return null;
+      return {
+        atk: e.atk, atkT: Math.round((e.atkT || 0) * 100) / 100,
+        wind: e.atkWind, active: e.atkActive, recover: e.atkRecover,
+        dashLen: Math.round(e.dashLen || 0), dashCommit: !!e.dashCommit,
+        x: Math.round(e.x), y: Math.round(e.y), spd: e.spd,
+        hp: e.hp, maxHp: e.maxHp, cd: Math.round((e.cd || 0) * 100) / 100
+      };
+    },
+    gotoSkullLair: function (seed) {
+      startRun(seed || "SKULL-ARENA");
+      S.floor = 5;
+      S.rooms = buildFloor(5);
+      var i, idx = S.rooms.length - 1;
+      for (i = 0; i < S.rooms.length; i++) if (S.rooms[i].kind === "boss") idx = i;
+      loadRoom(idx);
+      S.mode = "play";
+      S.pause = false;
+      hidePanels();
+      if (player) { player.inv = 8; player.hp = player.maxHp; }
+      return {
+        cols: playCols(), rows: playRows(),
+        piece: room && room.spec ? room.spec.piece : null,
+        kind: room && room.kind, hoop: !!(room && room.hoop),
+        boss: this.enemies().filter(function (en) { return en.boss === "bone"; })[0] || null
+      };
     }
   };
 })();
