@@ -1021,8 +1021,10 @@
        toward the corners. Same left-walk / field-aim scheme; no second input path. */
     var radCss, gapCss;
     if (pad) {
-      radCss = Math.min(66, Math.max(52, shortCss * 0.072));
-      gapCss = radCss * 0.2;
+      /* Phone-like disc (~52–62 CSS px). Edge gap ~0.12R so the ring almost
+         kisses the corner — iPad thumbs rest nearer the bezel than phone. */
+      radCss = Math.min(62, Math.max(52, shortCss * 0.068));
+      gapCss = Math.max(6, radCss * 0.12);
     } else {
       var rad0Css = Math.max(46, shortCss * 0.145);
       gapCss = rad0Css * 0.45;
