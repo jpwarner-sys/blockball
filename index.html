@@ -1912,7 +1912,8 @@
   }
 
   function updateCine(dt) {
-    /* auto-arm tracking when a hoop-ready shot is in the air toward the rim */
+    /* BB-V7.24 — auto-arm approach tracking on any hoop-ready heave toward the
+       rim (boss lair and knight chamber alike) so every swish gets the lead-in. */
     if ((!S.cine || !S.cine.active) && S.hoopReady && room && room.hoop && !room.hoop.swished &&
         ball && ball.live && !ball.ret) {
       var h = room.hoop;
@@ -1920,7 +1921,7 @@
       var dist = Math.hypot(dx, dy) || 1;
       var spd = Math.hypot(ball.vx, ball.vy) || 1;
       var align = (ball.vx * dx + ball.vy * dy) / (spd * dist);
-      if (align > 0.35 && dist < 420) {
+      if (align > 0.22 && dist < 560) {
         cineStart("track", {
           dur: 99, toZoom: 1.22,
           toX: ball.x, toY: ball.y, hold: 0
@@ -1992,7 +1993,7 @@
     S.score += 250 * Math.max(1, S.floor);
     burst(hoop.x, hoop.y, "#f0c030", 36);
     burst(hoop.x, hoop.y + 10, "#fff2c0", 22);
-    /* cinematic punch-in on the rim, hold the highlight, ease back to the hero */
+    /* BB-V7.24 — every make (boss or knight) gets punch-zoom → hold → ease back. */
     var z0 = (S.cine && S.cine.active) ? S.cine.zoom : 1.15;
     var fx = (S.cine && S.cine.active) ? S.cine.focusX : (ball ? ball.x : hoop.x);
     var fy = (S.cine && S.cine.active) ? S.cine.focusY : (ball ? ball.y : hoop.y);
@@ -3889,9 +3890,12 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     if (S.shake > 0) S.shake -= dt;
     if (S.muteFx > 0) S.muteFx -= dt;
     if (S.bossBeat > 0) {
-      /* Boss lairs hold the floor card until a swish (or cine). Knight rooms arm
-         the hoop too, but the beat still ticks so the exit is optional. */
-      var holdBeat = (S.cine && S.cine.active) ||
+      /* Boss lairs hold until a swish. Knight rooms stay optional, but once a
+         ready shot is in the air (or the swish cine is running) hold so every
+         make gets the full track → punch → ease camera. */
+      var hoopShotLive = !!(S.hoopReady && room && room.hoop && !room.hoop.swished &&
+        ball && ball.live && !ball.ret);
+      var holdBeat = (S.cine && S.cine.active) || hoopShotLive ||
         (S.hoopReady && room && room.hoop && !room.hoop.swished && room.kind === "boss");
       if (!holdBeat) S.bossBeat -= dt;
       if (S.bossBeat <= 0 && room && room.cleared) {
@@ -4062,7 +4066,8 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      BB-V7.23 — held-ball dribble while walking (bounce, squash, soft tap, arm).
      BB-V7.23 — boss-lair hoop mounts on the implied wallH-3 north face;
      end-of-floor knight chambers get the same hoop + optional swish window.
-     BB-V7.24 — large rooms zoom out toward TILE_CSS_MIN + smoothed cam pan. */
+     BB-V7.24 — large rooms zoom out toward TILE_CSS_MIN + smoothed cam pan.
+     BB-V7.24 — track→punch→ease camera on every hoop swish (boss + knight). */
   var BUILD = "v7.24";
   var FEEL_DEF = { spd: 250, accel: 2600, brake: 3600, throwSpd: 620, aimMode: "drag", aimDead: 2, aimHold: 64 };
   var FEEL = (function () {
