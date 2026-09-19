@@ -3652,7 +3652,9 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
         wall = room ? room.grid[y][x] : 1;
         if (!wall) continue;
         var wh = wallHeightPx(x, y, cols, rows);
-        var col = bio.walls[(x + y) & 1];
+        /* Floor keeps the checkerboard; walls are one solid colour so height
+           (front face) does not read as alternating thickness rows. */
+        var col = bio.walls[0];
         var foot = y * TILE;
         cube(g, x * TILE, foot - wh, TILE, TILE, wh, col);
         /* seam lines on tall faces so N-block height reads as stories, not a slab */
