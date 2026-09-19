@@ -2533,7 +2533,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     e.slashTrail = [];
     e.volleysLeft = 0;
     e.volleyCd = 0;
-    e.spireStep = 0;
+    e.spireStep = -1;
     e.dashLen = 0;
     e.dashFromX = 0;
     e.dashFromY = 0;
@@ -2561,7 +2561,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     e.atkT = 0;
     e.atkHit = false;
     e.slashTrail = [];
-    e.spireStep = 0;
+    e.spireStep = -1;
     e.blinkArmed = false;
     knightAim(e, dx, dy, dist);
     e.kitRing = false;
@@ -2670,8 +2670,8 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     var dist = 42 + step * 38;
     var sx = e.x + e.aimX * dist;
     var sy = e.y + e.aimY * dist;
-    fireShot(sx, sy, e.aimX * 0.15, e.aimY * 0.15, 40, 2, "bone", {
-      owner: e, r: 8, life: 0.55, col: k.body, accent: k.accent, body: k.trim
+    fireShot(sx, sy, e.aimX, e.aimY, 28, 2, "bone", {
+      owner: e, r: 9, life: 0.7, col: k.body, accent: k.accent, body: k.trim
     });
     burst(sx, sy, k.accent, 6);
     sfx("spire");
@@ -5962,6 +5962,31 @@ function endRunToMenu() {
       room.enemies.push(e);
       return { x: Math.round(e.x), y: Math.round(e.y), r: e.r, artR: artR(e), bodyR: bodyR(e), hitR: e.hitR || e.r, hitLift: e.hitLift || 0, boss: e.boss };
     },
+    /* harness-only: start a kit attack on the most recently spawned live enemy */
+    forceKnightAtk: function (kind) {
+      if (!room || !room.enemies.length || !player) return null;
+      var e = room.enemies[room.enemies.length - 1];
+      if (!e.alive || e.boss !== "mini") return null;
+      var dx = player.x - e.x, dy = player.y - e.y;
+      var dist = Math.hypot(dx, dy) || 1;
+      e.spd = 0; e.disarm = false; e.thrown = null; e.rearm = 0;
+      startKnightAtk(e, kind || "throw", dx, dy, dist);
+      return { type: e.type, atk: e.atk, wind: e.atkWind, active: e.atkActive };
+    },
+    knightState: function () {
+      if (!room || !room.enemies.length) return null;
+      var e = null, i;
+      for (i = room.enemies.length - 1; i >= 0; i--) {
+        if (room.enemies[i].alive && room.enemies[i].boss === "mini") { e = room.enemies[i]; break; }
+      }
+      if (!e) return null;
+      return {
+        type: e.type, name: e.name, atk: e.atk, atkT: e.atkT,
+        tell: e.tell, disarm: !!e.disarm, kitRing: !!e.kitRing,
+        kitRingR: e.kitRingR, ghost: e.ghost, swing: e.swing,
+        bladeLift: e.bladeLift, shots: S.shots.map(function (s) { return s.kind; })
+      };
+    },
     /* harness-only: mutate the most recently spawned live enemy (for pose screenshots) */
     mutLast: function (patch) {
       if (!room || !room.enemies.length) return null;
@@ -5979,6 +6004,18 @@ function endRunToMenu() {
         e.alive = false;
         e.deadT = 0;
       }
+      S.shots = [];
+      return n;
+    },
+    clearAll: function () {
+      if (!room) return 0;
+      var n = 0, i;
+      for (i = 0; i < room.enemies.length; i++) {
+        if (room.enemies[i].alive) n++;
+        room.enemies[i].alive = false;
+        room.enemies[i].deadT = 0;
+      }
+      room.enemies = [];
       S.shots = [];
       return n;
     },
