@@ -62,7 +62,11 @@
     g.beginPath();
     g.arc(cx + r * 0.15, cy, r * 0.92, Math.PI - 1.05, Math.PI + 1.05);
     g.stroke();
-    return c.toDataURL("image/png");
+    var url = c.toDataURL("image/png");
+    /* BB-V7.27 — free the temporary icon canvas so iOS does not retain IOSurfaces. */
+    c.width = 1;
+    c.height = 1;
+    return url;
   }
   var i180 = paintIcon(180), i167 = paintIcon(167), i152 = paintIcon(152);
   function ico(href, sz) {
@@ -187,7 +191,10 @@
   }
   /* BB-V7.25 — tablet/iPad bolt-on: same HUD nodes, phone-scale chrome.
      Short CSS side ≥ 600px (iPad mini+) gets tighter pad + capped clamps so
-     hearts/meta/place/pause stop eating the field. Class set in resize(). */
+     hearts/meta/place/pause stop eating the field. Class set in resize().
+     BB-V7.26 — absolute chips ignore #hud safe-area padding, so on iPad with
+     black-translucent status bar the top row clips date/time/power. Drop the
+     whole chrome ~one heart row (--hud-heart-h) below the bezel. */
   html.ui-pad #hud {
     --hud-pad: 6px;
     --hud-heart: clamp(18px, 3.2vh, 26px);
@@ -205,8 +212,12 @@
     --hud-place-fs: clamp(11px, 1.7vh, 14px);
     --hud-pause: clamp(36px, 5.2vh, 46px);
     --hud-pause-slot: clamp(40px, 5.8vh, 52px);
-    --hud-meta-t: calc(var(--hud-pad) + clamp(22px, 3.6vh, 30px));
-    --hud-pips-t: calc(var(--hud-pad) + 6px);
+    --hud-top: calc(var(--hud-pad) + var(--hud-heart-h));
+    --hud-hp-t: var(--hud-top);
+    --hud-meta-t: calc(var(--hud-top) + clamp(22px, 3.6vh, 30px));
+    --hud-pause-t: var(--hud-top);
+    --hud-place-t: var(--hud-top);
+    --hud-pips-t: calc(var(--hud-top) + 6px);
   }
   #hud button, #hud input, #hud textarea, #hud .hit {
     pointer-events: auto;
@@ -660,7 +671,7 @@
      hits. HP is 2: a normal mob needs two, a knight / floor boss one-shots.
      The hero ball still clears a cube in one bounce. Permanent dungeon walls
      stay in room.grid; only room.blocks are soft. */
-  var BLOCK_LIFE = 4;
+  var BLOCK_LIFE = 6.4;
   var BLOCK_HITS = 2;
   var DT = 1 / 60;
   var MAX_PART = 90;
@@ -2321,7 +2332,7 @@
     }
     loadRoom(0);
     S.mode = "play";
-    if (typeof syncRotate === "function") syncRotate();
+    resize();
     hidePanels();
     syncHud();
     toast("SEED " + S.seed + " · " + diffLabel());
@@ -4188,8 +4199,11 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      BB-V7.24 — track→punch→ease camera on every hoop swish (boss + knight).
      BB-V7.25 — iPad/tablet bolt-on: capped sticks nearer corners, denser HUD,
      screen-space aim power; same control scheme, no separate iPad fork.
-     BB-V7.25 — rim + brace attach to the raised backboard (no floor-stuck gap). */
-  var BUILD = "v7.25";
+     BB-V7.25 — rim + brace attach to the raised backboard (no floor-stuck gap).
+     BB-V7.26 — iPad HUD drops below status bar by one heart row.
+     BB-V7.27 — pad canvas DPR 1.0 + pixel budget; park canvas on menus;
+     pause rAF when hidden — older iPads were jetsamming Safari. */
+  var BUILD = "v7.27";
   var FEEL_DEF = { spd: 250, accel: 2600, brake: 3600, throwSpd: 620, aimMode: "drag", aimDead: 2, aimHold: 64 };
   var FEEL = (function () {
     var f = {};
@@ -4313,15 +4327,55 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
   }
 
   /* ---------- render ---------- */
+  /* BB-V7.27 — iOS Safari jetsams the WebContent process when GPU canvas
+     IOSurfaces get large. Phone landscape @1.5 DPR is ~3MB RGBA; the same
+     cap on an old iPad is ~7–12MB plus splash JPEG decode. Pad layouts use
+     DPR 1.0, and every device respects a ~1.2MP budget. Menus park the
+     backing store at 64×64 so Safari can reclaim the IOSurface. */
+  var CANVAS_DPR_PHONE = 1.5;
+  var CANVAS_DPR_PAD = 1.0;
+  var CANVAS_MAX_PIXELS = 1200000;
+  var CANVAS_PARK = 64;
+  var rafPending = 0;
+
+  function canvasDpr(cssW, cssH) {
+    var raw = window.devicePixelRatio || 1;
+    var cap = uiPad() ? CANVAS_DPR_PAD : CANVAS_DPR_PHONE;
+    var dpr = Math.min(raw, cap);
+    var area = Math.max(1, cssW) * Math.max(1, cssH);
+    if (area * dpr * dpr > CANVAS_MAX_PIXELS) {
+      dpr = Math.sqrt(CANVAS_MAX_PIXELS / area);
+      dpr = Math.max(1, Math.min(dpr, cap));
+    }
+    return dpr;
+  }
+
+  function needGameCanvas() {
+    return S.mode === "play" || S.mode === "builder";
+  }
+
   function resize() {
     var w = window.innerWidth, h = window.innerHeight;
-    canvas.width = Math.max(320, Math.floor(w * (window.devicePixelRatio > 1.5 ? 1.5 : window.devicePixelRatio || 1)));
-    canvas.height = Math.max(240, Math.floor(h * (window.devicePixelRatio > 1.5 ? 1.5 : window.devicePixelRatio || 1)));
-    canvas.style.width = w + "px";
-    canvas.style.height = h + "px";
     var port = h > w * 1.05;
     S.portrait = port;
     syncUiForm();
+    canvas.style.width = w + "px";
+    canvas.style.height = h + "px";
+    if (!needGameCanvas()) {
+      /* Shrink so WebKit releases the large GPU surface while panels cover. */
+      if (canvas.width !== CANVAS_PARK || canvas.height !== CANVAS_PARK) {
+        canvas.width = CANVAS_PARK;
+        canvas.height = CANVAS_PARK;
+      }
+    } else {
+      var dpr = canvasDpr(w, h);
+      var tw = Math.max(320, Math.floor(w * dpr));
+      var th = Math.max(240, Math.floor(h * dpr));
+      if (canvas.width !== tw || canvas.height !== th) {
+        canvas.width = tw;
+        canvas.height = th;
+      }
+    }
     syncRotate();
   }
 
@@ -4467,6 +4521,8 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
   function draw() {
     var g = ctx;
     var cw = canvas.width, ch = canvas.height;
+    /* BB-V7.27 — splash/menu park the canvas; skip the 32×18 cube pass. */
+    if (!needGameCanvas()) return;
     g.fillStyle = DARK;
     g.fillRect(0, 0, cw, ch);
     var cam = cameraFit();
@@ -6128,7 +6184,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
   function showBossSplash(done) {
     S.mode = "splash";
     S.pause = true;
-    if (typeof syncRotate === "function") syncRotate();
+    resize();
     hidePanels();
     var el = document.getElementById("splashCard");
     el.innerHTML =
@@ -6142,7 +6198,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       hidePanels();
       S.pause = false;
       S.mode = "play";
-      if (typeof syncRotate === "function") syncRotate();
+      resize();
       syncHud();
       if (done) done();
     };
@@ -6151,7 +6207,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
 
   function showSplash() {
     S.mode = "splash";
-    if (typeof syncRotate === "function") syncRotate();
+    resize();
     hidePanels();
     var el = document.getElementById("splashCard");
     el.innerHTML =
@@ -6168,7 +6224,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
 
   function showMenu() {
     S.mode = "menu";
-    if (typeof syncRotate === "function") syncRotate();
+    resize();
     hidePanels();
     document.getElementById("menuPanel").className = "panel show";
     var el = document.getElementById("menuCard");
@@ -6461,7 +6517,7 @@ function endRunToMenu() {
       S.pause = false;
       loadRoom(0);
       S.mode = "play";
-    if (typeof syncRotate === "function") syncRotate();
+      resize();
       toast(bio.name + " " + S.floor);
     };
     if (boss) sfx("win");
@@ -6495,7 +6551,7 @@ function endRunToMenu() {
   function openBuilder(lv) {
     hidePanels();
     S.mode = "builder";
-    if (typeof syncRotate === "function") syncRotate();
+    resize();
     lv = lv || emptyLevel();
     BLD.name = lv.n || "MY DUNGEON";
     BLD.ents = (lv.e || []).slice();
@@ -6843,14 +6899,31 @@ function endRunToMenu() {
   }
 
   function frame(now) {
+    rafPending = 0;
+    if (document.hidden) return;
     if (!S.last) S.last = now;
     var d = Math.min(0.05, (now - S.last) / 1000);
     S.last = now;
     S.acc += d;
     while (S.acc >= DT) { update(DT); S.acc -= DT; }
     draw();
-    requestAnimationFrame(frame);
+    rafPending = requestAnimationFrame(frame);
   }
+
+  function kickFrame() {
+    if (document.hidden || rafPending) return;
+    S.last = 0;
+    rafPending = requestAnimationFrame(frame);
+  }
+
+  document.addEventListener("visibilitychange", function () {
+    if (document.hidden) {
+      /* Let the current rAF exit; do not schedule another until visible. */
+      S.last = 0;
+    } else {
+      kickFrame();
+    }
+  });
 
   /* ---------- install bar ---------- */
   function setupInstall() {
@@ -6872,7 +6945,7 @@ function endRunToMenu() {
   setupInstall();
   resize();
   showSplash();
-  requestAnimationFrame(frame);
+  kickFrame();
 
   window.__BB_SELFTEST = {
     /* read-only probe for the headless harness: position and velocity, nothing else */
@@ -6947,6 +7020,15 @@ function endRunToMenu() {
         playerR: player ? player.r : null, ballR: ball ? ball.r : null, moveSpd: FEEL.spd, throwSpd: FEEL.throwSpd, aimMode: FEEL.aimMode, blockLife: BLOCK_LIFE, blockHits: BLOCK_HITS,
         difficulty: S.difficulty || store.difficulty || "easy",
         uiPad: uiPad(),
+        canvas: {
+          w: canvas.width, h: canvas.height,
+          dpr: +(canvas.width / Math.max(1, window.innerWidth)).toFixed(3),
+          px: canvas.width * canvas.height,
+          rgbaMB: +((canvas.width * canvas.height * 4) / 1e6).toFixed(2),
+          parked: !needGameCanvas(),
+          dprCap: uiPad() ? CANVAS_DPR_PAD : CANVAS_DPR_PHONE,
+          maxPixels: CANVAS_MAX_PIXELS
+        },
         stick: {
           radCss: G.rad / dpr, feelRadCss: G.feelRad / dpr,
           insetCss: G.L.cx / dpr, gapCss: (G.L.cx - G.rad) / dpr
@@ -7251,6 +7333,7 @@ function endRunToMenu() {
       loadRoom(idx);
       S.mode = "play";
       S.pause = false;
+      resize();
       hidePanels();
       if (player) { player.inv = 8; player.hp = player.maxHp; }
       return {
@@ -7272,6 +7355,7 @@ function endRunToMenu() {
       loadRoom(idx);
       S.mode = "play";
       S.pause = false;
+      resize();
       hidePanels();
       if (player) { player.inv = 8; player.hp = player.maxHp; }
       return {
