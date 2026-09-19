@@ -332,7 +332,16 @@
   }
   /* BB-V7.10 — landscape type sized off the wide axis so copy fills the
      unused width. Each shop stack is a two-track grid: names wrap, BUY
-     sits in a shared max-content column so neighbours share one vertical edge. */
+     sits in a shared max-content column so neighbours share one vertical edge.
+     BB-V7.16 — spend/upgrade menu scaled to 90%: origin top-center keeps the
+     top edge and horizontal centering, while DONE lifts clear of landscape
+     chrome that was eating taps. Shop panel stacks above the install bar
+     (z 60) so the card bottom stays tappable when that banner is up. */
+  #shopPanel { z-index: 70; }
+  #shopCard {
+    transform: scale(0.9);
+    transform-origin: top center;
+  }
   @media (orientation: landscape) and (max-height: 500px) {
     .panel { padding: 8px 16px; }
     .card {
@@ -3007,8 +3016,9 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      BB-V7.13 — NBA hoop + cinematic swish; HEART pips collapse to a bar after 8.
      BB-V7.14 — larger translucent walk/shot rings; phone HUD sized off viewport.
      BB-V7.15 — silhouette hitboxes: contact matches painted body for hero,
-     trash, knights, and Skull Lord; split KNIGHT_VIS / LORD_VIS. */
-  var BUILD = "v7.15-clean";
+     trash, knights, and Skull Lord; split KNIGHT_VIS / LORD_VIS.
+     BB-V7.16-spend — upgrade menu at 90% scale, top-center origin. */
+  var BUILD = "v7.16-spend";
   var FEEL_DEF = { spd: 250, accel: 2600, brake: 3600, throwSpd: 620, aimMode: "drag", aimDead: 2, aimHold: 64 };
   var FEEL = (function () {
     var f = {};
