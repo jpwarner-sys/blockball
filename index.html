@@ -591,7 +591,7 @@
   function enemyVis(e) {
     if (!e || !e.boss) return MOB_VIS;
     if (e.boss === "mini") return KNIGHT_VIS;
-    if (e.boss === "bone") return LORD_VIS;
+    if (e.boss === "lord") return LORD_VIS;
     return BOSS_VIS;
   }
   /* art radius used by draw* — physics uses bodyR / e.r after fitSilhouette */
@@ -658,6 +658,7 @@
     bossBeat: 0,
     hoopReady: false,
     cine: null,
+    lordZoom: null,
     seenAimHelp: false,
     throws: 0,
     shopOpen: false
@@ -1086,10 +1087,10 @@
   function pickRoomSize(kind, piece) {
     if (piece === "hallH") return { cols: irnd(20, 32), rows: irnd(8, 11) };
     if (piece === "hallV") return { cols: irnd(12, 16), rows: irnd(14, 18) };
-    /* BB-V7.16 — playtest: 28–34×16–20 still cramped for the cleave/lunge kit.
-       ~1.5× each side of that (~2.3× floor) so the camera scrolls and the
-       charge lanes actually have a destination. */
-    if (piece === "skullLair") return { cols: irnd(44, 52), rows: irnd(24, 30) };
+    /* BB-V7.18 — knight chamber sits between a normal room and the Skull throne. */
+    if (piece === "knightChamber") return { cols: irnd(24, 30), rows: irnd(14, 18) };
+    /* BB-V7.16/18 — Realm-1 Skull Lord throne: oversized nave, camera pulls wide. */
+    if (piece === "skullLair") return { cols: irnd(48, 56), rows: irnd(26, 32) };
     if (kind === "boss" || piece === "boss") return { cols: irnd(18, 24), rows: irnd(12, 15) };
     var roll = rnd();
     if (roll < 0.38) return { cols: irnd(16, 20), rows: irnd(10, 13) };
@@ -1169,9 +1170,9 @@
       rectWall(g, 2, 2, 2, 2); rectWall(g, c - 4, 2, 2, 2);
       rectWall(g, 2, r - 4, 2, 2); rectWall(g, c - 4, r - 4, 2, 2);
     },
-    /* BB-V7.16 — Skull Lord hall: huge open nave for cleave fans, side ruins
-       to bank the ball, east throne jaws as the charge destination. North
-       center stays clear for the hoop. Pillars sit off the mid charge lane. */
+    /* BB-V7.16/18 — Skull Lord THRONE: huge open nave for cleave fans, side
+       ruins to bank the ball, east throne jaws as the charge destination.
+       North center stays clear for the hoop. Own tileset via THRONE_TILESET. */
     skullLair: function (g) {
       stampBorder(g);
       var c = gCols(g), r = gRows(g);
@@ -1190,6 +1191,22 @@
       rectWall(g, c - 6, midY + 3, 3, 2);
       rectWall(g, c - 4, midY - 3, 1, 1);
       rectWall(g, c - 4, midY + 2, 1, 1);
+      rectWall(g, midX - 1, r - 3, 2, 1);
+    },
+    /* BB-V7.18 — mini-boss knight chamber: same floor tileset, more ceremonial
+       than a trash room, smaller than the Skull throne. Open center + side
+       pillars + east dais so the knight reads as a gate, not a random arena. */
+    knightChamber: function (g) {
+      stampBorder(g);
+      var c = gCols(g), r = gRows(g);
+      var midY = Math.floor(r / 2), midX = Math.floor(c / 2);
+      var pw = Math.max(2, Math.round(c / 14)), ph = Math.max(2, Math.round(r / 8));
+      rectWall(g, Math.round(c * 0.22), Math.round(r * 0.26), pw, ph);
+      rectWall(g, Math.round(c * 0.72), Math.round(r * 0.26), pw, ph);
+      rectWall(g, Math.round(c * 0.22), Math.round(r * 0.62), pw, ph);
+      rectWall(g, Math.round(c * 0.72), Math.round(r * 0.62), pw, ph);
+      rectWall(g, c - 5, midY - 3, 2, 2);
+      rectWall(g, c - 5, midY + 1, 2, 2);
       rectWall(g, midX - 1, r - 3, 2, 1);
     },
     chambers: function (g) {
@@ -1242,11 +1259,28 @@
     { id: "ash", name: "ASHEN", walls: ["#3a3830", "#2c2418"], floor: ["#1a1610", "#14120e"], roster: ["wraith", "ashling", "charger", "voider"] },
     { id: "thorn", name: "THORN", walls: ["#243424", "#1a2818"], floor: ["#101810", "#0c140c"], roster: ["briar", "spitter", "golem", "witchling"] }
   ];
+  /* BB-V7.18 — Skull Lord throne: bone marble + cold gold, not the forge biome. */
+  var THRONE_TILESET = {
+    id: "throne", name: "THRONE",
+    walls: ["#4a463c", "#2e2a24"],
+    floor: ["#1a1816", "#12100e"],
+    roster: []
+  };
+  /* Realm 1 ends on floor 8 with Skull Lord after Bone King (5) + Slag Knights. */
+  var REALM1_END = 8;
   function biomeOf(fl) {
     if (fl <= 4) return BIOME[0];
     if (fl <= 8) return BIOME[1];
     if (fl <= 12) return BIOME[2];
     return BIOME[3];
+  }
+  function isRealmFinale(fl) { return fl === REALM1_END; }
+  function isBossFloorNum(fl) { return fl % 5 === 0 || isRealmFinale(fl); }
+  function floorBossType(fl) {
+    if (isRealmFinale(fl)) return "skulllord";
+    if (fl % 15 === 0) return "thornqueen";
+    if (fl % 10 === 0) return "ashtitan";
+    return "boneking";
   }
 
   function enemyDef(type) {
@@ -1267,7 +1301,8 @@
       spitter: { hp: 22, r: 22, spd: 17, kind: "range", col: "#80b040", name: "NEEDLE" },
       golem: { hp: 48, r: 30, spd: 23, kind: "chase", col: "#687060", name: "GOLEM" },
       witchling: { hp: 26, r: 20, spd: 49, kind: "orbit", col: "#70a058", name: "WITCHLING" },
-      skulllord: { hp: 260, r: 56, spd: 50, kind: "boss", col: "#e8e0d0", name: "SKULL LORD", boss: "bone" },
+      boneking: { hp: 220, r: 42, spd: 32, kind: "boss", col: "#e8e0d0", name: "BONE KING", boss: "bone" },
+      skulllord: { hp: 260, r: 56, spd: 50, kind: "boss", col: "#e8e0d0", name: "SKULL LORD", boss: "lord" },
       ashtitan: { hp: 420, r: 51, spd: 23, kind: "boss", col: "#c06030", name: "ASH TITAN", boss: "ash" },
       thornqueen: { hp: 640, r: 45, spd: 29, kind: "boss", col: "#50a060", name: "THORN QUEEN", boss: "thorn" },
       minibone: { hp: 90, r: 32, spd: 35, kind: "boss", col: "#c8b898", name: "BONE KNIGHT", boss: "mini" },
@@ -1322,13 +1357,19 @@
       body = u * 0.52;
       hurt = u * 0.82;
       lift = u * 1.08;
-    } else if (e.boss === "bone") {
+    } else if (e.boss === "lord") {
       /* Skull Lord: ribs + skull are solid; spiked pauldrons fair to hit;
          wide cape is drama only. u matches drawSkullLord. */
       u = ar * 1.48 * vis;
       body = u * 0.46;
       hurt = u * 0.70;
       lift = u * 1.18;
+    } else if (e.boss === "bone") {
+      /* Bone King: blocky torso + skull head (legacy art). */
+      u = ar * vis;
+      body = u * 0.92;
+      hurt = u * 1.08;
+      lift = u * 0.55;
     } else if (e.boss === "ash") {
       /* Fixed-pixel ash block, then bossScale 1.2 * BOSS_VIS. */
       u = 28 * 1.2 * vis;
@@ -1415,25 +1456,15 @@
   function buildFloor(fl) {
     seedRng("F" + fl);
     var bio = biomeOf(fl);
-    var isBossFloor = fl % 5 === 0;
-    var nRooms = isBossFloor ? irnd(3, 4) : irnd(3, 5);
+    var bossFloor = isBossFloorNum(fl);
+    /* BB-V7.18 — double the trash length; finale (knight / floor boss / throne)
+       is appended after these rooms so the mini-boss always has its own chamber. */
+    var nRooms = bossFloor ? irnd(6, 8) : irnd(6, 10);
     var list = [];
     var roomPool = ["arena", "pillars", "aisle", "corners", "diamond", "teeth", "choke", "chambers", "lbend", "ring", "plus", "stagger"];
     var hallPool = ["hallH", "hallV"];
-    for (var i = 0; i < nRooms; i++) {
-      var last = i === nRooms - 1;
-      var kind, piece, doors;
-      if (last && isBossFloor) {
-        kind = "boss";
-        /* floor-5 bone line gets a curated Skull Lord lair; ash/thorn keep generic boss piece for now */
-        piece = (fl % 15 !== 0 && fl % 10 !== 0) ? "skullLair" : "boss";
-      }
-      else if (last) { kind = "mini"; piece = pick(["arena", "pillars", "boss", "chambers"]); }
-      else if (i > 0 && i < nRooms - 1 && rnd() < 0.42) { kind = "corridor"; piece = pick(hallPool); }
-      else { kind = "room"; piece = pick(roomPool); }
-      if (i === 0) doors = ["e"];
-      else if (last) doors = ["w"];
-      else doors = ["w", "e"];
+
+    function pushRoom(kind, piece, doors, fillEnts) {
       var made = makeRoomGrid(kind, piece, doors);
       var g = made.grid, spawn = made.spawn;
       var cols = made.cols, open = reachableTiles(g, spawn, 4);
@@ -1464,40 +1495,62 @@
         if (g[t.ty]) g[t.ty][t.tx] = 0;
         return t;
       }
-      if (kind === "boss") {
-        var btype = fl % 15 === 0 ? "thornqueen" : fl % 10 === 0 ? "ashtitan" : "skulllord";
-        var bt = forceTile();
-        ents.push({ kind: "enemy", type: btype, tx: bt.tx, ty: bt.ty });
-      } else if (kind === "mini") {
-        var mt = bio.id === "crypt" ? "minibone" : bio.id === "forge" ? "miniforge" : bio.id === "ash" ? "miniash" : "minithorn";
-        var kt = forceTile();
-        ents.push({ kind: "enemy", type: mt, tx: kt.tx, ty: kt.ty });
-        if (rnd() < 0.5) {
-          var ct = takeTile();
-          if (ct) ents.push({ kind: "chest", tx: ct.tx, ty: ct.ty });
-        }
-      } else if (kind === "corridor") {
-        var cN = 1 + (fl > 4 ? 1 : 0), c;
-        for (c = 0; c < cN; c++) {
-          var et = takeTile();
-          if (et) ents.push({ kind: "enemy", type: pick(bio.roster), tx: et.tx, ty: et.ty });
-        }
-      } else {
-        var budget = 2 + Math.min(4, Math.floor(fl / 3));
-        if (piece === "choke" || piece === "plus") budget = Math.max(2, budget - 1);
-        var e;
-        for (e = 0; e < budget; e++) {
-          var rt = takeTile();
-          if (rt) ents.push({ kind: "enemy", type: pick(bio.roster), tx: rt.tx, ty: rt.ty });
-        }
-        if (rnd() < 0.45) {
-          var ch = takeTile();
-          if (ch) ents.push({ kind: "chest", tx: ch.tx, ty: ch.ty });
-        }
-      }
+      fillEnts(ents, { takeTile: takeTile, forceTile: forceTile, g: g, cols: cols, spawn: spawn });
       list.push({
         piece: piece, kind: kind, grid: g, ents: ents, cleared: false, blocks: [],
-        spawn: spawn, cols: cols, rows: made.rows, pathOk: made.pathOk
+        spawn: spawn, cols: cols, rows: made.rows, pathOk: made.pathOk,
+        tileset: null
+      });
+      return list[list.length - 1];
+    }
+
+    for (var i = 0; i < nRooms; i++) {
+      var kind, piece, doors;
+      if (i > 0 && i < nRooms - 1 && rnd() < 0.42) { kind = "corridor"; piece = pick(hallPool); }
+      else { kind = "room"; piece = pick(roomPool); }
+      if (i === 0) doors = ["e"];
+      else doors = ["w", "e"];
+      pushRoom(kind, piece, doors, function (ents, api) {
+        if (kind === "corridor") {
+          var cN = 1 + (fl > 4 ? 1 : 0), c;
+          for (c = 0; c < cN; c++) {
+            var et = api.takeTile();
+            if (et) ents.push({ kind: "enemy", type: pick(bio.roster), tx: et.tx, ty: et.ty });
+          }
+        } else {
+          var budget = 2 + Math.min(4, Math.floor(fl / 3));
+          if (piece === "choke" || piece === "plus") budget = Math.max(2, budget - 1);
+          var e;
+          for (e = 0; e < budget; e++) {
+            var rt = api.takeTile();
+            if (rt) ents.push({ kind: "enemy", type: pick(bio.roster), tx: rt.tx, ty: rt.ty });
+          }
+          if (rnd() < 0.45) {
+            var ch = api.takeTile();
+            if (ch) ents.push({ kind: "chest", tx: ch.tx, ty: ch.ty });
+          }
+        }
+      });
+    }
+
+    /* Finale room: knight chamber, mid-floor boss, or Realm-1 Skull throne. */
+    if (bossFloor) {
+      var btype = floorBossType(fl);
+      var bpiece = btype === "skulllord" ? "skullLair" : "boss";
+      var bossSpec = pushRoom("boss", bpiece, ["w"], function (ents, api) {
+        var bt = api.forceTile();
+        ents.push({ kind: "enemy", type: btype, tx: bt.tx, ty: bt.ty });
+      });
+      if (btype === "skulllord") bossSpec.tileset = THRONE_TILESET;
+    } else {
+      var mt = bio.id === "crypt" ? "minibone" : bio.id === "forge" ? "miniforge" : bio.id === "ash" ? "miniash" : "minithorn";
+      pushRoom("mini", "knightChamber", ["w"], function (ents, api) {
+        var kt = api.forceTile();
+        ents.push({ kind: "enemy", type: mt, tx: kt.tx, ty: kt.ty });
+        if (rnd() < 0.5) {
+          var ct = api.takeTile();
+          if (ct) ents.push({ kind: "chest", tx: ct.tx, ty: ct.ty });
+        }
       });
     }
     return list;
@@ -1926,8 +1979,10 @@
       doorReady: spec.cleared,
       spawnX: spec.spawn ? (spec.spawn.tx + 0.5) * TILE : 2.5 * TILE,
       spawnY: spec.spawn ? (spec.spawn.ty + 0.5) * TILE : (doorY(spec.grid) + 0.5) * TILE,
-      hoop: null
+      hoop: null,
+      tileset: spec.tileset || null
     };
+    S.lordZoom = null;
     if (spec.kind === "boss") room.hoop = makeBossHoop(spec);
     var spawnEnt = spec.ents.filter(function (e) { return e.kind === "spawn"; })[0];
     if (spawnEnt) {
@@ -2050,7 +2105,7 @@
     if (rnd() < 0.62 || en.boss) dropLoot(en.x, en.y, !!en.boss);
     maybeDropHeart(en.x, en.y, en);
     if (en.boss === "mini") startMiniDeath(en);
-    else if (en.boss === "ash" || en.boss === "bone" || en.boss === "thorn") startBossDeath(en);
+    else if (en.boss === "ash" || en.boss === "bone" || en.boss === "lord" || en.boss === "thorn") startBossDeath(en);
   }
 
   /* BB-V7.3 — a mini kill was indistinguishable from killing a slime: no beat, no
@@ -2428,7 +2483,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       }
       /* Skull Lord owns damage during cleave/lunge active frames — body bump
          would stack with the authored hit and muddy the animation read. */
-      var skullAtk = e.boss === "bone" && e.atk && e.atkT >= e.atkWind && e.atkT < e.atkWind + e.atkActive;
+      var skullAtk = e.boss === "lord" && e.atk && e.atkT >= e.atkWind && e.atkT < e.atkWind + e.atkActive;
       if (!skullAtk && Math.hypot(e.x - player.x, e.y - player.y) < bodyR(e) + player.r - 2) {
         hurtPlayer(1 + Math.floor(S.floor / 6));
         var px = player.x - e.x, py = player.y - e.y, pd = Math.hypot(px, py) || 1;
@@ -2894,8 +2949,18 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
           e.cd = 1.4;
         }
       }
-    } else if (e.boss === "bone") {
+    } else if (e.boss === "lord") {
       updateSkullLord(e, dt, dx, dy, dist);
+    } else if (e.boss === "bone") {
+      /* BB-V7.18 — Bone King restored: slow chase + radial bone volley. */
+      if (e.cd <= 0) {
+        for (var k = 0; k < 6; k++) {
+          var a = k * Math.PI / 3 + e.phase;
+          fireShot(e.x, e.y, Math.cos(a), Math.sin(a), 170, 1, "knife", { owner: e });
+        }
+        e.cd = 2.0;
+      }
+      moveToward(e, dx / dist * 0.3, dy / dist * 0.3, e.spd, dt);
     } else if (e.boss === "thorn") {
       if (e.cd <= 0) {
         fireShot(e.x, e.y, dx / dist, dy / dist, 210, 2, "knife", { owner: e });
@@ -3143,7 +3208,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      a max-content right column per stack so neighbours line up exactly.
      BB-V7.11 — landscape copy right-justified so labels sit against their buttons.
      BB-V7.12 — placed cubes: 2 HP, normal mob chips, knight+ one-shots, ball clears.
-     BB-V7.12b — Skull Lord replaces Bone King: curated lair, melee cleave+lunge,
+     BB-V7.12b — Skull Lord (was Bone King slot): curated lair, melee cleave+lunge,
      trash waves at 75/50/25, arena wipe on death.
      BB-V7.13 — NBA hoop + cinematic swish; HEART pips collapse to a bar after 8.
      BB-V7.14 — larger translucent walk/shot rings; phone HUD sized off viewport.
@@ -3151,8 +3216,10 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      trash, knights, and Skull Lord; split KNIGHT_VIS / LORD_VIS.
      BB-V7.16-spend — upgrade menu at 90% scale, top-center origin.
      BB-V7.16 — Skull Lord hall ~2.3× the v7.12 lair; cleave/lunge ease,
-     real dash travel, blade sweeps the telegraph fan. */
-  var BUILD = "v7.17";
+     real dash travel, blade sweeps the telegraph fan.
+     BB-V7.18 — Realm 1: doubled rooms, knight chambers, Bone King restored,
+     Skull Lord as floor-8 throne finale with own tileset + distance zoom. */
+  var BUILD = "v7.18";
   var FEEL_DEF = { spd: 250, accel: 2600, brake: 3600, throwSpd: 620, aimMode: "drag", aimDead: 2, aimHold: 64 };
   var FEEL = (function () {
     var f = {};
@@ -3328,6 +3395,27 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     var want = (TILE_CSS * dpr) / TILE;
     var fit = Math.min(cw / ww, ch / hh);
     var scale = Math.max(fit, want);
+    /* BB-V7.18 — Skull throne: pull wider than a normal room, then ease zoom
+       from distance to the Lord (far = more wide shot, close = punch in). */
+    if (room && room.spec && room.spec.piece === "skullLair" && S.mode === "play") {
+      var lord = null, li;
+      if (room.enemies) {
+        for (li = 0; li < room.enemies.length; li++) {
+          if (room.enemies[li].boss === "lord" && room.enemies[li].alive) { lord = room.enemies[li]; break; }
+        }
+      }
+      var targetMul = 0.72;
+      if (lord && player) {
+        var ld = Math.hypot(player.x - lord.x, player.y - lord.y);
+        var t = Math.max(0, Math.min(1, (ld - 120) / 480));
+        targetMul = 0.92 - t * 0.28; /* close 0.92 → far 0.64 */
+      }
+      if (S.lordZoom == null) S.lordZoom = targetMul;
+      else S.lordZoom += (targetMul - S.lordZoom) * 0.07;
+      scale *= S.lordZoom;
+    } else {
+      S.lordZoom = null;
+    }
     var viewW = cw / scale, viewH = ch / scale;
     var px = (player && S.mode === "play") ? player.x : ww * 0.5;
     var py = (player && S.mode === "play") ? player.y : hh * 0.5;
@@ -3490,7 +3578,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      the difference between a room and a grid. */
   var WALL_Z = 0.48;
   function drawWorld(g) {
-    var bio = biomeOf(S.floor);
+    var bio = (room && room.tileset) || biomeOf(S.floor);
     var wz = Math.round(TILE * WALL_Z);
     var rows = playRows(), cols = playCols();
     var y, x, wall;
@@ -4359,7 +4447,7 @@ g.beginPath(); g.arc(S.splits[sp].x, S.splits[sp].y, S.splits[sp].r, 0, 6.3); g.
     g.translate(-e.x, -e.y);
     /* CHIEF BB-V5.2 — boss art is drawn from fixed pixel offsets, so it is scaled
        about the boss's own centre to match the radius it now carries. */
-    var bossScale = e.boss === "ash" ? 1.2 : (e.boss === "mini" || e.boss === "bone") ? 1 : e.boss ? 1.35 : 1;
+    var bossScale = e.boss === "ash" ? 1.2 : (e.boss === "mini" || e.boss === "bone" || e.boss === "lord") ? 1 : e.boss ? 1.35 : 1;
     if (bossScale !== 1) { g.save(); g.translate(e.x, e.y); g.scale(bossScale, bossScale); g.translate(-e.x, -e.y); }
     if (e.boss === "ash") {
       g.fillStyle = "#2a2018";
@@ -4392,8 +4480,17 @@ g.beginPath(); g.arc(S.splits[sp].x, S.splits[sp].y, S.splits[sp].r, 0, 6.3); g.
         g.arc(e.x, e.y, e.ringR, e.gap - 0.575, e.gap + 0.575);
         g.stroke();
       }
-    } else if (e.boss === "bone") {
+    } else if (e.boss === "lord") {
       drawSkullLord(g, e);
+    } else if (e.boss === "bone") {
+      g.fillStyle = "#e8e0d0";
+      g.fillRect(e.x - 16, e.y - 18, 32, 40);
+      g.fillStyle = "#f4eee0";
+      g.fillRect(e.x - 14, e.y - 36, 28, 22);
+      g.fillStyle = "#1a120c";
+      g.fillRect(e.x - 8, e.y - 28, 6, 6); g.fillRect(e.x + 2, e.y - 28, 6, 6);
+      g.fillRect(e.x - 6, e.y - 18, 12, 3);
+      for (var r = 0; r < 4; r++) g.fillRect(e.x - 12, e.y - 8 + r * 7, 24, 3);
     } else if (e.boss === "thorn") {
       g.fillStyle = "#245830";
       g.fillRect(e.x - 18, e.y - 10, 36, 36);
@@ -5302,7 +5399,7 @@ function endRunToMenu() {
       if (!who) return 1;
       if (typeof who === "object") return blockDmgFromEnemy(who);
       if (who === "knight" || who === "boss" || who === "mini" ||
-          who === "bone" || who === "ash" || who === "thorn") {
+          who === "bone" || who === "lord" || who === "ash" || who === "thorn") {
         return blockDmgFromEnemy({ boss: who === "knight" || who === "boss" ? "mini" : who });
       }
       return 1;
@@ -5481,7 +5578,7 @@ function endRunToMenu() {
     killBossCleanup: function () {
       if (!room) return null;
       var boss = null, i;
-      for (i = 0; i < room.enemies.length; i++) if (room.enemies[i].boss === "bone" && room.enemies[i].alive) boss = room.enemies[i];
+      for (i = 0; i < room.enemies.length; i++) if (room.enemies[i].boss === "lord" && room.enemies[i].alive) boss = room.enemies[i];
       if (!boss) return null;
       /* plant a dummy shot then run the real death path */
       S.shots.push({ x: boss.x, y: boss.y, vx: 40, vy: 0, r: 4, life: 2, dmg: 1, kind: "knife" });
@@ -5498,7 +5595,7 @@ function endRunToMenu() {
     triggerWave: function (ratio) {
       if (!room) return null;
       var e = null, i;
-      for (i = 0; i < room.enemies.length; i++) if (room.enemies[i].boss === "bone" && room.enemies[i].alive) e = room.enemies[i];
+      for (i = 0; i < room.enemies.length; i++) if (room.enemies[i].boss === "lord" && room.enemies[i].alive) e = room.enemies[i];
       if (!e) return null;
       ensureSkullLord(e);
       e.hp = Math.floor(e.maxHp * ratio);
@@ -5508,7 +5605,7 @@ function endRunToMenu() {
     skullState: function () {
       if (!room) return null;
       var e = null, i;
-      for (i = 0; i < room.enemies.length; i++) if (room.enemies[i].boss === "bone") e = room.enemies[i];
+      for (i = 0; i < room.enemies.length; i++) if (room.enemies[i].boss === "lord") e = room.enemies[i];
       if (!e) return null;
       return {
         atk: e.atk, atkT: Math.round((e.atkT || 0) * 100) / 100,
@@ -5520,8 +5617,8 @@ function endRunToMenu() {
     },
     gotoSkullLair: function (seed) {
       startRun(seed || "SKULL-ARENA");
-      S.floor = 5;
-      S.rooms = buildFloor(5);
+      S.floor = REALM1_END;
+      S.rooms = buildFloor(REALM1_END);
       var i, idx = S.rooms.length - 1;
       for (i = 0; i < S.rooms.length; i++) if (S.rooms[i].kind === "boss") idx = i;
       loadRoom(idx);
@@ -5533,7 +5630,8 @@ function endRunToMenu() {
         cols: playCols(), rows: playRows(),
         piece: room && room.spec ? room.spec.piece : null,
         kind: room && room.kind, hoop: !!(room && room.hoop),
-        boss: this.enemies().filter(function (en) { return en.boss === "bone"; })[0] || null
+        tileset: room && room.tileset ? room.tileset.id : null,
+        boss: this.enemies().filter(function (en) { return en.boss === "lord"; })[0] || null
       };
     }
   };
