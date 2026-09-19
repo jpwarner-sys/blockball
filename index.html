@@ -5625,9 +5625,9 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       "<p class='muted' style='margin:2px 0 0'>" + BUILD + " · move " + FEEL.spd +
         " · throw " + FEEL.throwSpd + "</p>" +
       "<h2>PROFILE</h2><div class='row' id='profRow'>" + profs + "</div>" +
-      /* CHIEF FIX BB-V4.10 — five rows of dress-up pushed SEED and SHARE CODE two
-         screens down on a phone. They are a once-a-week choice, not a per-run one,
-         so they fold away behind one heading and the whole menu fits one screen. */
+      /* CHIEF FIX BB-V4.10 — five rows of dress-up pushed SEED two screens down
+         on a phone. They are a once-a-week choice, not a per-run one, so they
+         fold away behind one heading and the whole menu fits one screen. */
       "<h2 class='fold' id='cosHead'>LOOK <span class='foldArrow'>" + (cosOpen ? "\u25be" : "\u25b8") + "</span></h2>" +
       "<div id='cosBox'" + (cosOpen ? "" : " hidden") + "></div>" +
       "<h2>SEED</h2>" +
@@ -5635,11 +5635,6 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       "<input class='bb' id='seedIn' value='" + S.seed + "' maxlength='16' style='width:140px'>" +
       "<button class='bb' id='btnSeed'>PLAY SEED</button>" +
       "<button class='bb' id='btnRand'>NEW SEED</button>" +
-      "</div>" +
-      "<h2>SHARE CODE</h2>" +
-      "<div class='row'>" +
-      "<input class='bb' id='codeIn' placeholder='paste builder code' style='flex:1;min-width:180px'>" +
-      "<button class='bb' id='btnLoadCode'>LOAD</button>" +
       "</div>" +
       "<p class='muted'>Best floor " + store.bestFloor + " · Trick kills " + store.trickKills + " · Stash " + store.stash.length + "</p>";
     paintCos();
@@ -5654,11 +5649,6 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     document.getElementById("btnPlay").onclick = function () { startRun(makeSeed(), null); };
     document.getElementById("btnSeed").onclick = function () { startRun(document.getElementById("seedIn").value, null); };
     document.getElementById("btnRand").onclick = function () { S.seed = makeSeed(); showMenu(); };
-    document.getElementById("btnLoadCode").onclick = function () {
-      var lv = decodeShare(document.getElementById("codeIn").value);
-      if (!lv) { toast("BAD CODE"); return; }
-      startRun("BLK-CODE", lv);
-    };
     syncHud();
   }
 
