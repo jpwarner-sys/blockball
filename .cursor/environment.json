@@ -1,6 +1,6 @@
 {
   "name": "Blockball Dungeon",
-  "install": "test -f index.html && test -f skull-lord-boss-landscape.jpg && echo 'Static site: no build or dependencies required.'",
+  "install": "test -f index.html && echo 'Static site: no build or dependencies required.'",
   "terminals": [
     {
       "name": "static-server",
