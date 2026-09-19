@@ -332,7 +332,16 @@
   }
   /* BB-V7.10 — landscape type sized off the wide axis so copy fills the
      unused width. Each shop stack is a two-track grid: names wrap, BUY
-     sits in a shared max-content column so neighbours share one vertical edge. */
+     sits in a shared max-content column so neighbours share one vertical edge.
+     BB-V7.16 — spend/upgrade menu scaled to 90%: origin top-center keeps the
+     top edge and horizontal centering, while DONE lifts clear of landscape
+     chrome that was eating taps. Shop panel stacks above the install bar
+     (z 60) so the card bottom stays tappable when that banner is up. */
+  #shopPanel { z-index: 70; }
+  #shopCard {
+    transform: scale(0.9);
+    transform-origin: top center;
+  }
   @media (orientation: landscape) and (max-height: 500px) {
     .panel { padding: 8px 16px; }
     .card {
@@ -555,7 +564,6 @@
   <div class="panel" id="menuPanel"><div class="card" id="menuCard"></div></div>
   <div class="panel" id="pausePanel"><div class="card" id="pauseCard"></div></div>
   <div class="panel" id="shopPanel"><div class="card" id="shopCard"></div></div>
-  <div class="panel" id="passPanel"><div class="card" id="passCard"></div></div>
   <div class="panel" id="floorPanel"><div class="card" id="floorCard"></div></div>
   <div class="panel" id="builderPanel"><div class="card" id="builderCard"></div></div>
   <div class="panel" id="feelPanel"><div class="card" id="feelCard"></div></div>
@@ -630,8 +638,6 @@
     score: 0,
     trickAll: 0,
     runTricks: 0,
-    passPlay: false,
-    passWho: 0,
     builderLevel: null,
     customPlay: false,
     pause: false,
@@ -728,6 +734,27 @@
       if (o.aimHelp) store.aimHelp = true;
       S.seenAimHelp = !!o.aimHelp;
     } catch (e) {}
+  }
+  /* TEMP — for now, every fresh page load wipes carried items and any
+     profile-side stat boosts. Cosmetics (token + look) stay. Revisit when
+     meta progression should persist across reloads. */
+  function bareProfile(p, i) {
+    var base = PROFILES[i] || PROFILES[0];
+    var def = store.profiles[i] || store.profiles[0];
+    var cosSrc = (p && p.cos) || (def && def.cos) || defaultCos();
+    return {
+      token: (p && p.token) || (def && def.token) || base.token,
+      cos: JSON.parse(JSON.stringify(cosSrc))
+    };
+  }
+  function resetItemsAndBoostsOnLoad() {
+    store.stash = [];
+    store.profiles = (store.profiles || []).map(bareProfile);
+    while (store.profiles.length < PROFILES.length) {
+      var i = store.profiles.length;
+      store.profiles.push(bareProfile(null, i));
+    }
+    saveStore();
   }
   function saveStore() {
     try {
@@ -1918,7 +1945,7 @@
     if (!S.seenAimHelp) toast("LEFT RING to walk · DRAG anywhere to throw");
   }
 
-  function startRun(seed, pass, custom) {
+  function startRun(seed, custom) {
     S.seed = parseSeed(seed || makeSeed());
     S.floor = 1;
     S.score = 0;
@@ -1926,8 +1953,6 @@
     S.hoopReady = false;
     S.bossBeat = 0;
     S.cine = null;
-    S.passPlay = !!pass;
-    S.passWho = 0;
     S.customPlay = !!custom;
     S.builderLevel = custom || null;
     player = freshPlayer();
@@ -1983,10 +2008,6 @@
     var wasBoss = S.rooms[S.roomI].kind === "boss";
     if (S.floor > store.bestFloor) store.bestFloor = S.floor;
     saveStore();
-    if (S.passPlay) {
-      S.passWho = 1 - S.passWho;
-      showPassCard();
-    }
     S.floor += 1;
     S.rooms = buildFloor(S.floor);
     S.floorHeal = healPlayer(wasBoss ? 2 : 1);
@@ -3128,9 +3149,10 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      BB-V7.14 — larger translucent walk/shot rings; phone HUD sized off viewport.
      BB-V7.15 — silhouette hitboxes: contact matches painted body for hero,
      trash, knights, and Skull Lord; split KNIGHT_VIS / LORD_VIS.
+     BB-V7.16-spend — upgrade menu at 90% scale, top-center origin.
      BB-V7.16 — Skull Lord hall ~2.3× the v7.12 lair; cleave/lunge ease,
      real dash travel, blade sweeps the telegraph fan. */
-  var BUILD = "v7.16";
+  var BUILD = "v7.17";
   var FEEL_DEF = { spd: 250, accel: 2600, brake: 3600, throwSpd: 620, aimMode: "drag", aimDead: 2, aimHold: 64 };
   var FEEL = (function () {
     var f = {};
@@ -3273,7 +3295,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
        paused, so pausing and turning the phone upright locked you out of MENU with
        a screen that only says "turn sideways". A card does not need landscape;
        only the live field does. */
-    var panelOpen = ["splashPanel", "menuPanel", "pausePanel", "shopPanel", "passPanel",
+    var panelOpen = ["splashPanel", "menuPanel", "pausePanel", "shopPanel",
                      "floorPanel", "builderPanel", "feelPanel"].some(function (id) {
       var el = document.getElementById(id);
       return el && el.className.indexOf("show") >= 0;
@@ -4487,7 +4509,7 @@ g.beginPath(); g.arc(S.splits[sp].x, S.splits[sp].y, S.splits[sp].r, 0, 6.3); g.
       }
     }
     var fl = document.getElementById("flNum");
-    if (fl) fl.textContent = S.floor + (S.passPlay ? "·" + (S.passWho + 1) : "");
+    if (fl) fl.textContent = S.floor;
     var sc = document.getElementById("scNum");
     if (sc) sc.textContent = fmt(S.score);
     var fr = document.getElementById("frNum");
@@ -4541,7 +4563,7 @@ g.beginPath(); g.arc(S.splits[sp].x, S.splits[sp].y, S.splits[sp].r, 0, 6.3); g.
   function hidePanels() {
     S.placeArmed = false;
     S.placeMode = false;
-    ["splashPanel", "menuPanel", "pausePanel", "shopPanel", "passPanel", "floorPanel", "builderPanel", "feelPanel"].forEach(function (id) {
+    ["splashPanel", "menuPanel", "pausePanel", "shopPanel", "floorPanel", "builderPanel", "feelPanel"].forEach(function (id) {
       document.getElementById(id).className = "panel";
     });
     if (typeof syncRotate === "function") syncRotate();
@@ -4583,7 +4605,6 @@ g.beginPath(); g.arc(S.splits[sp].x, S.splits[sp].y, S.splits[sp].r, 0, 6.3); g.
       "<h2>RUN</h2>" +
       "<div class='row'>" +
       "<button class='bb pri' id='btnPlay'>PLAY</button>" +
-      "<button class='bb' id='btnPass'>PASS AND PLAY</button>" +
       "<button class='bb' id='btnBuilder'>DUNGEON BUILDER</button>" +
       /* FEEL lives here as well as on the pause card — you should not have to be
          mid-fight to change how the game feels */
@@ -4618,15 +4639,14 @@ g.beginPath(); g.arc(S.splits[sp].x, S.splits[sp].y, S.splits[sp].r, 0, 6.3); g.
       showMenu();
     };
     document.getElementById("btnFeelMenu").onclick = function () { showFeel(); };
-    document.getElementById("btnPlay").onclick = function () { startRun(makeSeed(), false, null); };
-    document.getElementById("btnPass").onclick = function () { startRun(makeSeed(), true, null); };
+    document.getElementById("btnPlay").onclick = function () { startRun(makeSeed(), null); };
     document.getElementById("btnBuilder").onclick = function () { openBuilder(null); };
-    document.getElementById("btnSeed").onclick = function () { startRun(document.getElementById("seedIn").value, false, null); };
+    document.getElementById("btnSeed").onclick = function () { startRun(document.getElementById("seedIn").value, null); };
     document.getElementById("btnRand").onclick = function () { S.seed = makeSeed(); showMenu(); };
     document.getElementById("btnLoadCode").onclick = function () {
       var lv = decodeShare(document.getElementById("codeIn").value);
       if (!lv) { toast("BAD CODE"); return; }
-      startRun("BLK-CODE", false, lv);
+      startRun("BLK-CODE", lv);
     };
     syncHud();
   }
@@ -4845,21 +4865,6 @@ function endRunToMenu() {
     renderShop();
   }
 
-  function showPassCard() {
-    document.getElementById("passPanel").className = "panel show";
-    document.getElementById("passCard").innerHTML =
-      "<div class='landSplit'><div class='landCopy'>" +
-      "<h1>PASS THE DEVICE</h1>" +
-      "<p>Player " + (S.passWho + 1) + " takes floor " + S.floor + ".</p>" +
-      "<p class='muted'>Shared score " + fmt(S.score) + " · shared fragments " + player.frag + "</p>" +
-      "</div><div class='landBtns'>" +
-      "<button class='bb pri' id='btnPassGo'>READY</button>" +
-      "</div></div>";
-    document.getElementById("btnPassGo").onclick = function () {
-      document.getElementById("passPanel").className = "panel";
-    };
-  }
-
   function showFloorCard(boss) {
     S.shopBoss = !!boss;          /* remembered so UPGRADE -> DONE comes back correctly */
     hidePanels();
@@ -4958,7 +4963,7 @@ function endRunToMenu() {
     document.getElementById("btnPlayLv").onclick = function () {
       var lv = levelFromBld();
       hidePanels();
-      startRun("BLK-CODE", false, lv);
+      startRun("BLK-CODE", lv);
     };
     document.getElementById("btnBldMenu").onclick = function () { S.mode = "menu"; hidePanels(); showMenu(); };
     document.getElementById("btnCopy").onclick = function () {
@@ -5219,7 +5224,6 @@ function endRunToMenu() {
     if (!player || !room) return;
     if (document.getElementById("shopPanel").className.indexOf("show") >= 0) return;
     if (document.getElementById("floorPanel").className.indexOf("show") >= 0) return;
-    if (document.getElementById("passPanel").className.indexOf("show") >= 0) return;
     updatePlayer(dt);
     updateBall(dt);
     updateSplits(dt);
@@ -5258,6 +5262,7 @@ function endRunToMenu() {
 
   /* ---------- boot ---------- */
   loadStore();
+  resetItemsAndBoostsOnLoad();
   setupInstall();
   resize();
   showSplash();
@@ -5514,7 +5519,7 @@ function endRunToMenu() {
       };
     },
     gotoSkullLair: function (seed) {
-      startRun(seed || "SKULL-ARENA", false, null);
+      startRun(seed || "SKULL-ARENA");
       S.floor = 5;
       S.rooms = buildFloor(5);
       var i, idx = S.rooms.length - 1;
