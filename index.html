@@ -187,7 +187,10 @@
   }
   /* BB-V7.25 — tablet/iPad bolt-on: same HUD nodes, phone-scale chrome.
      Short CSS side ≥ 600px (iPad mini+) gets tighter pad + capped clamps so
-     hearts/meta/place/pause stop eating the field. Class set in resize(). */
+     hearts/meta/place/pause stop eating the field. Class set in resize().
+     BB-V7.26 — absolute chips ignore #hud safe-area padding, so on iPad with
+     black-translucent status bar the top row clips date/time/power. Drop the
+     whole chrome ~one heart row (--hud-heart-h) below the bezel. */
   html.ui-pad #hud {
     --hud-pad: 6px;
     --hud-heart: clamp(18px, 3.2vh, 26px);
@@ -205,8 +208,12 @@
     --hud-place-fs: clamp(11px, 1.7vh, 14px);
     --hud-pause: clamp(36px, 5.2vh, 46px);
     --hud-pause-slot: clamp(40px, 5.8vh, 52px);
-    --hud-meta-t: calc(var(--hud-pad) + clamp(22px, 3.6vh, 30px));
-    --hud-pips-t: calc(var(--hud-pad) + 6px);
+    --hud-top: calc(var(--hud-pad) + var(--hud-heart-h));
+    --hud-hp-t: var(--hud-top);
+    --hud-meta-t: calc(var(--hud-top) + clamp(22px, 3.6vh, 30px));
+    --hud-pause-t: var(--hud-top);
+    --hud-place-t: var(--hud-top);
+    --hud-pips-t: calc(var(--hud-top) + 6px);
   }
   #hud button, #hud input, #hud textarea, #hud .hit {
     pointer-events: auto;
@@ -4142,7 +4149,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      BB-V7.24 — track→punch→ease camera on every hoop swish (boss + knight).
      BB-V7.25 — iPad/tablet bolt-on: capped sticks nearer corners, denser HUD,
      screen-space aim power; same control scheme, no separate iPad fork. */
-  var BUILD = "v7.25";
+  var BUILD = "v7.26";
   var FEEL_DEF = { spd: 250, accel: 2600, brake: 3600, throwSpd: 620, aimMode: "drag", aimDead: 2, aimHold: 64 };
   var FEEL = (function () {
     var f = {};
