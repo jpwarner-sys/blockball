@@ -2986,8 +2986,10 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      BB-V7.13 — NBA hoop + cinematic swish; HEART pips collapse to a bar after 8.
      BB-V7.14 — larger translucent walk/shot rings; phone HUD sized off viewport.
      BB-V7.15 — silhouette hitboxes: contact matches painted body for hero,
-     trash, knights, and Skull Lord; split KNIGHT_VIS / LORD_VIS. */
-  var BUILD = "v7.15";
+     trash, knights, and Skull Lord; split KNIGHT_VIS / LORD_VIS.
+     BB-V7.16 — row-sort walls with actors so south cubes occlude feet; softer
+     hero bob/shadow against a south wall so he stops floating on the block. */
+  var BUILD = "v7.16";
   var FEEL_DEF = { spd: 250, accel: 2600, brake: 3600, throwSpd: 620, aimMode: "drag", aimDead: 2, aimHold: 64 };
   var FEEL = (function () {
     var f = {};
