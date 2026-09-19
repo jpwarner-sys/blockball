@@ -856,6 +856,7 @@
   function sfx(name) {
     if (name === "throw") beep("triangle", 180, 0.08, 0.05, 90);
     else if (name === "bounce") beep("square", 220, 0.05, 0.04, 140);
+    else if (name === "dribble") beep("triangle", 160, 0.035, 0.018, 90);
     else if (name === "hit") beep("sawtooth", 140, 0.07, 0.06, 60);
     else if (name === "kill") beep("square", 320, 0.12, 0.07, 520);
     else if (name === "trick") { beep("square", 440, 0.16, 0.08, 880); beep("triangle", 660, 0.2, 0.05, 1320); }
@@ -1020,7 +1021,9 @@
     ball = {
       live: false, ret: false, x: player.x + 30, y: player.y - 8, vx: 0, vy: 0, r: BALL_R, pierced: false,
       life: 0, bounces: 0, hits: [], dmg: 0, affix: player.ballAffix || [],
-      trail: []
+      trail: [],
+      /* BB-V7.23 — held-ball dribble: phase clock, visual lift, ground row for sort. */
+      dribble: 0, lift: 0, groundY: player.y - 8, squash: 0
     };
   }
 
@@ -2599,6 +2602,7 @@
     ball.dmg = currentDmg();
     ball.affix = (player.ballAffix || []).slice();
     ball.trail = [];
+    ball.lift = 0; ball.squash = 0; ball.dribble = 0;
     sfx("throw");
     if (!S.seenAimHelp) { S.seenAimHelp = true; store.aimHelp = true; saveStore(); }
   }
@@ -2608,7 +2612,9 @@
       /* CHIEF BB-V5.3 — the ball at rest used to be drawn over the hero's face.
          It now sits in the throwing hand, out to the side and low.
          BB-V7.19 — match the hero's south-wall ground bias so the held ball
-         does not sit on the wall's lifted top while he stands on the floor. */
+         does not sit on the wall's lifted top while he stands on the floor.
+         BB-V7.23 — dribble while walking (bounce + soft tap); cradle when aiming
+         or downed so the shot read stays clean. */
       var handBias = 0;
       if (room && room.grid) {
         var ptx = Math.floor(player.x / TILE), pty = Math.floor(player.y / TILE);
@@ -2616,8 +2622,44 @@
           handBias = -Math.round(TILE * WALL_Z);
         }
       }
-      ball.x = player.x + player.facing * 30;
-      ball.y = player.y - 8 + handBias;
+      var moving = Math.hypot(player.vx || 0, player.vy || 0) > 12;
+      var groundY = player.y - 8 + handBias;
+      var side = player.facing * 30;
+      var lift = 0;
+      var squash = 0;
+      ball.dribble = ball.dribble || 0;
+      if (S.aim || S.downed) {
+        /* pick up into a throw cradle; freeze the bounce clock */
+        lift = S.downed ? 4 : 18;
+        side = player.facing * 22;
+        ball.dribble = 0;
+      } else if (moving) {
+        var top = player.spd * (1 + player.spdLv * 0.05) || 1;
+        var sp = Math.hypot(player.vx, player.vy);
+        var rate = 9.5 + (sp / top) * 4.5;
+        var prevPhase = ball.dribble;
+        ball.dribble += dt * rate;
+        /* sin² bounce: soft hang at the top, snappy floor contact */
+        var wave = Math.sin(ball.dribble);
+        var bounce = wave * wave;
+        lift = 4 + bounce * 22;
+        squash = bounce < 0.08 ? (1 - bounce / 0.08) * 0.22 : 0;
+        side = player.facing * (26 + bounce * 4);
+        /* soft tap each time the ball kisses the floor */
+        var crossed = Math.floor(prevPhase / Math.PI) !== Math.floor(ball.dribble / Math.PI);
+        if (crossed && bounce < 0.15) sfx("dribble");
+      } else {
+        /* idle: gentle pocket bounce so the held ball still has life */
+        ball.dribble += dt * 3.2;
+        var idle = Math.sin(ball.dribble) * Math.sin(ball.dribble);
+        lift = 10 + idle * 5;
+        side = player.facing * 28;
+      }
+      ball.lift = lift;
+      ball.squash = squash;
+      ball.groundY = groundY;
+      ball.x = player.x + side;
+      ball.y = groundY - lift;
       return;
     }
     if (ball.ret) {
@@ -4008,8 +4050,12 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      telegraph + early lane lock, attack mix stops lunge spam.
      BB-V7.22 — difficulty tiers; loot hops settle at drop point; FEEL controls
      and dungeon builder entry hidden from player menus.
+<<<<<<< HEAD
      BB-V7.23 — boss-lair hoop mounts on the implied wallH-3 north face;
      end-of-floor knight chambers get the same hoop + optional swish window. */
+=======
+     BB-V7.23 — held-ball dribble while walking (bounce, squash, soft tap, arm). */
+>>>>>>> origin/main
   var BUILD = "v7.23";
   var FEEL_DEF = { spd: 250, accel: 2600, brake: 3600, throwSpd: 620, aimMode: "drag", aimDead: 2, aimHold: 64 };
   var FEEL = (function () {
@@ -4582,7 +4628,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       for (L = 0; L < S.loot.length; L++) {
         if (sortRow(S.loot[L].y) === y) drawLoot(g, S.loot[L]);
       }
-      if (ball && !ball.live && sortRow(ball.y) === y) drawBallObj(g, ball, false);
+      if (ball && !ball.live && sortRow(ball.groundY != null ? ball.groundY : ball.y) === y) drawBallObj(g, ball, false);
       if (player && sortRow(player.y) === y) drawPlayer(g);
       if (ball && ball.live && sortRow(ball.y) === y) drawBallObj(g, ball, true);
       if (room) {
@@ -4983,6 +5029,13 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     cube(g, pxl + sc * (0.5 - bw / 2), pyt + sc * (1.25 - bh), sc * bw, sc * bh, sc * 0.22, pal.a);
 
     var armA = S.aim ? S.aim.ang : (f > 0 ? -0.15 : Math.PI + 0.15);
+    /* BB-V7.23 — while dribbling, the gauntlet taps toward the bounce instead of
+       hanging in a static throw pose. */
+    if (!S.aim && ball && !ball.live && !S.downed) {
+      var tap = Math.sin(ball.dribble || 0);
+      var base = f > 0 ? 1.05 : Math.PI - 1.05;
+      armA = base + tap * 0.55;
+    }
     var ax = x + Math.cos(armA) * sc * (bw * 0.5 + 0.14);
     var ay = pyt + sc * 0.7 + Math.sin(armA) * sc * 0.2;
     cube(g, ax - sc * 0.12, ay, sc * 0.24, sc * 0.3, sc * 0.1, pal.a);
@@ -5089,20 +5142,28 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     }
     /* CHIEF BB-V6.2 — Joe's `drawBallOn`: a radial-lit sphere with a shadow under it
        and four seam arcs that rotate with travel, instead of a flat disc with a cross
-       drawn on top. This is what gives the ball weight. */
+       drawn on top. This is what gives the ball weight.
+       BB-V7.23 — held dribble: shadow stays on the ground, shrinks with lift, and
+       the ball squashes slightly on each floor kiss. */
     var cols = ballCols();
-    b.rot = (b.rot || 0) + (b.live ? Math.hypot(b.vx, b.vy) * 0.0006 : 0.004);
-    g.fillStyle = "rgba(0,0,0,0.35)";
-    g.beginPath(); g.ellipse(b.x, b.y + b.r * 0.78, b.r * 0.78, b.r * 0.28, 0, 0, 6.3); g.fill();
-    var grd = g.createRadialGradient(b.x - b.r * 0.35, b.y - b.r * 0.38, b.r * 0.08, b.x, b.y, b.r);
+    var lift = (!b.live && b.lift) ? b.lift : 0;
+    var squash = (!b.live && b.squash) ? b.squash : 0;
+    var spin = b.live ? Math.hypot(b.vx, b.vy) * 0.0006 : (lift > 6 ? 0.035 : 0.004);
+    b.rot = (b.rot || 0) + spin;
+    var shadowY = b.y + b.r * 0.78 + lift;
+    var shadowS = 1 - Math.min(0.5, lift / 36);
+    g.fillStyle = "rgba(0,0,0," + (0.22 + 0.18 * shadowS) + ")";
+    g.beginPath(); g.ellipse(b.x, shadowY, b.r * 0.78 * shadowS, b.r * 0.28 * shadowS, 0, 0, 6.3); g.fill();
+    var rx = b.r * (1 + squash * 0.35), ry = b.r * (1 - squash * 0.45);
+    var grd = g.createRadialGradient(b.x - rx * 0.35, b.y - ry * 0.38, ry * 0.08, b.x, b.y, Math.max(rx, ry));
     grd.addColorStop(0, cols.hi);
     grd.addColorStop(1, cols.lo);
     g.fillStyle = grd;
-    g.beginPath(); g.arc(b.x, b.y, b.r, 0, 6.3); g.fill();
+    g.beginPath(); g.ellipse(b.x, b.y, rx, ry, 0, 0, 6.3); g.fill();
     g.strokeStyle = cols.seam;
     g.lineWidth = Math.max(1.5, b.r * 0.1);
     g.save();
-    g.translate(b.x, b.y); g.rotate(b.rot);
+    g.translate(b.x, b.y); g.rotate(b.rot); g.scale(rx / b.r, ry / b.r);
     g.beginPath(); g.arc(0, 0, b.r * 0.92, 0, 6.3); g.stroke();
     g.beginPath(); g.moveTo(0, -b.r * 0.92); g.lineTo(0, b.r * 0.92); g.stroke();
     g.beginPath(); g.arc(b.r * 0.95, 0, b.r * 0.85, Math.PI * 0.65, Math.PI * 1.35); g.stroke();
@@ -6630,7 +6691,7 @@ function endRunToMenu() {
   window.__BB_SELFTEST = {
     /* read-only probe for the headless harness: position and velocity, nothing else */
     pos: function () { return player ? { x: Math.round(player.x), y: Math.round(player.y), vx: Math.round(player.vx), vy: Math.round(player.vy) } : null; },
-    ballState: function () { return ball ? { x: Math.round(ball.x), y: Math.round(ball.y), vx: Math.round(ball.vx), vy: Math.round(ball.vy), live: ball.live, bounces: ball.bounces, hits: ball.hits.length, pierced: !!ball.pierced, r: ball.r } : null; },
+    ballState: function () { return ball ? { x: Math.round(ball.x), y: Math.round(ball.y), vx: Math.round(ball.vx), vy: Math.round(ball.vy), live: ball.live, bounces: ball.bounces, hits: ball.hits.length, pierced: !!ball.pierced, r: ball.r, lift: Math.round(ball.lift || 0), squash: +(ball.squash || 0).toFixed(2), dribble: +(ball.dribble || 0).toFixed(2), groundY: Math.round(ball.groundY != null ? ball.groundY : ball.y) } : null; },
     enemies: function () { return room ? room.enemies.filter(function (e) { return e.alive; }).map(function (e) { return { type: e.type, x: Math.round(e.x), y: Math.round(e.y), r: e.r, artR: artR(e), bodyR: bodyR(e), hitR: e.hitR || e.r, hitLift: e.hitLift || 0, hp: e.hp, spd: e.spd, kind: e.kind, vis: enemyVis(e), boss: e.boss || null }; }) : []; },
     fire: function (ang, pow) { throwBall(ang, pow); },
     resetBall: function () { if (ball) { ball.live = false; ball.ret = false; resetBallHome(); } },
