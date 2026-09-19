@@ -1826,23 +1826,37 @@
   /* BB-V7.13 — NBA-style hoop for floor-boss lairs, inspired by the title art:
      white backboard, orange rim, hanging net, mounted on the north wall so a
      top-down shot reads as "up the court." Active for a swish only after the
-     floor boss is dead and the ball is back in hand. */
+     floor boss is dead and the ball is back in hand.
+     BB-V7.23 — boss rooms imply wallH 3 (high). Seat the backboard on that
+     extruded north face so the hoop is not stuck on the floor under a tall
+     wall; rim hangs just into the first open floor row so throws still score.
+     BB-V7.23 — same hoop in end-of-floor knight (mini) chambers. */
+  function roomWantsHoop(spec) {
+    return !!(spec && (spec.kind === "boss" || spec.kind === "mini"));
+  }
+
   function makeBossHoop(spec) {
     var cols = spec.cols || gCols(spec.grid);
     var cx = Math.floor(cols / 2);
     var g = spec.grid, tx, ty;
+    var wallH = clampWallH(spec.wallH != null ? spec.wallH : BACK_WALL_H);
     /* keep a clean paint of floor under backboard + rim so the shot lane is open */
     for (ty = 1; ty <= 3; ty++) {
       for (tx = cx - 2; tx <= cx + 2; tx++) {
         if (g[ty] && tx > 0 && tx < cols - 1) g[ty][tx] = 0;
       }
     }
-    /* hang the rim ~2 tiles into the room from the north wall */
+    /* North face spans [TILE - wallH*TILE, TILE]. Mount the board high on that
+       face for high/deep walls; keep the rim in open floor (row 1+) for scoring. */
+    var frontTop = TILE - wallH * TILE;
+    var boardY = frontTop + TILE * (wallH >= 3 ? 1.0 : 1.15);
+    var rimY = Math.max(TILE * 1.35, boardY + TILE * 1.15);
     return {
       x: (cx + 0.5) * TILE,
-      y: 2.35 * TILE,
+      y: rimY,
       r: 16,
-      boardY: 1.15 * TILE,
+      boardY: boardY,
+      wallH: wallH,
       faceX: 0,
       faceY: -1, /* toward the backboard (north) */
       swished: false,
@@ -1898,7 +1912,8 @@
   }
 
   function updateCine(dt) {
-    /* auto-arm tracking when a hoop-ready shot is in the air toward the rim */
+    /* BB-V7.24 — auto-arm approach tracking on any hoop-ready heave toward the
+       rim (boss lair and knight chamber alike) so every swish gets the lead-in. */
     if ((!S.cine || !S.cine.active) && S.hoopReady && room && room.hoop && !room.hoop.swished &&
         ball && ball.live && !ball.ret) {
       var h = room.hoop;
@@ -1906,7 +1921,7 @@
       var dist = Math.hypot(dx, dy) || 1;
       var spd = Math.hypot(ball.vx, ball.vy) || 1;
       var align = (ball.vx * dx + ball.vy * dy) / (spd * dist);
-      if (align > 0.35 && dist < 420) {
+      if (align > 0.22 && dist < 560) {
         cineStart("track", {
           dur: 99, toZoom: 1.22,
           toX: ball.x, toY: ball.y, hold: 0
@@ -1978,7 +1993,7 @@
     S.score += 250 * Math.max(1, S.floor);
     burst(hoop.x, hoop.y, "#f0c030", 36);
     burst(hoop.x, hoop.y + 10, "#fff2c0", 22);
-    /* cinematic punch-in on the rim, hold the highlight, ease back to the hero */
+    /* BB-V7.24 — every make (boss or knight) gets punch-zoom → hold → ease back. */
     var z0 = (S.cine && S.cine.active) ? S.cine.zoom : 1.15;
     var fx = (S.cine && S.cine.active) ? S.cine.focusX : (ball ? ball.x : hoop.x);
     var fy = (S.cine && S.cine.active) ? S.cine.focusY : (ball ? ball.y : hoop.y);
@@ -2150,7 +2165,7 @@
       wallH: applySpecWallH(spec)
     };
     S.lordZoom = null;
-    if (spec.kind === "boss") room.hoop = makeBossHoop(spec);
+    if (roomWantsHoop(spec)) room.hoop = makeBossHoop(spec);
     var spawnEnt = spec.ents.filter(function (e) { return e.kind === "spawn"; })[0];
     if (spawnEnt) {
       room.spawnX = (spawnEnt.tx + 0.5) * TILE;
@@ -2366,12 +2381,20 @@
 
   /* BB-V7.3 — a mini kill was indistinguishable from killing a slime: no beat, no
      fountain, no shake. It gets its own, deliberately smaller than a floor boss's
-     so the floor-5 king still out-peaks the floor-1 knight. */
+     so the floor-5 king still out-peaks the floor-1 knight.
+     BB-V7.23 — knight chambers carry a lair hoop; arm a short optional swish
+     window (boss rooms still hold until the make). */
   function startMiniDeath(en) {
-    S.bossBeat = 1.1;
+    S.bossBeat = room && room.hoop ? 5.2 : 1.1;
+    S.hoopReady = !!(room && room.hoop);
     S.muteFx = 0.25;
     S.shake = 0.38;
     sfx("boss");
+    if (ball) {
+      if (ball.live) ball.ret = true;
+      else resetBallHome();
+    }
+    if (S.hoopReady) toast("SWISH THE HOOP");
     /* BB-V7.20 — mini fountain was 4 rich balls; cut to 2.
        BB-V7.22 — fountain count scales with difficulty (EASY keeps 2). */
     var n = Math.max(1, Math.round(2 * diff().fountain));
@@ -2835,6 +2858,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       room.clearWait = room.kind === "boss" ? 99 : 0.7;
       S.rooms[S.roomI].cleared = true;
       if (room.kind === "boss" && S.bossBeat > 0) { /* floor card waits on beat */ }
+      else if (S.hoopReady) { /* SWISH THE HOOP toast already up from death beat */ }
       else toast("ROOM CLEAR");
     }
   }
@@ -3866,10 +3890,13 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     if (S.shake > 0) S.shake -= dt;
     if (S.muteFx > 0) S.muteFx -= dt;
     if (S.bossBeat > 0) {
-      /* don't advance the floor while a swish cinematic is still running,
-         or while the post-boss hoop window is still open waiting for a shot */
-      var holdBeat = (S.cine && S.cine.active) ||
-        (S.hoopReady && room && room.hoop && !room.hoop.swished);
+      /* Boss lairs hold until a swish. Knight rooms stay optional, but once a
+         ready shot is in the air (or the swish cine is running) hold so every
+         make gets the full track → punch → ease camera. */
+      var hoopShotLive = !!(S.hoopReady && room && room.hoop && !room.hoop.swished &&
+        ball && ball.live && !ball.ret);
+      var holdBeat = (S.cine && S.cine.active) || hoopShotLive ||
+        (S.hoopReady && room && room.hoop && !room.hoop.swished && room.kind === "boss");
       if (!holdBeat) S.bossBeat -= dt;
       if (S.bossBeat <= 0 && room && room.cleared) {
         S.hoopReady = false;
@@ -4037,7 +4064,10 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      BB-V7.22 — difficulty tiers; loot hops settle at drop point; FEEL controls
      and dungeon builder entry hidden from player menus.
      BB-V7.23 — held-ball dribble while walking (bounce, squash, soft tap, arm).
-     BB-V7.24 — large rooms zoom out toward TILE_CSS_MIN + smoothed cam pan. */
+     BB-V7.23 — boss-lair hoop mounts on the implied wallH-3 north face;
+     end-of-floor knight chambers get the same hoop + optional swish window.
+     BB-V7.24 — large rooms zoom out toward TILE_CSS_MIN + smoothed cam pan.
+     BB-V7.24 — track→punch→ease camera on every hoop swish (boss + knight). */
   var BUILD = "v7.24";
   var FEEL_DEF = { spd: 250, accel: 2600, brake: 3600, throwSpd: 620, aimMode: "drag", aimDead: 2, aimHold: 64 };
   var FEEL = (function () {
@@ -4633,10 +4663,10 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
         g.fillRect(x * TILE, y * TILE, TILE, TILE);
       }
     }
-    if (room && room.hoop) drawHoop(g, room.hoop);
     if (S.scaleProbe && player) drawScaleProbe(g, wz);
     /* Row-sorted north→south: actors then cubes so south walls occlude feet.
-       North border: one footprint, taller front face (height, not thickness). */
+       North border: one footprint, taller front face (height, not thickness).
+       Hoop paints after the north face so a wallH-3 board sits ON the wall. */
     for (y = 0; y < rows; y++) {
       if (room) {
         for (c = 0; c < room.chests.length; c++) {
@@ -4689,6 +4719,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
           }
         }
       }
+      if (y === 0 && room && room.hoop) drawHoop(g, room.hoop);
     }
     /* East exit after wall pass so sealed/open leaves sit on the carved hole. */
     drawExitDoor(g, wz);
@@ -6849,6 +6880,13 @@ function endRunToMenu() {
         if (room) {
           room.wallH = BACK_WALL_H;
           if (room.spec) room.spec.wallH = BACK_WALL_H;
+          /* remount hoop when the implied back-wall height changes */
+          if (room.hoop) {
+            var kept = { swished: room.hoop.swished, netT: room.hoop.netT, beamT: room.hoop.beamT, glow: room.hoop.glow };
+            room.hoop = makeBossHoop(room.spec || { cols: playCols(), grid: room.grid, wallH: BACK_WALL_H });
+            room.hoop.swished = kept.swished; room.hoop.netT = kept.netT;
+            room.hoop.beamT = kept.beamT; room.hoop.glow = kept.glow;
+          }
         }
       }
       return { h: BACK_WALL_H, name: WALL_H_NAME[BACK_WALL_H], room: room ? room.wallH : null };
@@ -6951,12 +6989,17 @@ function endRunToMenu() {
     hoop: function () {
       return room && room.hoop ? {
         x: Math.round(room.hoop.x), y: Math.round(room.hoop.y), r: room.hoop.r,
+        boardY: Math.round(room.hoop.boardY), wallH: room.hoop.wallH || null,
         swished: !!room.hoop.swished, ready: !!S.hoopReady, beamT: room.hoop.beamT
       } : null;
     },
     armHoop: function () {
       if (!room) return null;
-      if (!room.hoop) room.hoop = makeBossHoop(room.spec || { cols: playCols(), grid: room.grid });
+      if (!room.hoop) {
+        room.hoop = makeBossHoop(room.spec || {
+          cols: playCols(), grid: room.grid, wallH: room.wallH || BACK_WALL_H
+        });
+      }
       S.hoopReady = true;
       room.cleared = true;
       S.bossBeat = Math.max(S.bossBeat, 8);
@@ -7077,6 +7120,26 @@ function endRunToMenu() {
         tileset: room && room.tileset ? room.tileset.id : null,
         rooms: S.rooms.map(function (r) { return { kind: r.kind, piece: r.piece }; }),
         boss: this.enemies().filter(function (en) { return en.boss === "lord"; })[0] || null
+      };
+    },
+    /* Jump to the end-of-floor knight chamber (mini) on floor 1 by default. */
+    gotoKnight: function (seed, fl) {
+      startRun(seed || "KNIGHT-HOOP");
+      S.floor = fl || 1;
+      S.rooms = buildFloor(S.floor);
+      var i, idx = S.rooms.length - 1;
+      for (i = 0; i < S.rooms.length; i++) if (S.rooms[i].kind === "mini") idx = i;
+      loadRoom(idx);
+      S.mode = "play";
+      S.pause = false;
+      hidePanels();
+      if (player) { player.inv = 8; player.hp = player.maxHp; }
+      return {
+        floor: S.floor, cols: playCols(), rows: playRows(),
+        piece: room && room.spec ? room.spec.piece : null,
+        kind: room && room.kind, hoop: !!(room && room.hoop),
+        wallH: room ? room.wallH : null,
+        hoopState: this.hoop()
       };
     },
     auditProgression: function () {
