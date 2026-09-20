@@ -525,7 +525,9 @@
     padding: 0; margin: 0;
     border: 0; background: transparent;
     cursor: pointer;
-    touch-action: manipulation;
+    /* BB-V7.29 — none, not manipulation: the exit-pull slides the held finger
+       off the cube, and the browser must never turn that into a pan/cancel. */
+    touch-action: none;
     -webkit-tap-highlight-color: transparent;
     filter: drop-shadow(0 1px 0 rgba(26,18,12,0.45));
   }
@@ -547,6 +549,27 @@
   .place-btn.armed .iso-left { fill: rgba(240,180,70,0.42); }
   .place-btn.armed .iso-right { fill: rgba(190,130,48,0.42); }
   .place-btn.armed .place-words { color: #3a1808; opacity: 0.9; }
+  /* Exit-pull: finger slid off the held cube — it lets go of the glow and greys. */
+  .place-btn.armed.pull {
+    transform: none;
+    filter: grayscale(0.6) drop-shadow(0 1px 0 rgba(26,18,12,0.45));
+  }
+  .place-btn.armed.pull .iso-top { fill: rgba(200,190,170,0.22); }
+  .place-btn.armed.pull .iso-left { fill: rgba(150,140,120,0.18); }
+  .place-btn.armed.pull .iso-right { fill: rgba(110,100,85,0.18); }
+  .place-btn.armed.pull .place-words { color: #f0e6d4; opacity: 0.45; }
+  /* Refused place: a short shake with a red flash instead of a text toast. */
+  @keyframes place-deny {
+    0% { transform: translateX(0); }
+    20% { transform: translateX(-5px); }
+    45% { transform: translateX(5px); }
+    70% { transform: translateX(-3px); }
+    100% { transform: translateX(0); }
+  }
+  .place-btn.deny { animation: place-deny 0.34s ease-out; }
+  .place-btn.deny .iso-top { fill: rgba(230,120,100,0.45); stroke: rgba(255,170,150,0.8); }
+  .place-btn.deny .iso-left { fill: rgba(200,90,70,0.32); }
+  .place-btn.deny .iso-right { fill: rgba(150,60,45,0.32); }
   #btnPause {
     top: var(--hud-pause-t); right: var(--hud-pause-r);
   }
@@ -711,6 +734,8 @@
     pause: false,
     placeMode: false,
     placeArmed: false,
+    placePull: false,
+    placePid: null,
     placeCd: 0,
     scaleProbe: false,
     aim: null,
@@ -924,6 +949,7 @@
       setTimeout(function () { beep("triangle", 70, 0.35, 0.06, 40); }, 90);
     }
     else if (name === "place") beep("square", 90, 0.06, 0.05);
+    else if (name === "deny") beep("sawtooth", 95, 0.07, 0.035, 60);
     else if (name === "boss") beep("sawtooth", 70, 0.4, 0.09, 30);
     else if (name === "cleave") { beep("sawtooth", 90, 0.12, 0.07, 40); beep("triangle", 160, 0.18, 0.05, 60); }
     else if (name === "lunge") { beep("square", 70, 0.1, 0.06, 30); beep("sawtooth", 120, 0.16, 0.07, 50); }
@@ -2346,7 +2372,7 @@
     resize();
     hidePanels();
     syncHud();
-    toast("SEED " + S.seed + " · " + diffLabel());
+    /* BB-V7.29 — no SEED/difficulty toast over the field; the pause card carries both. */
   }
 
   function customToRoom(lv) {
@@ -4070,10 +4096,26 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     return null;
   }
 
+  /* BB-V7.29 — a refused place shakes the cube instead of printing NO SPACE /
+     NO BLOCKS across the field. The empty cube already reads dim; the shake
+     says "not now" without a word. */
+  function denyPlace() {
+    var btn = document.getElementById("btnBlock");
+    if (btn) {
+      btn.classList.remove("deny");
+      void btn.offsetWidth;
+      btn.classList.add("deny");
+      clearTimeout(S.placeDenyT);
+      S.placeDenyT = setTimeout(function () { btn.classList.remove("deny"); }, 420);
+    }
+    sfx("deny");
+  }
+
   function tryPlaceAtGhost() {
     if (S.placeCd > 0) return;
+    if (!player || player.blockStock <= 0) { denyPlace(); return; }
     var c = placeGhostCell();
-    if (!c) { toast("NO SPACE"); return; }
+    if (!c) { denyPlace(); return; }
     var before = player ? player.blockStock : 0;
     tryPlaceBlock((c.tx + 0.5) * TILE, (c.ty + 0.5) * TILE);
     if (player && player.blockStock < before) S.placeCd = 0.14;
@@ -4217,8 +4259,12 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      size with same corner edge gap as v7.25.
      BB-V7.27 — pad canvas DPR 1.0 + pixel budget; park canvas on menus;
      pause rAF when hidden — older iPads were jetsamming Safari.
-     BB-V7.28 — HARD knight/boss rich balls: ~80% rare / 15% epic / 4% legendary. */
-  var BUILD = "v7.28";
+     BB-V7.28 — HARD knight/boss rich balls: ~80% rare / 15% epic / 4% legendary.
+     BB-V7.29 — exit-pull: slide off the held cube or pull the aim back to its
+     start to bail without placing/throwing; cube owned by its own pointerId so
+     other fingers no longer drop the block; pointercancel never throws;
+     refused place shakes the cube (no NO SPACE / NO BLOCKS / SEED toasts). */
+  var BUILD = "v7.29";
   var FEEL_DEF = { spd: 250, accel: 2600, brake: 3600, throwSpd: 620, aimMode: "drag", aimDead: 2, aimHold: 64 };
   var FEEL = (function () {
     var f = {};
@@ -4925,7 +4971,10 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     if (S.mode === "play" && !S.pause && S.placeArmed) drawPlaceGhost(g, wz);
     if (S.aim && !ball.live) {
       var pts = aimGuide(S.aim.ang, S.aim.pow);
-      g.strokeStyle = "rgba(240,210,140,0.45)";
+      /* Exit-pull: a cancelled aim keeps its line so the thumb can push back
+         out and re-commit, but it greys and the ball wears a strike ring. */
+      var aimOff = !!S.aim.cancel;
+      g.strokeStyle = aimOff ? "rgba(200,190,170,0.22)" : "rgba(240,210,140,0.45)";
       g.lineWidth = 2;
       g.setLineDash([6, 6]);
       g.beginPath();
@@ -4934,8 +4983,18 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       }
       g.stroke();
       g.setLineDash([]);
-      g.fillStyle = "rgba(240,210,140,0.8)";
-      g.beginPath(); g.arc(player.x + Math.cos(S.aim.ang) * 28, player.y + Math.sin(S.aim.ang) * 28, 4, 0, 6.3); g.fill();
+      if (aimOff) {
+        g.strokeStyle = "rgba(230,120,100,0.85)";
+        g.lineWidth = 2.5;
+        g.beginPath(); g.arc(player.x, player.y, 18, 0, 6.3); g.stroke();
+        g.beginPath();
+        g.moveTo(player.x - 8, player.y - 8); g.lineTo(player.x + 8, player.y + 8);
+        g.moveTo(player.x + 8, player.y - 8); g.lineTo(player.x - 8, player.y + 8);
+        g.stroke();
+      } else {
+        g.fillStyle = "rgba(240,210,140,0.8)";
+        g.beginPath(); g.arc(player.x + Math.cos(S.aim.ang) * 28, player.y + Math.sin(S.aim.ang) * 28, 4, 0, 6.3); g.fill();
+      }
     }
     for (z = 0; z < S.particles.length; z++) {
       var pt = S.particles[z];
@@ -4953,7 +5012,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       g.fillText(ft.t, ft.x, ft.y);
       g.globalAlpha = 1;
     }
-    if (S.placeArmed) {
+    if (S.placeArmed && !S.placePull) {
       g.fillStyle = "rgba(240,176,60,0.08)";
       g.fillRect(0, 0, playW(), playH());
     }
@@ -5000,15 +5059,23 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     var ghost = placeGhostCell();
     if (!ghost) return;
     var x = ghost.tx * TILE, y = ghost.ty * TILE;
+    var pull = !!S.placePull;
     g.save();
-    g.globalAlpha = 0.78;
-    cube(g, x, y - wz, TILE, TILE, wz, "#e8b84a", false);
+    g.globalAlpha = pull ? 0.32 : 0.78;
+    cube(g, x, y - wz, TILE, TILE, wz, pull ? "#9a9080" : "#e8b84a", false);
     g.globalAlpha = 1;
-    g.strokeStyle = "#fff3b0";
+    g.strokeStyle = pull ? "rgba(230,120,100,0.8)" : "#fff3b0";
     g.lineWidth = 2.5;
     g.setLineDash([6, 4]);
     g.strokeRect(x + 1.5, y - wz + 1.5, TILE - 3, TILE - 3);
     g.setLineDash([]);
+    if (pull) {
+      /* Exit-pull: a strike across the top face says "lift here, no block". */
+      g.beginPath();
+      g.moveTo(x + 7, y - wz + 7); g.lineTo(x + TILE - 7, y - wz + TILE - 7);
+      g.moveTo(x + TILE - 7, y - wz + 7); g.lineTo(x + 7, y - wz + TILE - 7);
+      g.stroke();
+    }
     g.restore();
   }
 
@@ -6167,7 +6234,8 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     }
     var btn = document.getElementById("btnBlock");
     if (btn) {
-      btn.className = "hud-item place-btn" + (S.placeArmed ? " armed" : "") + ((player && player.blockStock <= 0) ? " empty" : "");
+      btn.className = "hud-item place-btn" + (S.placeArmed ? (S.placePull ? " armed pull" : " armed") : "") +
+        ((player && player.blockStock <= 0) ? " empty" : "") + (btn.classList.contains("deny") ? " deny" : "");
     }
     var hud = document.getElementById("hud");
     if (hud) {
@@ -6190,6 +6258,8 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
   function hidePanels() {
     S.placeArmed = false;
     S.placeMode = false;
+    S.placePull = false;
+    S.placePid = null;
     ["splashPanel", "menuPanel", "pausePanel", "shopPanel", "floorPanel", "builderPanel", "feelPanel"].forEach(function (id) {
       document.getElementById(id).className = "panel";
     });
@@ -6764,7 +6834,23 @@ function endRunToMenu() {
       }
       S.aim.x = player.x + Math.cos(S.aim.ang) * 200;
       S.aim.y = player.y + Math.sin(S.aim.ang) * 200;
+      aimPull(ev);
     }
+  }
+
+  /* BB-V7.29 — exit-pull for the throw. Once the drag has reached out past
+     AIM_COMMIT (CSS px) and the thumb comes back inside AIM_CANCEL of where it
+     started, the aim reads as "put the ball back": the guide greys out and
+     lifting the thumb throws nothing. A plain tap never travels, so it still
+     throws at 0.6 power like before. */
+  var AIM_COMMIT = 28, AIM_CANCEL = 16;
+  function aimPull(ev) {
+    if (!S.aim || !S.dragFromCss) return;
+    var c = canvasFromEvent(ev);
+    var dpr = canvas.width / Math.max(1, window.innerWidth);
+    var d = Math.hypot(c.x - S.dragFromCss.x, c.y - S.dragFromCss.y) / dpr;
+    S.aim.reach = Math.max(S.aim.reach || 0, d);
+    S.aim.cancel = S.aim.reach > AIM_COMMIT && d < AIM_CANCEL;
   }
 
   function onUp(ev) {
@@ -6773,7 +6859,18 @@ function endRunToMenu() {
     STK.FIELD.id = null;
     if (!S.pointer.down) return;
     S.pointer.down = false;
-    if (S.mode === "play" && S.aim && !ball.live && !S.downed) throwBall(S.aim.ang, S.aim.pow);
+    if (S.mode === "play" && S.aim && !S.aim.cancel && !ball.live && !S.downed) throwBall(S.aim.ang, S.aim.pow);
+    S.aim = null;
+    S.dragFromCss = null;
+  }
+
+  /* A cancelled pointer is the OS taking the touch away (palm, system gesture,
+     a third finger). That is never a throw; it used to fire one. */
+  function onCancel(ev) {
+    if (ev.pointerId === STK.L.id) { STK.L.id = null; STK.L.dx = 0; STK.L.dy = 0; return; }
+    if (ev.pointerId !== STK.FIELD.id) return;
+    STK.FIELD.id = null;
+    S.pointer.down = false;
     S.aim = null;
     S.dragFromCss = null;
   }
@@ -6784,6 +6881,7 @@ function endRunToMenu() {
     STK.L.id = null; STK.L.dx = 0; STK.L.dy = 0;
     STK.R.id = null; STK.R.dx = 0; STK.R.dy = 0;
     STK.FIELD.id = null; S.pointer.down = false; S.aim = null; S.dragFromCss = null;
+    S.placeArmed = false; S.placeMode = false; S.placePull = false; S.placePid = null;
   }
 
   var KEYMAP = {
@@ -6803,48 +6901,83 @@ function endRunToMenu() {
     if (k) KEYS[k] = false;
   });
   window.addEventListener("blur", function () { KEYS.left = KEYS.right = KEYS.up = KEYS.down = false; });
+  /* Desktop exit-pull: Escape drops a held aim or an armed cube without acting. */
+  window.addEventListener("keydown", function (ev) {
+    if (ev.key !== "Escape" || S.mode !== "play") return;
+    if (S.aim) S.aim.cancel = true;
+    if (S.placeArmed) S.placePull = true;
+    syncHud();
+  });
 
   canvas.addEventListener("pointerdown", onDown);
   canvas.addEventListener("pointermove", onMove);
   window.addEventListener("pointerup", onUp);
-  window.addEventListener("pointercancel", onUp);
+  window.addEventListener("pointercancel", onCancel);
 
   document.getElementById("btnPause").onclick = function () {
     if (S.mode !== "play" || S.downed) return;
     S.pause = true; clearSticks(); showPause();
   };
+  /* BB-V7.29 — the cube is owned by the finger that pressed it. The v7.6 patch
+     released on ANY window pointerup, so lifting the walk thumb or finishing a
+     throw with the other hand dropped the block early and left the still-held
+     cube dead. Exit-pull: slide that finger off the cube (past PULL_SLOP) and
+     the ghost greys out; lift there and nothing is placed. Slide back on to
+     re-commit. */
   (function bindPlaceBtn() {
     var btn = document.getElementById("btnBlock");
+    var PULL_SLOP = 14;
+    function onCube(ev) {
+      var r = btn.getBoundingClientRect();
+      return ev.clientX >= r.left - PULL_SLOP && ev.clientX <= r.right + PULL_SLOP &&
+             ev.clientY >= r.top - PULL_SLOP && ev.clientY <= r.bottom + PULL_SLOP;
+    }
     function arm(ev) {
       ev.preventDefault();
       ev.stopPropagation();
       if (S.mode !== "play" || S.pause || S.downed) return;
+      /* A second finger cannot steal a live hold; a stale id from a lost
+         pointer is simply taken over. */
+      if (S.placeArmed && S.placePid !== null && S.placePid !== ev.pointerId) return;
+      S.placePid = ev.pointerId;
       S.placeArmed = true;
       S.placeMode = true;
+      S.placePull = false;
       try { btn.setPointerCapture(ev.pointerId); } catch (err) {}
       syncHud();
     }
+    function move(ev) {
+      if (!S.placeArmed || ev.pointerId !== S.placePid) return;
+      var pull = !onCube(ev);
+      if (pull !== S.placePull) { S.placePull = pull; syncHud(); }
+    }
     function release(ev) {
-      if (ev) { ev.preventDefault(); ev.stopPropagation(); }
+      if (ev.pointerId !== S.placePid) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      S.placePid = null;
       if (!S.placeArmed) return;
+      var pull = S.placePull;
       S.placeArmed = false;
       S.placeMode = false;
-      if (S.mode === "play" && !S.pause && !S.downed) tryPlaceAtGhost();
+      S.placePull = false;
+      if (!pull && S.mode === "play" && !S.pause && !S.downed) tryPlaceAtGhost();
       syncHud();
     }
     function cancel(ev) {
-      if (ev) ev.stopPropagation();
+      if (ev && ev.pointerId !== S.placePid) return;
+      S.placePid = null;
       S.placeArmed = false;
       S.placeMode = false;
+      S.placePull = false;
       syncHud();
     }
     btn.addEventListener("pointerdown", arm);
-    btn.addEventListener("pointerup", release);
-    btn.addEventListener("pointercancel", cancel);
+    window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", release);
     window.addEventListener("pointercancel", cancel);
-    btn.addEventListener("lostpointercapture", function () {
-      if (S.placeArmed) cancel();
+    btn.addEventListener("lostpointercapture", function (ev) {
+      if (S.placeArmed && ev.pointerId === S.placePid) cancel(ev);
     });
     btn.addEventListener("click", function (ev) { ev.preventDefault(); ev.stopPropagation(); });
   })();
@@ -6983,6 +7116,12 @@ function endRunToMenu() {
         mode: S.mode, cleared: room && room.cleared };
     },
     drive: function (dx, dy) { STK.L.dx = dx; STK.L.dy = dy; },
+    /* Harness: live pointer / place / aim state for the exit-pull sequences. */
+    input: function () {
+      return { placeArmed: !!S.placeArmed, placePull: !!S.placePull, placePid: S.placePid,
+        fieldId: STK.FIELD.id, stickId: STK.L.id, ballLive: !!(ball && ball.live), throws: S.throws,
+        aim: S.aim ? { ang: +S.aim.ang.toFixed(3), pow: +S.aim.pow.toFixed(3), cancel: !!S.aim.cancel, reach: Math.round(S.aim.reach || 0) } : null };
+    },
     giveFrag: function (n) { player.frag = n; },
     heal: healPlayer,
     setHp: function (n) { if (!player) return; player.hp = n; player.inv = 9; syncHud(); },
