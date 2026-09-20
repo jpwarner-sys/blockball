@@ -4984,12 +4984,14 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       g.stroke();
       g.setLineDash([]);
       if (aimOff) {
+        /* Ring sits on the torso (drawPlayer paints from y - sc*1.55 down). */
+        var hsc = 22 * HS, rcx = player.x, rcy = player.y - hsc * 0.75, rr = hsc * 0.5, rx = rr * 0.45;
         g.strokeStyle = "rgba(230,120,100,0.85)";
         g.lineWidth = 2.5;
-        g.beginPath(); g.arc(player.x, player.y, 18, 0, 6.3); g.stroke();
+        g.beginPath(); g.arc(rcx, rcy, rr, 0, 6.3); g.stroke();
         g.beginPath();
-        g.moveTo(player.x - 8, player.y - 8); g.lineTo(player.x + 8, player.y + 8);
-        g.moveTo(player.x + 8, player.y - 8); g.lineTo(player.x - 8, player.y + 8);
+        g.moveTo(rcx - rx, rcy - rx); g.lineTo(rcx + rx, rcy + rx);
+        g.moveTo(rcx + rx, rcy - rx); g.lineTo(rcx - rx, rcy + rx);
         g.stroke();
       } else {
         g.fillStyle = "rgba(240,210,140,0.8)";
