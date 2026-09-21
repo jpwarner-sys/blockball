@@ -381,17 +381,40 @@
     align-items: center;
     gap: 8px;
     width: 100%;
-    max-width: 340px;
+    max-width: none;
     margin-top: 4px;
   }
-  .soundVol span:first-child { font-weight: 700; letter-spacing: 0.06em; font-size: 13px; }
-  .soundVol input[type="range"] {
-    flex: 1;
+  .soundVol > span:first-child { font-weight: 700; letter-spacing: 0.06em; font-size: 13px; flex: 0 0 auto; }
+  .soundVolCol {
+    flex: 1 1 auto;
     min-width: 110px;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+  }
+  .soundVol input[type="range"] {
+    width: 100%;
     min-height: 32px;
+    margin: 0;
     accent-color: #d06018;
   }
-  .soundVol .muted { min-width: 36px; text-align: right; }
+  .soundMarks {
+    position: relative;
+    height: 13px;
+    color: #9a8c78;
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+  }
+  .soundMarks span {
+    position: absolute;
+    top: 0;
+    transform: translateX(-50%);
+    white-space: nowrap;
+  }
+  .soundMarks span:first-child { transform: none; }
+  .soundMarks span:last-child { transform: translateX(-100%); }
+  .soundVol .muted { min-width: 4.8em; text-align: right; }
   .shopGrid { display: flex; flex-direction: column; gap: 8px; }
   .shopCol { display: flex; flex-direction: column; gap: 8px; }
   .shopRow {
@@ -601,6 +624,8 @@
     width: 100%;
     flex: 1 1 auto;
   }
+  #menuCard .menuSound .soundVolCol { min-width: 0; }
+  #menuCard .menuSound .soundMarks { font-size: clamp(9px, 1.5cqi, 11px); }
   #menuCard .menuSound .soundRow { flex: 0 0 auto; }
   #menuCard.menuCosOpen {
     gap: clamp(6px, 1.2cqi, 10px);
@@ -1064,8 +1089,9 @@
     aimHelp: false,
     /* BB-V7.32 — MIX (true) lets Audible / Music keep playing under the beeps. */
     mixAudio: true,
-    /* BB-V7.36 — 0–100 master. 100 is 6× the original MIX beeps. */
-    sfxVol: 100,
+    /* BB-V7.40 — slider 50 is the MIX baseline (old 100). 0 mute, 100 max. */
+    sfxVol: 50,
+    sfxVolScale: 2,
     updatedAt: 0
   };
 
@@ -1123,7 +1149,11 @@
     if (o.mixAudio === true) store.mixAudio = true;
     if (typeof o.sfxVol === "number" && isFinite(o.sfxVol)) {
       var cap = typeof SFX_VOL_MAX === "number" ? SFX_VOL_MAX : 100;
-      store.sfxVol = Math.max(0, Math.min(cap, Math.round(o.sfxVol)));
+      var vol = Math.round(o.sfxVol);
+      /* v7.36 stored 100 as the MIX baseline. That point is now slider 50. */
+      if (o.sfxVolScale !== 2) vol = Math.round(Math.max(0, Math.min(100, vol)) * 0.5);
+      store.sfxVol = Math.max(0, Math.min(cap, vol));
+      store.sfxVolScale = 2;
     }
     if (typeof o.activeProfile === "number" &&
         o.activeProfile >= 0 && o.activeProfile < store.profiles.length) {
@@ -1145,6 +1175,7 @@
       aimHelp: store.aimHelp,
       mixAudio: store.mixAudio !== false,
       sfxVol: sfxVol(),
+      sfxVolScale: 2,
       activeProfile: activeProfile
     };
   }
@@ -1396,9 +1427,11 @@
 
   var audioCtx = null;
   var lastBeepGain = 0;
-  /* BB-V7.36 — oscillator patches were ~0.05, inaudible under Audible at MIX.
-     6× at slider 100. Cap so stacked saws do not clip. */
+  /* BB-V7.37 — 50 is the locked MIX baseline (old 100). Smooth 0 mute →
+     50 normal → 75 boosted → 100 max (2× normal). Cap stacked saws. */
   var SFX_VOL_MAX = 100;
+  var SFX_VOL_NORMAL = 50;
+  var SFX_VOL_BOOST = 75;
   var SFX_GAIN = 6;
   /* BB-V7.32 — Safari/iOS `auto` can grab exclusive playback and kill Audible.
      MIX asks for an ambient session so other apps keep going; SOLO is exclusive.
@@ -1422,15 +1455,21 @@
   }
   function sfxVol() {
     var n = store.sfxVol;
-    if (n == null || !isFinite(n)) n = 100;
+    if (n == null || !isFinite(n)) n = SFX_VOL_NORMAL;
     return Math.max(0, Math.min(SFX_VOL_MAX, Math.round(n)));
   }
   function setSfxVol(n) {
     n = Math.round(+n);
-    if (!isFinite(n)) n = 100;
+    if (!isFinite(n)) n = SFX_VOL_NORMAL;
     store.sfxVol = Math.max(0, Math.min(SFX_VOL_MAX, n));
+    store.sfxVolScale = 2;
     saveStore();
     return store.sfxVol;
+  }
+  function sfxMul() {
+    var v = sfxVol();
+    if (v <= 0) return 0;
+    return v / SFX_VOL_NORMAL;
   }
   function ensureAudio() {
     applyAudioMix();
@@ -1442,7 +1481,7 @@
   }
   function beep(type, freq, dur, vol, slide) {
     if (S.muteFx > 0) return;
-    var gain = (vol || 0.06) * (sfxVol() / 100) * SFX_GAIN;
+    var gain = (vol || 0.06) * SFX_GAIN * sfxMul();
     if (gain > 0.9) gain = 0.9;
     lastBeepGain = gain;
     if (gain <= 0) return;
@@ -4842,8 +4881,10 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      BB-V7.40 — medium rooms zoom out a hair so the south wall and enemies stay
      in frame; stand-still look-wider zoom; no camY snap-flip at mid-room.
      BB-V7.41 — HUD origin includes safe-area + bezel so filled rect pips
-     don't clip the round screen corners. */
-  var BUILD = "v7.41";
+     don't clip the round screen corners.
+     BB-V7.42 — MIX 100 locked as NORMAL (slider 50); smooth mute → normal →
+     boosted → max, max is 2× normal. */
+  var BUILD = "v7.42";
   var FEEL_DEF = { spd: 250, accel: 2600, brake: 3600, throwSpd: 620, aimMode: "drag", aimDead: 2, aimHold: 64 };
   var FEEL = (function () {
     var f = {};
@@ -7071,12 +7112,24 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
 
   function soundVolLabel() {
     var v = sfxVol();
-    return v ? String(v) : "OFF";
+    if (v <= 0) return "OFF";
+    if (v === SFX_VOL_NORMAL) return "NORMAL";
+    if (v === SFX_VOL_BOOST) return "BOOSTED";
+    if (v >= SFX_VOL_MAX) return "MAX";
+    return (v / SFX_VOL_NORMAL).toFixed(2) + "\u00d7";
   }
   function soundVolRow(idPrefix) {
     return "<div class='soundVol'>" +
       "<span>BEEPS</span>" +
-      "<input type='range' id='" + idPrefix + "Vol' min='0' max='" + SFX_VOL_MAX + "' step='5' value='" + sfxVol() + "'>" +
+      "<div class='soundVolCol'>" +
+      "<input type='range' id='" + idPrefix + "Vol' min='0' max='" + SFX_VOL_MAX +
+        "' step='1' value='" + sfxVol() + "'>" +
+      "<div class='soundMarks' aria-hidden='true'>" +
+      "<span style='left:0%'>MUTE</span>" +
+      "<span style='left:50%'>NORMAL</span>" +
+      "<span style='left:75%'>BOOST</span>" +
+      "<span style='left:100%'>MAX</span>" +
+      "</div></div>" +
       "<span class='muted' id='" + idPrefix + "VolN'>" + soundVolLabel() + "</span></div>";
   }
   function bindSoundVol(idPrefix) {
@@ -7113,7 +7166,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       "<h1>PAUSE</h1>" +
       "<p class='muted'>" + S.seed + " · " + diffLabel() + " · Floor " + S.floor + " · " + (player ? player.token : "") +
         " · BALL " + ((player && player.ballAffix && player.ballAffix.length) ? player.ballAffix.join("+") : (player && player.permaFire ? "FIRE" : "PLAIN")) + "</p>" +
-      "<p class='muted'>MIX keeps Audible / Music going with the beeps. SOLO is game-only. BEEPS is the game volume.</p>" +
+      "<p class='muted'>MIX keeps Audible / Music going with the beeps. SOLO is game-only. BEEPS is mute \u2192 normal \u2192 boosted \u2192 max.</p>" +
       soundMixRow() +
       soundVolRow("pause") +
       "</div><div class='landBtns row'>" +
@@ -8044,6 +8097,9 @@ function endRunToMenu() {
         mix: store.mixAudio !== false,
         vol: sfxVol(),
         max: SFX_VOL_MAX,
+        normal: SFX_VOL_NORMAL,
+        boostAt: SFX_VOL_BOOST,
+        mul: sfxMul(),
         boost: SFX_GAIN,
         lastGain: lastBeepGain,
         session: session,
