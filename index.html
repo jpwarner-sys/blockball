@@ -179,17 +179,27 @@
     --hud-place-h: clamp(88px, 20vh, 110px);
     --hud-place-fs: clamp(13px, 3.4vh, 18px);
     --hud-pause: clamp(44px, 9vh, 52px);
-    --hud-hp-t: var(--hud-pad);
-    --hud-hp-l: var(--hud-pad);
-    /* BB-V7.34 — pause is a ghost under the hearts, leading the floor/score band.
+    /* Absolute chips ignore #hud padding. Fold safe-area into the origin, plus a
+       bezel so filled HP rects (unlike heart SVGs) don't clip the round corners.
+       Landscape often reports 0 top inset, which is why bezel is a max() floor. */
+    --hud-bezel: 12px;
+    --hud-safe-t: env(safe-area-inset-top, 0px);
+    --hud-safe-r: env(safe-area-inset-right, 0px);
+    --hud-safe-l: env(safe-area-inset-left, 0px);
+    --hud-origin-t: calc(var(--hud-pad) + max(var(--hud-bezel), var(--hud-safe-t)));
+    --hud-origin-l: calc(var(--hud-pad) + max(var(--hud-bezel), var(--hud-safe-l)));
+    --hud-origin-r: calc(var(--hud-pad) + max(var(--hud-bezel), var(--hud-safe-r)));
+    --hud-hp-t: var(--hud-origin-t);
+    --hud-hp-l: var(--hud-origin-l);
+    /* BB-V7.34 — pause is a ghost under the HP pips, leading the floor/score band.
        Place hugs the far right now that pause no longer takes a top-right slot. */
-    --hud-pause-t: calc(var(--hud-pad) + clamp(28px, 7.8vh, 42px));
-    --hud-pause-l: var(--hud-pad);
-    --hud-meta-t: calc(var(--hud-pad) + clamp(28px, 7.8vh, 42px));
-    --hud-meta-l: calc(var(--hud-pad) + var(--hud-pause) + 4px);
-    --hud-place-t: var(--hud-pad);
-    --hud-place-r: var(--hud-pad);
-    --hud-pips-t: calc(var(--hud-pad) + 10px);
+    --hud-pause-t: calc(var(--hud-origin-t) + clamp(28px, 7.8vh, 42px));
+    --hud-pause-l: var(--hud-origin-l);
+    --hud-meta-t: calc(var(--hud-origin-t) + clamp(28px, 7.8vh, 42px));
+    --hud-meta-l: calc(var(--hud-origin-l) + var(--hud-pause) + 4px);
+    --hud-place-t: var(--hud-origin-t);
+    --hud-place-r: var(--hud-origin-r);
+    --hud-pips-t: calc(var(--hud-origin-t) + 10px);
     --hud-pips-r: calc(var(--hud-place-r) + var(--hud-place-w) + 8px);
   }
   /* BB-V7.25 — tablet/iPad bolt-on: same HUD nodes, phone-scale chrome.
@@ -218,10 +228,11 @@
     --hud-top: calc(var(--hud-pad) + var(--hud-heart-h));
     --hud-hp-t: var(--hud-top);
     --hud-pause-t: calc(var(--hud-top) + clamp(22px, 3.6vh, 30px));
-    --hud-pause-l: var(--hud-pad);
+    --hud-pause-l: var(--hud-origin-l);
     --hud-meta-t: calc(var(--hud-top) + clamp(22px, 3.6vh, 30px));
-    --hud-meta-l: calc(var(--hud-pad) + var(--hud-pause) + 4px);
+    --hud-meta-l: calc(var(--hud-origin-l) + var(--hud-pause) + 4px);
     --hud-place-t: var(--hud-top);
+    --hud-place-r: var(--hud-origin-r);
     --hud-pips-t: calc(var(--hud-top) + 6px);
   }
   #hud button, #hud input, #hud textarea, #hud .hit {
@@ -4560,8 +4571,10 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      BB-V7.33 — BEEPS slider (0–100) on menu + pause; 0 is mute.
      BB-V7.34 — pause is a ghost under the HP pips; place hugs the far right.
      BB-V7.35 — HP pips are rectangles that narrow with max HP, merge into a
-     ticked bar, then a plain numbered bar. No heart shapes in the HUD. */
-  var BUILD = "v7.35";
+     ticked bar, then a plain numbered bar. No heart shapes in the HUD.
+     BB-V7.36 — HUD origin includes safe-area + bezel so filled rect pips
+     don't clip the round screen corners. */
+  var BUILD = "v7.36";
   var FEEL_DEF = { spd: 250, accel: 2600, brake: 3600, throwSpd: 620, aimMode: "drag", aimDead: 2, aimHold: 64 };
   var FEEL = (function () {
     var f = {};
