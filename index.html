@@ -366,6 +366,7 @@
   .swatch { width: 28px; height: 28px; border: 2px solid #111; display: inline-block; }
   .landSplit { display: flex; flex-direction: column; gap: 8px; }
   .landBtns { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .soundRow { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
   .shopGrid { display: flex; flex-direction: column; gap: 8px; }
   .shopCol { display: flex; flex-direction: column; gap: 8px; }
   .shopRow {
@@ -417,6 +418,7 @@
       flex-wrap: nowrap;
     }
     .landSplit .landCopy { flex: 1; min-width: 0; text-align: right; }
+    .landSplit .landCopy .soundRow { justify-content: flex-end; }
     .landSplit .landBtns { flex: 0 0 auto; flex-direction: column; align-items: stretch; gap: 10px; min-width: 220px; }
     #shopCard h1 { font-size: clamp(30px, 4.6vw, 44px); margin: 0 0 8px; }
     .shopGrid {
@@ -958,7 +960,9 @@
       { token: "RIFT", cos: { body: "swift", hat: "bow", ball: "midnight", trail: "ribbon", pal: "lilac" } }
     ],
     installHide: false,
-    aimHelp: false
+    aimHelp: false,
+    /* BB-V7.32 — MIX (true) lets Audible / Music keep playing under the beeps. */
+    mixAudio: true
   };
 
   function lsGet(k) {
@@ -990,6 +994,7 @@
       }
       if (o.installHide) store.installHide = true;
       if (o.aimHelp) store.aimHelp = true;
+      if (o.mixAudio === false) store.mixAudio = false;
       S.seenAimHelp = !!o.aimHelp;
     } catch (e) {}
   }
@@ -1023,7 +1028,8 @@
         profiles: store.profiles,
         difficulty: store.difficulty || "easy",
         installHide: store.installHide,
-        aimHelp: store.aimHelp
+        aimHelp: store.aimHelp,
+        mixAudio: store.mixAudio !== false
       }));
     } catch (e) {}
   }
@@ -1063,7 +1069,28 @@
   function seedRng(extra) { rng = mulberry(hashStr(S.seed + ":" + extra)); }
 
   var audioCtx = null;
+  /* BB-V7.32 — Safari/iOS `auto` can grab exclusive playback and kill Audible.
+     MIX asks for an ambient session so other apps keep going; SOLO is exclusive.
+     Must be set before creating or resuming the AudioContext. */
+  function applyAudioMix() {
+    try {
+      if (!navigator.audioSession) return null;
+      /* Splash / menu stay ambient so TAP TO START cannot kill Audible.
+         SOLO only claims exclusive playback once a run is live. */
+      var live = S.mode === "play";
+      var solo = store.mixAudio === false && live;
+      navigator.audioSession.type = solo ? "playback" : "ambient";
+      return navigator.audioSession.type;
+    } catch (err) { return null; }
+  }
+  function setMixAudio(on) {
+    store.mixAudio = on !== false;
+    saveStore();
+    applyAudioMix();
+    return store.mixAudio;
+  }
   function ensureAudio() {
+    applyAudioMix();
     if (audioCtx) return audioCtx;
     var AC = window.AudioContext || window.webkitAudioContext;
     if (!AC) return null;
@@ -4437,8 +4464,10 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      refused place shakes the cube (no NO SPACE / NO BLOCKS / SEED toasts).
      BB-V7.31 — rAF survives an exception (was a freeze on the last frame);
      WebAudio beeps cannot kill the loop; shade/ellipse/blocks/cos/ball
-     guards; splash JPEG dropped when a run starts. */
-  var BUILD = "v7.31";
+     guards; splash JPEG dropped when a run starts.
+     BB-V7.32 — ambient audio session so Audible / Music mix with the beeps;
+     MIX is the default, SOLO on pause is exclusive game audio. */
+  var BUILD = "v7.32";
   var FEEL_DEF = { spd: 250, accel: 2600, brake: 3600, throwSpd: 620, aimMode: "drag", aimDead: 2, aimHold: 64 };
   var FEEL = (function () {
     var f = {};
@@ -6607,12 +6636,18 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
 
   function showPause() {
     hidePanels();                 /* same trap as showShop had */
+    var mixOn = store.mixAudio !== false;
     document.getElementById("pausePanel").className = "panel show";
     document.getElementById("pauseCard").innerHTML =
       "<div class='landSplit'><div class='landCopy'>" +
       "<h1>PAUSE</h1>" +
       "<p class='muted'>" + S.seed + " · " + diffLabel() + " · Floor " + S.floor + " · " + (player ? player.token : "") +
         " · BALL " + ((player && player.ballAffix && player.ballAffix.length) ? player.ballAffix.join("+") : (player && player.permaFire ? "FIRE" : "PLAIN")) + "</p>" +
+      "<p class='muted'>MIX keeps Audible / Music going with the beeps. SOLO is game-only.</p>" +
+      "<div class='soundRow'>" +
+      "<button class='bb" + (mixOn ? " on" : "") + "' id='btnMix'>MIX</button>" +
+      "<button class='bb" + (mixOn ? "" : " on") + "' id='btnSolo'>SOLO</button>" +
+      "</div>" +
       "</div><div class='landBtns row'>" +
       "<button class='bb pri' id='btnRes'>RESUME</button>" +
       "<button class='bb' id='btnUpg'>UPGRADE · " + player.frag + "</button>" +
@@ -6621,6 +6656,16 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     document.getElementById("btnUpg").onclick = function () { showShop(); };
     document.getElementById("btnRes").onclick = function () { document.getElementById("pausePanel").className = "panel"; S.pause = false; };
     document.getElementById("btnMenu").onclick = function () { S.pause = false; endRunToMenu(); };
+    document.getElementById("btnMix").onclick = function () {
+      setMixAudio(true);
+      toast("BEEPS + AUDIBLE");
+      showPause();
+    };
+    document.getElementById("btnSolo").onclick = function () {
+      setMixAudio(false);
+      toast("GAME ONLY");
+      showPause();
+    };
   }
 function endRunToMenu() {
     if (player) {
@@ -7325,6 +7370,7 @@ function endRunToMenu() {
   /* ---------- boot ---------- */
   loadStore();
   resetItemsAndBoostsOnLoad();
+  applyAudioMix();
   setupInstall();
   resize();
   showSplash();
@@ -7449,6 +7495,20 @@ function endRunToMenu() {
       setDifficulty(id);
       if (S.mode === "play") S.difficulty = store.difficulty;
       return this.difficulty();
+    },
+    audio: function () {
+      var session = null;
+      try { session = navigator.audioSession ? navigator.audioSession.type : null; } catch (e) {}
+      return {
+        mix: store.mixAudio !== false,
+        session: session,
+        ctx: audioCtx ? audioCtx.state : null
+      };
+    },
+    setMix: function (on) {
+      setMixAudio(on !== false);
+      ensureAudio();
+      return this.audio();
     },
     feel: function () {
       return { spd: FEEL.spd, accel: FEEL.accel, brake: FEEL.brake, throwSpd: FEEL.throwSpd,
