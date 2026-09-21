@@ -178,15 +178,16 @@
     --hud-place-w: clamp(80px, 18vh, 100px);
     --hud-place-h: clamp(88px, 20vh, 110px);
     --hud-place-fs: clamp(13px, 3.4vh, 18px);
-    --hud-pause: clamp(44px, 9vh, 52px);
+    --hud-pause: clamp(56px, 12vh, 68px);
     --hud-hp-t: var(--hud-pad);
     --hud-hp-l: var(--hud-pad);
-    /* BB-V7.34 — pause is a ghost under the hearts, leading the floor/score band.
-       Place hugs the far right now that pause no longer takes a top-right slot. */
-    --hud-pause-t: calc(var(--hud-pad) + clamp(28px, 7.8vh, 42px));
+    /* BB-V7.37 — pause sits under floor/score/frag, a bit larger, still a ghost.
+       Place stays far right. Meta is left-aligned under the HP track. */
+    --hud-meta-h: max(var(--hud-meta-fs), var(--hud-meta-ico));
+    --hud-meta-t: calc(var(--hud-hp-t) + var(--hud-heart-h) + 6px);
+    --hud-meta-l: var(--hud-pad);
+    --hud-pause-t: calc(var(--hud-meta-t) + var(--hud-meta-h) + 4px);
     --hud-pause-l: var(--hud-pad);
-    --hud-meta-t: calc(var(--hud-pad) + clamp(28px, 7.8vh, 42px));
-    --hud-meta-l: calc(var(--hud-pad) + var(--hud-pause) + 4px);
     --hud-place-t: var(--hud-pad);
     --hud-place-r: var(--hud-pad);
     --hud-pips-t: calc(var(--hud-pad) + 10px);
@@ -214,13 +215,13 @@
     --hud-place-w: clamp(64px, 9.5vh, 78px);
     --hud-place-h: clamp(70px, 10.5vh, 86px);
     --hud-place-fs: clamp(11px, 1.7vh, 14px);
-    --hud-pause: clamp(36px, 4.8vh, 44px);
+    --hud-pause: clamp(48px, 6.4vh, 58px);
     --hud-top: calc(var(--hud-pad) + var(--hud-heart-h));
     --hud-hp-t: var(--hud-top);
-    --hud-pause-t: calc(var(--hud-top) + clamp(22px, 3.6vh, 30px));
+    --hud-meta-t: calc(var(--hud-hp-t) + var(--hud-heart-h) + 4px);
+    --hud-meta-l: var(--hud-pad);
+    --hud-pause-t: calc(var(--hud-meta-t) + var(--hud-meta-h) + 4px);
     --hud-pause-l: var(--hud-pad);
-    --hud-meta-t: calc(var(--hud-top) + clamp(22px, 3.6vh, 30px));
-    --hud-meta-l: calc(var(--hud-pad) + var(--hud-pause) + 4px);
     --hud-place-t: var(--hud-top);
     --hud-pips-t: calc(var(--hud-top) + 6px);
   }
@@ -787,20 +788,22 @@
     background: transparent;
     border: 0;
     box-shadow: none;
-    filter: drop-shadow(0 1px 0 rgba(26,18,12,0.35));
+    z-index: 5;
+    touch-action: manipulation;
+    filter: drop-shadow(0 1px 0 rgba(26,18,12,0.45));
   }
-  #btnPause svg { opacity: 0.22; }
+  #btnPause svg { opacity: 0.42; }
   #btnPause:hover svg,
-  #btnPause:focus-visible svg { opacity: 0.48; }
-  #btnPause:active svg { opacity: 0.62; }
+  #btnPause:focus-visible svg { opacity: 0.7; }
+  #btnPause:active svg { opacity: 0.86; }
   #hud button.bb.icon-btn {
     width: var(--hud-pause);
     height: var(--hud-pause);
-    padding: 8px;
+    padding: 6px;
     box-sizing: border-box;
     align-items: center; justify-content: center;
   }
-  #hud button.bb.icon-btn svg { width: 70%; height: 70%; }
+  #hud button.bb.icon-btn svg { width: 78%; height: 78%; }
   #botbar .row { min-height: 0; }
   #botbar { position: absolute; left: 0; right: 0; bottom: 0;
     padding: 8px 10px calc(8px + env(safe-area-inset-bottom));
@@ -846,8 +849,8 @@
     </button>
     <!-- CHIEF FIX BB-V6.7 — the bottom strip sat under both thumbs. BALL and SEED
          were read-only labels that belong on the pause card, not across the play
-         field; BLOCK sits top-right and PAUSE is a ghost under the hearts (BB-V7.34).
-         The bottom of the screen belongs to the two rings and nothing else. -->
+         field; BLOCK sits top-right and PAUSE is a ghost under floor/score/frag
+         (BB-V7.37). The bottom of the screen belongs to the two rings and nothing else. -->
     <div id="botbar">
       <div class="row"></div>
       <div class="row"></div>
@@ -4566,8 +4569,10 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      BB-V7.34 — pause is a ghost under the HP pips; place hugs the far right.
      BB-V7.35 — HP pips are rectangles that narrow with max HP, merge into a
      ticked bar, then a plain numbered bar. No heart shapes in the HUD.
-     BB-V7.36 — MIX beeps 6× louder at 100; slider stays 0–100. */
-  var BUILD = "v7.36";
+     BB-V7.36 — MIX beeps 6× louder at 100; slider stays 0–100.
+     BB-V7.37 — pause sits under floor/score/frag, larger hit target; pointer
+     events open the pause card (onclick was swallowed on touch). */
+  var BUILD = "v7.37";
   var FEEL_DEF = { spd: 250, accel: 2600, brake: 3600, throwSpd: 620, aimMode: "drag", aimDead: 2, aimHold: 64 };
   var FEEL = (function () {
     var f = {};
@@ -7151,6 +7156,7 @@ function endRunToMenu() {
   function onDown(ev) {
     if (S.mode !== "play" || S.pause || S.portrait || S.downed) return;
     if (ev.target && ev.target.closest && ev.target.closest("#hud button, #btnBlock, #btnPause, #placePips")) return;
+    if (hitPad("btnPause", ev, 16)) { requestPause(); return; }
     if (hudChromeHit(ev)) return;
     ensureAudio();
     var c = canvasFromEvent(ev), G = stickGeom();
@@ -7307,10 +7313,25 @@ function endRunToMenu() {
   window.addEventListener("pointerup", onUp);
   window.addEventListener("pointercancel", onCancel);
 
-  document.getElementById("btnPause").onclick = function () {
-    if (S.mode !== "play" || S.downed) return;
-    S.pause = true; clearSticks(); showPause();
-  };
+  function requestPause() {
+    if (S.mode !== "play" || S.pause || S.downed || S.portrait) return false;
+    S.pause = true;
+    clearSticks();
+    showPause();
+    return true;
+  }
+  (function bindPauseBtn() {
+    var btn = document.getElementById("btnPause");
+    function go(ev) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      requestPause();
+    }
+    /* pointerdown, not click: a document-level touchmove preventDefault
+       stops iOS from synthesizing click, so the ghost icon did nothing. */
+    btn.addEventListener("pointerdown", go);
+    btn.addEventListener("click", go);
+  })();
   /* BB-V7.29 — the cube is owned by the finger that pressed it. The v7.6 patch
      released on ANY window pointerup, so lifting the walk thumb or finishing a
      throw with the other hand dropped the block early and left the still-held
@@ -7376,7 +7397,7 @@ function endRunToMenu() {
   })();
 
   function hudChromeHit(ev) {
-    return hitPad("btnBlock", ev, 10) || hitPad("btnPause", ev, 8) || hitPad("placePips", ev, 6);
+    return hitPad("btnBlock", ev, 10) || hitPad("btnPause", ev, 16) || hitPad("placePips", ev, 6);
   }
   function hitPad(id, ev, pad) {
     var el = document.getElementById(id);
@@ -7583,6 +7604,22 @@ function endRunToMenu() {
     placeAt: tryPlaceBlock,
     playerStats: function () { return { frag: player.frag, maxHp: player.maxHp, hp: player.hp, dmgLv: player.dmgLv, spdLv: player.spdLv, blkLv: player.blkLv, fireLv: player.fireLv, permaFire: !!player.permaFire, hpBought: player.hpBought, blockStock: player.blockStock, blockMax: player.blockMax, placeHits: player.placeHits || 0, placeRateLv: player.placeRateLv || 0 }; },
     paused: function () { return !!S.pause; },
+    tapPause: function () { return requestPause(); },
+    pauseHud: function () {
+      var btn = document.getElementById("btnPause");
+      var meta = document.getElementById("metaRow");
+      var hp = document.getElementById("hpPips");
+      if (!btn || !meta) return null;
+      var br = btn.getBoundingClientRect();
+      var mr = meta.getBoundingClientRect();
+      var hr = hp ? hp.getBoundingClientRect() : null;
+      return {
+        pause: { t: Math.round(br.top), l: Math.round(br.left), w: Math.round(br.width), h: Math.round(br.height), display: getComputedStyle(btn).display },
+        meta: { t: Math.round(mr.top), b: Math.round(mr.bottom), l: Math.round(mr.left), h: Math.round(mr.height) },
+        hp: hr ? { t: Math.round(hr.top), b: Math.round(hr.bottom) } : null,
+        belowMeta: br.top >= mr.bottom - 2
+      };
+    },
     encode: encodeShare,
     decode: decodeShare,
     hash: hashStr,
