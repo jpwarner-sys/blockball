@@ -1072,18 +1072,23 @@
   }
   function beep(type, freq, dur, vol, slide) {
     if (S.muteFx > 0) return;
-    var ac = ensureAudio();
-    if (!ac) return;
-    var o = ac.createOscillator();
-    var g = ac.createGain();
-    o.type = type || "square";
-    o.frequency.value = freq;
-    if (slide) o.frequency.linearRampToValueAtTime(slide, ac.currentTime + dur);
-    g.gain.value = vol || 0.06;
-    g.gain.exponentialRampToValueAtTime(0.001, ac.currentTime + dur);
-    o.connect(g); g.connect(ac.destination);
-    o.start();
-    o.stop(ac.currentTime + dur);
+    try {
+      var ac = ensureAudio();
+      if (!ac) return;
+      if (ac.state === "suspended" && ac.resume) ac.resume();
+      var o = ac.createOscillator();
+      var g = ac.createGain();
+      var t0 = ac.currentTime;
+      var len = Math.max(0.02, dur || 0.05);
+      o.type = type || "square";
+      o.frequency.setValueAtTime(Math.max(1, freq || 220), t0);
+      if (slide) o.frequency.exponentialRampToValueAtTime(Math.max(1, slide), t0 + len);
+      g.gain.setValueAtTime(Math.max(0.0008, vol || 0.06), t0);
+      g.gain.exponentialRampToValueAtTime(0.001, t0 + len);
+      o.connect(g); g.connect(ac.destination);
+      o.start(t0);
+      o.stop(t0 + len);
+    } catch (err) { /* iOS WebAudio throws (suspended ctx, ramp-from-zero) */ }
   }
   function sfx(name) {
     if (name === "throw") beep("triangle", 180, 0.08, 0.05, 90);
@@ -2007,6 +2012,7 @@
   }
   function circleBlocked(g, blocks, x, y, r) {
     if (tileAt(g, x - r, y) || tileAt(g, x + r, y) || tileAt(g, x, y - r) || tileAt(g, x, y + r) || tileAt(g, x, y)) return true;
+    if (!blocks) return false;
     for (var i = 0; i < blocks.length; i++) {
       var b = blocks[i];
       if (Math.abs(x - b.x) < r + TILE * 0.45 && Math.abs(y - b.y) < r + TILE * 0.45) return true;
@@ -2016,6 +2022,7 @@
   function ballCircleBlocked(g, blocks, x, y, r) {
     if (tileAtBall(g, x - r, y) || tileAtBall(g, x + r, y) || tileAtBall(g, x, y - r) ||
         tileAtBall(g, x, y + r) || tileAtBall(g, x, y)) return true;
+    if (!blocks) return false;
     for (var i = 0; i < blocks.length; i++) {
       var b = blocks[i];
       if (Math.abs(x - b.x) < r + TILE * 0.45 && Math.abs(y - b.y) < r + TILE * 0.45) return true;
@@ -2389,14 +2396,18 @@
     g.save();
     g.strokeStyle = "#e86020";
     g.lineWidth = 5;
-    g.beginPath();
-    g.ellipse(h.x, h.y, h.r, h.r * 0.42, 0, 0, 6.3);
-    g.stroke();
+    if (ellipseOk(h.r, h.r * 0.42)) {
+      g.beginPath();
+      g.ellipse(h.x, h.y, h.r, h.r * 0.42, 0, 0, 6.3);
+      g.stroke();
+    }
     g.strokeStyle = "#ff9040";
     g.lineWidth = 2;
-    g.beginPath();
-    g.ellipse(h.x, h.y, h.r - 3, h.r * 0.42 - 1.5, 0, 0, 6.3);
-    g.stroke();
+    if (ellipseOk(h.r - 3, h.r * 0.42 - 1.5)) {
+      g.beginPath();
+      g.ellipse(h.x, h.y, h.r - 3, h.r * 0.42 - 1.5, 0, 0, 6.3);
+      g.stroke();
+    }
     /* net — hangs south into the room; flutters after a swish */
     var flutter = h.netT > 0 ? Math.sin(S.t * 22) * 3.5 * Math.min(1, h.netT) : 0;
     g.strokeStyle = "rgba(240,240,240,0.9)";
@@ -2415,8 +2426,10 @@
     g.lineWidth = 1;
     for (i = 0; i < 3; i++) {
       var yy = h.y + 8 + i * 8;
+      var nrx = h.r * (0.72 - i * 0.14);
+      if (!ellipseOk(nrx, 3.5)) continue;
       g.beginPath();
-      g.ellipse(h.x + flutter * 0.3, yy, h.r * (0.72 - i * 0.14), 3.5, 0, 0, 6.3);
+      g.ellipse(h.x + flutter * 0.3, yy, nrx, 3.5, 0, 0, 6.3);
       g.stroke();
     }
     g.restore();
@@ -2443,7 +2456,9 @@
       g.strokeStyle = "#f0c030";
       g.lineWidth = 2;
       g.beginPath();
-      g.ellipse(h.x, h.y, h.r + 6 + Math.sin(S.t * 5) * 2, h.r * 0.42 + 3, 0, 0, 6.3);
+      if (ellipseOk(h.r + 6, h.r * 0.42 + 3)) {
+        g.ellipse(h.x, h.y, h.r + 6 + Math.sin(S.t * 5) * 2, h.r * 0.42 + 3, 0, 0, 6.3);
+      }
       g.stroke();
       g.restore();
     }
@@ -2522,6 +2537,7 @@
     S.mode = "play";
     resize();
     hidePanels();
+    releaseSplashArt();
     syncHud();
     /* BB-V7.29 — no SEED/difficulty toast over the field; the pause card carries both. */
   }
@@ -2820,18 +2836,21 @@
       if (healPlayer(it.n || 1)) floatTxt(it.x, it.y, "+♥", "#e05040");
       else { player.frag += 1; floatTxt(it.x, it.y, "+1 FRAG", "#f0d080"); }
     } else {
-      player.ballAffix = it.affix.slice();
-      store.stash.unshift({ affix: it.affix.slice(), rar: it.rar });
+      var aff = it.affix || [];
+      var rar = it.rar || "common";
+      player.ballAffix = aff.slice();
+      store.stash.unshift({ affix: aff.slice(), rar: rar });
       if (store.stash.length > 8) store.stash.pop();
       saveStore();
-      floatTxt(it.x, it.y, (it.affix[0] || "BALL") + " " + it.rar.toUpperCase(), RARITY[it.rar].c);
-      toast((it.affix.join("+") || "PLAIN") + " · " + it.rar);
+      floatTxt(it.x, it.y, (aff[0] || "BALL") + " " + String(rar).toUpperCase(),
+        (RARITY[rar] && RARITY[rar].c) || "#ccc");
+      toast((aff.join("+") || "PLAIN") + " · " + rar);
     }
   }
 
   function hasAff(name) {
-    if (name === "Fire" && player.permaFire) return true;
-    return ball.affix && ball.affix.indexOf(name) >= 0;
+    if (name === "Fire" && player && player.permaFire) return true;
+    return !!(ball && ball.affix && ball.affix.indexOf(name) >= 0);
   }
 
   function hitEnemy(en, src, dmg, isSplit) {
@@ -2918,7 +2937,7 @@
   }
 
   function throwBall(ang, pow) {
-    if (ball.live || S.downed) return;
+    if (!ball || ball.live || S.downed) return;
     S.throws = (S.throws || 0) + 1;
     var spd = throwSpeed() * pow;
     ball.live = true; ball.ret = false; ball.pierced = false;
@@ -2936,6 +2955,7 @@
   }
 
   function updateBall(dt) {
+    if (!ball) return;
     if (!ball.live) {
       /* CHIEF BB-V5.3 — the ball at rest used to be drawn over the hero's face.
          It now sits in the throwing hand, out to the side and low.
@@ -4414,8 +4434,11 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      BB-V7.29 — exit-pull: slide off the held cube or pull the aim back to its
      start to bail without placing/throwing; cube owned by its own pointerId so
      other fingers no longer drop the block; pointercancel never throws;
-     refused place shakes the cube (no NO SPACE / NO BLOCKS / SEED toasts). */
-  var BUILD = "v7.30";
+     refused place shakes the cube (no NO SPACE / NO BLOCKS / SEED toasts).
+     BB-V7.31 — rAF survives an exception (was a freeze on the last frame);
+     WebAudio beeps cannot kill the loop; shade/ellipse/blocks/cos/ball
+     guards; splash JPEG dropped when a run starts. */
+  var BUILD = "v7.31";
   var FEEL_DEF = { spd: 250, accel: 2600, brake: 3600, throwSpd: 620, aimMode: "drag", aimDead: 2, aimHold: 64 };
   var FEEL = (function () {
     var f = {};
@@ -4615,8 +4638,8 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     var sx = (ev.clientX - rect.left) * (canvas.width / rect.width);
     var sy = (ev.clientY - rect.top) * (canvas.height / rect.height);
     return {
-      x: (sx - S.world.x) / S.world.s,
-      y: (sy - S.world.y) / S.world.s
+      x: (sx - S.world.x) / (S.world.s || 1),
+      y: (sy - S.world.y) / (S.world.s || 1)
     };
   }
 
@@ -4787,7 +4810,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     /* the right ring: the ball, and — until the player has thrown a few — a small
        ricochet looping inside it, so the idea arrives without a word of tutorial. */
     ring(G.R.cx, G.R.cy, 0, 0, false);
-    var inHand = !ball.live;
+    var inHand = !(ball && ball.live);
     var cx = G.R.cx, cy = G.R.cy;
 
     if (S.throws < 4) {
@@ -4836,11 +4859,18 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
   /* CHIEF BB-V5.3 — one hex in, a lighter or darker hex out, for the lit and shaded
      faces. Clamped, so an already-bright colour cannot wrap around to black. */
   function shade(hex, k) {
+    if (!hex || hex.charAt(0) !== "#") return hex || "#888888";
     var n = parseInt(hex.slice(1), 16);
+    if (!isFinite(n)) return hex;
     var r = Math.min(255, Math.round(((n >> 16) & 255) * k));
     var g2 = Math.min(255, Math.round(((n >> 8) & 255) * k));
     var b = Math.min(255, Math.round((n & 255) * k));
     return "#" + ((1 << 24) + (r << 16) + (g2 << 8) + b).toString(16).slice(1);
+  }
+  /* Safari/WebKit throws IndexSizeError on ellipse() with <=0 or non-finite radii,
+     which used to kill the rAF loop (frozen last frame). */
+  function ellipseOk(rx, ry) {
+    return rx > 0 && ry > 0 && isFinite(rx) && isFinite(ry);
   }
 
   /* the old game's ball skins: a highlight, a body and a seam per skin */
@@ -5072,7 +5102,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       if (ball && !ball.live && sortRow(ball.groundY != null ? ball.groundY : ball.y) === y) drawBallObj(g, ball, false);
       if (player && sortRow(player.y) === y) drawPlayer(g);
       if (ball && ball.live && sortRow(ball.y) === y) drawBallObj(g, ball, true);
-      if (room) {
+      if (room && room.blocks) {
         for (b = 0; b < room.blocks.length; b++) {
           var bl = room.blocks[b];
           if (sortRow(bl.y) !== y) continue;
@@ -5087,7 +5117,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
         }
       }
       for (x = 0; x < cols; x++) {
-        wall = room ? room.grid[y][x] : 1;
+        wall = room && room.grid && room.grid[y] ? room.grid[y][x] : 1;
         if (!wall) continue;
         var wh = wallHeightPx(x, y, cols, rows);
         /* Floor keeps the checkerboard; walls are one solid colour so height
@@ -5120,7 +5150,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       g.beginPath(); g.arc(S.splits[sp].x, S.splits[sp].y, S.splits[sp].r, 0, 6.3); g.fill();
     }
     if (S.mode === "play" && !S.pause && S.placeArmed) drawPlaceGhost(g, wz);
-    if (S.aim && !ball.live) {
+    if (S.aim && ball && !ball.live) {
       var pts = aimGuide(S.aim.ang, S.aim.pow);
       /* Exit-pull: a cancelled aim keeps its line so the thumb can push back
          out and re-commit, but it greys and the ball wears a strike ring. */
@@ -5441,7 +5471,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      standing still. Sized off HS so he keeps the scale Joe asked for, and coloured
      from the profile palette so EMBER, QUILL, NOVA and RIFT stay different people. */
   function drawPlayer(g) {
-    var cos = player.cos;
+    var cos = player.cos || defaultCos();
     var pal = PALETTES[cos.pal] || PALETTES.ember;
     if (player.inv > 0 && Math.floor(player.inv * 12) % 2 === 0) g.globalAlpha = 0.45;
     /* BB-V7.21 — flatten + dim while DOWN so the beat reads on the body, not only
@@ -5617,9 +5647,14 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     var shadowY = b.y + b.r * 0.78 + lift;
     var shadowS = 1 - Math.min(0.5, lift / 36);
     g.fillStyle = "rgba(0,0,0," + (0.22 + 0.18 * shadowS) + ")";
-    g.beginPath(); g.ellipse(b.x, shadowY, b.r * 0.78 * shadowS, b.r * 0.28 * shadowS, 0, 0, 6.3); g.fill();
+    var srx = b.r * 0.78 * shadowS, sry = b.r * 0.28 * shadowS;
+    if (ellipseOk(srx, sry)) {
+      g.beginPath(); g.ellipse(b.x, shadowY, srx, sry, 0, 0, 6.3); g.fill();
+    }
     var rx = b.r * (1 + squash * 0.35), ry = b.r * (1 - squash * 0.45);
-    var grd = g.createRadialGradient(b.x - rx * 0.35, b.y - ry * 0.38, ry * 0.08, b.x, b.y, Math.max(rx, ry));
+    if (!ellipseOk(rx, ry)) { rx = Math.max(1, b.r || 8); ry = rx; }
+    var grdR = Math.max(rx, ry);
+    var grd = g.createRadialGradient(b.x - rx * 0.35, b.y - ry * 0.38, Math.max(0.08, ry * 0.08), b.x, b.y, grdR);
     grd.addColorStop(0, cols.hi);
     grd.addColorStop(1, cols.lo);
     g.fillStyle = grd;
@@ -6322,7 +6357,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       g.bezierCurveTo(it.x + 6, it.y - 10, it.x + 11, it.y - 1, it.x, it.y + 7);
       g.fill();
     } else if (it.kind === "ball") {
-      g.fillStyle = RARITY[it.rar].c;
+      g.fillStyle = (RARITY[it.rar] && RARITY[it.rar].c) || "#ccc";
       g.beginPath(); g.arc(it.x, it.y, 8, 0, 6.3); g.fill();
     } else {
       g.fillStyle = "#f0d060";
@@ -6401,6 +6436,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
 
   function toast(msg) {
     var box = document.getElementById("toasts");
+    if (!box) return;
     var d = document.createElement("div");
     d.className = "toast";
     d.textContent = msg;
@@ -6414,9 +6450,16 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     S.placePull = false;
     S.placePid = null;
     ["splashPanel", "menuPanel", "pausePanel", "shopPanel", "floorPanel", "builderPanel", "feelPanel"].forEach(function (id) {
-      document.getElementById(id).className = "panel";
+      var el = document.getElementById(id);
+      if (el) el.className = "panel";
     });
     if (typeof syncRotate === "function") syncRotate();
+  }
+
+  function releaseSplashArt() {
+    /* Drop decoded splash/boss JPEGs so iOS can reclaim the bitmap during play. */
+    var el = document.getElementById("splashCard");
+    if (el) el.innerHTML = "";
   }
 
   function showBossSplash(done) {
@@ -6434,6 +6477,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     panel.onclick = function () {
       panel.onclick = null;
       hidePanels();
+      releaseSplashArt();
       S.pause = false;
       S.mode = "play";
       resize();
@@ -6949,7 +6993,7 @@ function endRunToMenu() {
        screen, and one screen-width of travel covers a full sweep. */
     S.dragFrom = { x: w.x, y: w.y };
     S.dragFromCss = { x: c.x, y: c.y };
-    if (!ball.live) {
+    if (!ball || !ball.live) {
       var dx0 = w.x - player.x, dy0 = w.y - player.y;
       S.aim = { ang: Math.atan2(dy0, dx0), pow: 0.6, x: w.x, y: w.y };
     }
@@ -6969,7 +7013,7 @@ function endRunToMenu() {
     if (ev.pointerId !== STK.FIELD.id || !S.pointer.down) return;
     var w = worldFromEvent(ev);
     S.pointer.x = w.x; S.pointer.y = w.y;
-    if (S.aim && !ball.live && S.dragFrom) {
+    if (S.aim && ball && !ball.live && S.dragFrom) {
       var dx, dy, m;
       if (FEEL.aimMode === "drag") {
         /* V6.5 behaviour: angle from where the drag started. Stable, but a full
@@ -7027,7 +7071,7 @@ function endRunToMenu() {
     STK.FIELD.id = null;
     if (!S.pointer.down) return;
     S.pointer.down = false;
-    if (S.mode === "play" && S.aim && !S.aim.cancel && !ball.live && !S.downed) throwBall(S.aim.ang, S.aim.pow);
+    if (S.mode === "play" && S.aim && !S.aim.cancel && ball && !ball.live && !S.downed) throwBall(S.aim.ang, S.aim.pow);
     S.aim = null;
     S.dragFromCss = null;
   }
@@ -7192,8 +7236,12 @@ function endRunToMenu() {
     S.t += dt;
     if (S.mode !== "play" || S.pause || S.portrait) return;
     if (!player || !room) return;
-    if (document.getElementById("shopPanel").className.indexOf("show") >= 0) return;
-    if (document.getElementById("floorPanel").className.indexOf("show") >= 0) return;
+    if (!ball) resetBallHome();
+    if (S._crashOnce === "update") { S._crashOnce = null; throw new Error("bb-selftest-crash-update"); }
+    var shopEl = document.getElementById("shopPanel");
+    var floorEl = document.getElementById("floorPanel");
+    if (shopEl && shopEl.className.indexOf("show") >= 0) return;
+    if (floorEl && floorEl.className.indexOf("show") >= 0) return;
     /* BB-V7.21 — while DOWN, freeze the fight; only the beat, FX, and shake run. */
     if (S.downed) {
       updateDowned(dt);
@@ -7214,15 +7262,34 @@ function endRunToMenu() {
     if (S.t % 0.25 < dt) syncHud();
   }
 
+  function noteError(err, where) {
+    S.lastError = { where: where || "loop", msg: String(err && err.message || err), t: S.t };
+  }
+
   function frame(now) {
     rafPending = 0;
     if (document.hidden) return;
-    if (!S.last) S.last = now;
-    var d = Math.min(0.05, (now - S.last) / 1000);
-    S.last = now;
-    S.acc += d;
-    while (S.acc >= DT) { update(DT); S.acc -= DT; }
-    draw();
+    try {
+      if (!S.last) S.last = now;
+      var d = Math.min(0.05, (now - S.last) / 1000);
+      S.last = now;
+      S.acc += d;
+      try {
+        while (S.acc >= DT) { update(DT); S.acc -= DT; }
+      } catch (upErr) {
+        noteError(upErr, "update");
+        S.acc = 0;
+      }
+      try {
+        if (S._crashOnce === "draw") { S._crashOnce = null; throw new Error("bb-selftest-crash-draw"); }
+        draw();
+      } catch (drawErr) {
+        noteError(drawErr, "draw");
+      }
+    } catch (err) {
+      noteError(err, "frame");
+      S.acc = 0;
+    }
     rafPending = requestAnimationFrame(frame);
   }
 
@@ -7327,6 +7394,9 @@ function endRunToMenu() {
     buildFloor: buildFloor,
     parseSeed: parseSeed,
     startRun: startRun,
+    crashOnce: function (where) { S._crashOnce = where || "update"; },
+    lastError: function () { return S.lastError ? { where: S.lastError.where, msg: S.lastError.msg, t: S.lastError.t } : null; },
+    clock: function () { return { t: S.t, mode: S.mode, acc: S.acc, lastError: this.lastError() }; },
     camera: function () {
       var cam = cameraFit();
       var t = cameraTarget();
@@ -7341,6 +7411,7 @@ function endRunToMenu() {
         cols: playCols(), rows: playRows(), ww: playW(), hh: playH(),
         playerR: player ? player.r : null, ballR: ball ? ball.r : null, moveSpd: FEEL.spd, throwSpd: FEEL.throwSpd, aimMode: FEEL.aimMode, blockLife: BLOCK_LIFE, blockHits: BLOCK_HITS,
         difficulty: S.difficulty || store.difficulty || "easy",
+        lastError: S.lastError ? { where: S.lastError.where, msg: S.lastError.msg } : null,
         uiPad: uiPad(),
         canvas: {
           w: canvas.width, h: canvas.height,
