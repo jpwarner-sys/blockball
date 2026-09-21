@@ -179,13 +179,24 @@
     --hud-place-h: clamp(88px, 20vh, 110px);
     --hud-place-fs: clamp(13px, 3.4vh, 18px);
     --hud-pause: clamp(56px, 12vh, 68px);
-    --hud-hp-t: var(--hud-pad);
-    --hud-hp-l: var(--hud-pad);
-    /* BB-V7.38 — left chrome is one column: HP, then floor/score/frag, then pause.
+    /* BB-V7.41 — absolute chips ignore #hud padding. Fold safe-area into the
+       origin, plus a bezel so filled HP rects (unlike heart SVGs) don't clip
+       the round corners. Landscape often reports 0 top inset, which is why
+       bezel is a max() floor.
+       BB-V7.38 — left chrome is one column: HP, then floor/score/frag, then pause.
        Place stays far right. */
-    --hud-place-t: var(--hud-pad);
-    --hud-place-r: var(--hud-pad);
-    --hud-pips-t: calc(var(--hud-pad) + 10px);
+    --hud-bezel: 12px;
+    --hud-safe-t: env(safe-area-inset-top, 0px);
+    --hud-safe-r: env(safe-area-inset-right, 0px);
+    --hud-safe-l: env(safe-area-inset-left, 0px);
+    --hud-origin-t: calc(var(--hud-pad) + max(var(--hud-bezel), var(--hud-safe-t)));
+    --hud-origin-l: calc(var(--hud-pad) + max(var(--hud-bezel), var(--hud-safe-l)));
+    --hud-origin-r: calc(var(--hud-pad) + max(var(--hud-bezel), var(--hud-safe-r)));
+    --hud-hp-t: var(--hud-origin-t);
+    --hud-hp-l: var(--hud-origin-l);
+    --hud-place-t: var(--hud-origin-t);
+    --hud-place-r: var(--hud-origin-r);
+    --hud-pips-t: calc(var(--hud-origin-t) + 10px);
     --hud-pips-r: calc(var(--hud-place-r) + var(--hud-place-w) + 8px);
   }
   /* BB-V7.25 — tablet/iPad bolt-on: same HUD nodes, phone-scale chrome.
@@ -214,6 +225,7 @@
     --hud-top: calc(var(--hud-pad) + var(--hud-heart-h));
     --hud-hp-t: var(--hud-top);
     --hud-place-t: var(--hud-top);
+    --hud-place-r: var(--hud-origin-r);
     --hud-pips-t: calc(var(--hud-top) + 6px);
   }
   #hud button, #hud input, #hud textarea, #hud .hit {
@@ -4828,8 +4840,10 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      BB-V7.39 — post-kill hoop shot reaches the rim (lane through the wall
      face) so a hit swishes instead of banking off stone.
      BB-V7.40 — medium rooms zoom out a hair so the south wall and enemies stay
-     in frame; stand-still look-wider zoom; no camY snap-flip at mid-room. */
-  var BUILD = "v7.40";
+     in frame; stand-still look-wider zoom; no camY snap-flip at mid-room.
+     BB-V7.41 — HUD origin includes safe-area + bezel so filled rect pips
+     don't clip the round screen corners. */
+  var BUILD = "v7.41";
   var FEEL_DEF = { spd: 250, accel: 2600, brake: 3600, throwSpd: 620, aimMode: "drag", aimDead: 2, aimHold: 64 };
   var FEEL = (function () {
     var f = {};
