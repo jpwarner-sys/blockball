@@ -860,10 +860,20 @@
      the on-screen target so cubes read on a phone (~30 CSS px, not the old
      hard 34px floor and not fit-only ~22px).
      BB-V7.24 — oversized rooms ease toward TILE_CSS_MIN so more of the arena
-     stays framed (less frantic follow), and cam pan lerps instead of snapping. */
+     stays framed (less frantic follow), and cam pan lerps instead of snapping.
+     BB-V7.35 — fit includes the extruded north wall. Rooms that still read at
+     TILE_CSS_FRAME zoom out to keep the south wall and enemies on screen.
+     Standing still eases a look-wider zoom; oversized rooms pan camY with no
+     snap-flip at the vertical midpoint. */
   var TILE_CSS = 30;
+  var TILE_CSS_FRAME = 26;
   var TILE_CSS_MIN = 22;
+  var CAM_FRAME_AIR = 0.4;
   var CAM_PAN_RATE = 7;
+  var CAM_IDLE_DELAY = 0.4;
+  var CAM_IDLE_OUT = 0.14;
+  var CAM_IDLE_IN_RATE = 2.2;
+  var CAM_IDLE_OUT_RATE = 9;
   /* BB-V7.15 — draw scale and hurtboxes follow what is painted, not one shared
      boss multiplier. Trash / knights / Skull Lord each get their own vis, and
      contact boxes are authored from the silhouette (torso), not r*N. */
@@ -935,8 +945,9 @@
     aim: null,
     pointer: { down: false, x: 0, y: 0, id: -1 },
     world: { x: 0, y: 0, s: 1 },
-    /* BB-V7.24 — smoothed follow cam; {x,y} in world px, on=false snaps next frame. */
-    camFollow: { x: 0, y: 0, on: false },
+    /* BB-V7.24 — smoothed follow cam; {x,y} in world px, on=false snaps next frame.
+       BB-V7.35 — idle/idleT: look-wider zoom while the hero is standing still. */
+    camFollow: { x: 0, y: 0, on: false, idle: 0, idleT: 0 },
     particles: [],
     floats: [],
     loot: [],
@@ -2595,7 +2606,7 @@
     player.x = room.spawnX; player.y = room.spawnY;
     player.inv = 0.6;
     resetBallHome();
-    S.camFollow = { x: 0, y: 0, on: false };
+    S.camFollow = { x: 0, y: 0, on: false, idle: 0, idleT: 0 };
     S.placeMode = false;
     S.placeArmed = false;
     S.shots = []; S.splits = [];
@@ -4531,8 +4542,10 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      BB-V7.32 — ambient audio session so Audible / Music mix with the beeps;
      MIX is the default, SOLO on pause is exclusive game audio.
      BB-V7.33 — BEEPS slider (0–100) on menu + pause; 0 is mute.
-     BB-V7.34 — pause is a ghost under the hearts; place hugs the far right. */
-  var BUILD = "v7.34";
+     BB-V7.34 — pause is a ghost under the hearts; place hugs the far right.
+     BB-V7.35 — medium rooms zoom out a hair so the south wall and enemies stay
+     in frame; stand-still look-wider zoom; no camY snap-flip at mid-room. */
+  var BUILD = "v7.35";
   var FEEL_DEF = { spd: 250, accel: 2600, brake: 3600, throwSpd: 620, aimMode: "drag", aimDead: 2, aimHold: 64 };
   var FEEL = (function () {
     var f = {};
@@ -4737,11 +4750,32 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     };
   }
 
+  function clampCamY(camY, viewH, hh, worldTop, worldH) {
+    if (viewH >= worldH) return worldTop + (worldH - viewH) * 0.5;
+    var maxY = hh - viewH;
+    if (maxY < worldTop) maxY = worldTop;
+    if (camY < worldTop) return worldTop;
+    if (camY > maxY) return maxY;
+    return camY;
+  }
+
+  function playerCamMoving() {
+    if (!player) return false;
+    if (Math.hypot(player.vx || 0, player.vy || 0) > 12) return true;
+    var inp = inputVec();
+    return !!(inp && inp.m > 0.12);
+  }
+
   function cameraTarget() {
     var cw = canvas.width, ch = canvas.height;
     var cssW = Math.max(1, window.innerWidth);
     var dpr = cw / cssW;
     var ww = playW(), hh = playH();
+    var wallPad = wallVisualPad();
+    var worldTop = -wallPad;
+    var worldH = hh + wallPad;
+    var frameAir = CAM_FRAME_AIR * TILE;
+    var fitH = worldH + frameAir;
     /* BB-V7.7 — zoom so a TILE is ~TILE_CSS (30) CSS px: cubes and place-blocks
        read on a phone. Not the old unbounded 34px floor on a fixed 32×18 world
        (almost no room visible). Small generated rooms fit whole at this zoom;
@@ -4749,40 +4783,51 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
        above 30 CSS px keep whole-room fit. Hero is smaller (HS); trash mobs use
        MOB_VIS / KNIGHT_VIS / LORD_VIS / BOSS_VIS size each tier to its art.
        BB-V7.24 — when the live room is bigger than one preferred frame, ease the
-       tile floor toward TILE_CSS_MIN so more of the arena stays on screen. */
+       tile floor toward TILE_CSS_MIN so more of the arena stays on screen.
+       BB-V7.35 — overshoot/fit use the painted world (north-wall pad + a hair of
+       air). If the whole room still reads at TILE_CSS_FRAME, zoom out to frame
+       both walls and enemies instead of locking 30px and clipping the south. */
     var want = (TILE_CSS * dpr) / TILE;
+    var wantFrame = (TILE_CSS_FRAME * dpr) / TILE;
     var wantMin = (TILE_CSS_MIN * dpr) / TILE;
-    var fit = Math.min(cw / ww, ch / hh);
+    var fit = Math.min(cw / Math.max(1, ww), ch / Math.max(1, fitH));
     var viewAtWantW = cw / Math.max(1e-6, want);
     var viewAtWantH = ch / Math.max(1e-6, want);
-    var overshoot = Math.max(ww / Math.max(1, viewAtWantW), hh / Math.max(1, viewAtWantH));
+    var overshoot = Math.max(ww / Math.max(1, viewAtWantW), fitH / Math.max(1, viewAtWantH));
     var softWant = want;
-    if (overshoot > 1) {
-      /* Fully soft by ~2.2× preferred view (Skull Lord hall on a phone). */
-      var softT = Math.max(0, Math.min(1, (overshoot - 1) / 1.2));
-      softWant = want + (wantMin - want) * softT;
+    var scale;
+    if (fit >= wantFrame) {
+      /* Typical combat rooms: a hair more zoom-out so the south lip stays in view. */
+      scale = fit;
+      softWant = fit;
+    } else {
+      /* Fully soft by ~2.2× the frame-size view (Skull Lord hall on a phone). */
+      var overFrame = wantFrame / Math.max(1e-6, fit);
+      var softT = Math.max(0, Math.min(1, (overFrame - 1) / 1.2));
+      softWant = wantFrame + (wantMin - wantFrame) * softT;
+      scale = Math.max(fit, softWant);
     }
-    var scale = Math.max(fit, softWant);
     /* Post-boss hoop flourish (track ball → swish punch) lives in cameraFit/cine,
        not a continuous skullLair scale mul — softWant already frames the throne. */
     S.lordZoom = null;
+    var idle = (S.camFollow && S.mode === "play" && !(S.cine && S.cine.active)) ? (S.camFollow.idle || 0) : 0;
+    if (idle > 0.001) {
+      /* Stand still → look wider, never past whole-room fit or TILE_CSS_MIN. */
+      scale = Math.max(fit, wantMin, scale * (1 - CAM_IDLE_OUT * idle));
+    }
     var viewW = cw / scale, viewH = ch / scale;
     var px = (player && S.mode === "play") ? player.x : ww * 0.5;
     var py = (player && S.mode === "play") ? player.y : hh * 0.5;
-    var wallPad = wallVisualPad();
-    var worldTop = -wallPad;
-    var worldH = hh + wallPad;
     var camX = viewW >= ww ? (ww - viewW) * 0.5 : Math.max(0, Math.min(ww - viewW, px - viewW * 0.5));
-    /* Frame includes the lifted north-wall top (negative Y), or height reads as a thin edge. */
-    var camY = viewH >= worldH ? worldTop + (worldH - viewH) * 0.5
-      : Math.max(worldTop, Math.min(hh - viewH, py - viewH * 0.5));
-    /* Phone zoom often sets viewH ≈ hh so camY sticks at 0 and clips the face.
-       If the north edge is in frame, pull up to show the full extruded height. */
-    if (wallPad > 0 && camY > worldTop && camY < wallPad) camY = worldTop;
+    /* Frame includes the lifted north-wall top (negative Y), or height reads as a thin edge.
+       BB-V7.35 — clamp continuously; the old camY < wallPad snap flipped between
+       north-wall and south-wall views at the vertical midpoint of oversized rooms. */
+    var camY = clampCamY(py - viewH * 0.5, viewH, hh, worldTop, worldH);
     return {
       scale: scale, camX: camX, camY: camY, viewW: viewW, viewH: viewH,
       ww: ww, hh: hh, wallPad: wallPad, worldTop: worldTop, worldH: worldH,
-      overshoot: overshoot, softWant: softWant, want: want, wantMin: wantMin, fit: fit
+      overshoot: overshoot, softWant: softWant, want: want, wantMin: wantMin,
+      wantFrame: wantFrame, fit: fit, framed: viewH + 0.5 >= worldH, idle: idle
     };
   }
 
@@ -4790,7 +4835,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     var t = cameraTarget();
     var camX = t.camX, camY = t.camY;
     var scale = t.scale, viewW = t.viewW, viewH = t.viewH;
-    var ww = t.ww, hh = t.hh, wallPad = t.wallPad, worldTop = t.worldTop, worldH = t.worldH;
+    var ww = t.ww, hh = t.hh, worldTop = t.worldTop, worldH = t.worldH;
     /* BB-V7.24 — lerp camX/camY so remaining follow does not snap. */
     var follow = S.camFollow;
     var useSmooth = follow && follow.on && S.mode === "play" && !(S.cine && S.cine.active);
@@ -4799,9 +4844,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       camY = follow.y;
       if (viewW < ww) camX = Math.max(0, Math.min(ww - viewW, camX));
       else camX = (ww - viewW) * 0.5;
-      if (viewH < worldH) camY = Math.max(worldTop, Math.min(hh - viewH, camY));
-      else camY = worldTop + (worldH - viewH) * 0.5;
-      if (wallPad > 0 && camY > worldTop && camY < wallPad) camY = worldTop;
+      camY = clampCamY(camY, viewH, hh, worldTop, worldH);
     }
     return {
       scale: scale, ox: -camX * scale, oy: -camY * scale,
@@ -4811,11 +4854,24 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     };
   }
 
-  /* BB-V7.24 — exponential follow toward the ideal cam; snap when follow.on is false. */
+  /* BB-V7.24 — exponential follow toward the ideal cam; snap when follow.on is false.
+     BB-V7.35 — idle look-wider: after a short stand-still, ease zoom out; walk
+     snaps the zoom back so combat tiles stay readable. */
   function updateCamera(dt) {
     if (S.mode !== "play" || !player || (S.cine && S.cine.active)) return;
+    var follow = S.camFollow || (S.camFollow = { x: 0, y: 0, on: false, idle: 0, idleT: 0 });
+    if (follow.idle == null) follow.idle = 0;
+    if (follow.idleT == null) follow.idleT = 0;
+    if (playerCamMoving()) {
+      follow.idleT = 0;
+      follow.idle += (0 - follow.idle) * (1 - Math.exp(-CAM_IDLE_OUT_RATE * dt));
+      if (follow.idle < 0.002) follow.idle = 0;
+    } else {
+      follow.idleT += dt;
+      var goal = follow.idleT >= CAM_IDLE_DELAY ? 1 : 0;
+      follow.idle += (goal - follow.idle) * (1 - Math.exp(-CAM_IDLE_IN_RATE * dt));
+    }
     var t = cameraTarget();
-    var follow = S.camFollow || (S.camFollow = { x: 0, y: 0, on: false });
     if (!follow.on) {
       follow.x = t.camX;
       follow.y = t.camY;
@@ -4841,9 +4897,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     var worldTop = -wallPad;
     var worldH = hh + wallPad;
     var camX = viewW >= ww ? (ww - viewW) * 0.5 : Math.max(0, Math.min(ww - viewW, fx - viewW * 0.5));
-    var camY = viewH >= worldH ? worldTop + (worldH - viewH) * 0.5
-      : Math.max(worldTop, Math.min(hh - viewH, fy - viewH * 0.5));
-    if (wallPad > 0 && camY > worldTop && camY < wallPad) camY = worldTop;
+    var camY = clampCamY(fy - viewH * 0.5, viewH, hh, worldTop, worldH);
     return { scale: scale, ox: -camX * scale, oy: -camY * scale };
   }
 
@@ -7543,11 +7597,13 @@ function endRunToMenu() {
       var G = stickGeom();
       return {
         build: BUILD, hs: HS, mobVis: MOB_VIS, knightVis: KNIGHT_VIS, lordVis: LORD_VIS, bossVis: BOSS_VIS,
-        tileCssTarget: TILE_CSS, tileCssMin: TILE_CSS_MIN, camPanRate: CAM_PAN_RATE,
+        tileCssTarget: TILE_CSS, tileCssFrame: TILE_CSS_FRAME, tileCssMin: TILE_CSS_MIN, camPanRate: CAM_PAN_RATE,
         scale: cam.scale, tileCss: TILE * cam.scale / dpr,
-        overshoot: t.overshoot, softWant: t.softWant, want: t.want, fit: t.fit,
-        camX: cam.camX, camY: cam.camY, follow: S.camFollow ? { x: S.camFollow.x, y: S.camFollow.y, on: !!S.camFollow.on } : null,
+        overshoot: t.overshoot, softWant: t.softWant, want: t.want, wantFrame: t.wantFrame, fit: t.fit,
+        camX: cam.camX, camY: cam.camY, follow: S.camFollow ? { x: S.camFollow.x, y: S.camFollow.y, on: !!S.camFollow.on, idle: S.camFollow.idle || 0, idleT: S.camFollow.idleT || 0 } : null,
         cols: playCols(), rows: playRows(), ww: playW(), hh: playH(),
+        wallPad: t.wallPad, worldH: t.worldH, viewW: t.viewW, viewH: t.viewH, framed: !!t.framed,
+        idle: t.idle || 0, idleOut: CAM_IDLE_OUT, idleDelay: CAM_IDLE_DELAY,
         playerR: player ? player.r : null, ballR: ball ? ball.r : null, moveSpd: FEEL.spd, throwSpd: FEEL.throwSpd, aimMode: FEEL.aimMode, blockLife: BLOCK_LIFE, blockHits: BLOCK_HITS,
         difficulty: S.difficulty || store.difficulty || "easy",
         lastError: S.lastError ? { where: S.lastError.where, msg: S.lastError.msg } : null,
@@ -7682,6 +7738,36 @@ function endRunToMenu() {
       if (!S.rooms || i < 0 || i >= S.rooms.length) return null;
       loadRoom(i);
       return this.floorWallH()[i];
+    },
+    /* Harness: bordered arena of cols×rows so camera probes do not depend on RNG. */
+    loadArena: function (cols, rows, wallH, piece) {
+      cols = Math.max(8, cols || 20);
+      rows = Math.max(8, rows || 12);
+      if (!player) player = freshPlayer();
+      var g = blankGrid(0, cols, rows);
+      stampBorder(g);
+      if (piece && PIECES[piece]) PIECES[piece](g);
+      var spec = {
+        piece: piece || "arena", kind: "room", grid: g, ents: [],
+        cleared: false, blocks: [], name: "ARENA",
+        cols: cols, rows: rows,
+        spawn: { tx: 2, ty: doorY(g) }, pathOk: true,
+        wallH: clampWallH(wallH == null ? 2 : wallH)
+      };
+      S.rooms = [spec];
+      S.roomI = 0;
+      S.mode = "play";
+      S.pause = false;
+      S.cine = null;
+      resize();
+      loadRoom(0);
+      return this.camera();
+    },
+    setCamIdle: function (n) {
+      if (!S.camFollow) S.camFollow = { x: 0, y: 0, on: true, idle: 0, idleT: 0 };
+      S.camFollow.idle = n == null ? 1 : Math.max(0, Math.min(1, n));
+      S.camFollow.idleT = S.camFollow.idle > 0 ? CAM_IDLE_DELAY + 1 : 0;
+      return this.camera();
     },
     placeGhost: placeGhostCell,
     placeNow: tryPlaceAtGhost,
