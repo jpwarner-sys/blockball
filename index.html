@@ -473,17 +473,28 @@
     min-height: 0;
     flex: 1 1 0;
   }
-  #menuCard .menuBrand { flex: 1.1 1 0; }
-  #menuCard .menuSeed { flex: 1.2 1 0; }
+  #menuCard .menuHead {
+    flex: 0 0 auto;
+    display: flex;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    align-items: baseline;
+    gap: clamp(6px, 1.2cqi, 12px);
+    min-width: 0;
+  }
   #menuCard h1.title {
     text-align: left;
-    font-size: clamp(13.5px, 3.6cqi, 26px);
-    letter-spacing: 0.05em;
+    font-size: clamp(13.5px, 4.2cqi, 28px);
+    letter-spacing: 0.06em;
     line-height: 0.95;
     margin: 0;
+    white-space: nowrap;
   }
   #menuCard h1.tTop { margin: 0; }
   #menuCard h1.tBot { margin: 0; }
+  #menuCard .menuBrand { flex: 0.9 1 0; }
+  #menuCard .menuDiff { flex: 1.22 1 0; }
+  #menuCard .menuSeed { flex: 1.12 1 0; }
   #menuCard h2 {
     margin: 0;
     font-size: clamp(13.5px, 2.1cqi, 15px);
@@ -517,12 +528,15 @@
     box-sizing: border-box;
     min-height: 44px;
     flex: 1 1 44px;
-    padding: 6px clamp(4px, 0.9cqi, 10px);
+    padding: 6px clamp(2px, 0.7cqi, 10px);
     font-size: clamp(13.5px, 2.3cqi, 16px);
     line-height: 1.15;
-    white-space: normal;
+    white-space: nowrap;
     text-align: center;
-    overflow-wrap: anywhere;
+  }
+  #menuCard .menuSeed .menuStack .bb {
+    white-space: normal;
+    overflow-wrap: break-word;
   }
   #menuCard input.bb {
     width: 100%;
@@ -6472,16 +6486,18 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       return;
     }
     el.innerHTML =
-      "<div class='menuLay'>" +
-      "<div class='menuBrand'>" +
+      "<div class='menuHead'>" +
       "<h1 class=\"title tTop\">BLOCKBALL</h1>" +
       "<h1 class=\"title tBot\">DUNGEON</h1>" +
+      "</div>" +
+      "<div class='menuLay'>" +
+      "<div class='menuBrand'>" +
       "<h2>RUN</h2>" +
       "<div class='row menuStack'>" +
       "<button class='bb pri' id='btnPlay'>PLAY</button>" +
       "</div>" +
       "</div>" +
-      "<div class='menuCol'>" +
+      "<div class='menuCol menuDiff'>" +
       "<h2>DIFFICULTY</h2>" +
       "<div class='row menuStack' id='diffRow'>" + diffs + "</div>" +
       "<p class='muted menuBlurb'>" + (DIFFS[curDiff] || DIFFS.easy).blurb + "</p>" +
