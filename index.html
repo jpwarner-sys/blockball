@@ -181,13 +181,8 @@
     --hud-pause: clamp(56px, 12vh, 68px);
     --hud-hp-t: var(--hud-pad);
     --hud-hp-l: var(--hud-pad);
-    /* BB-V7.37 — pause sits under floor/score/frag, a bit larger, still a ghost.
-       Place stays far right. Meta is left-aligned under the HP track. */
-    --hud-meta-h: max(var(--hud-meta-fs), var(--hud-meta-ico));
-    --hud-meta-t: calc(var(--hud-hp-t) + var(--hud-heart-h) + 6px);
-    --hud-meta-l: var(--hud-pad);
-    --hud-pause-t: calc(var(--hud-meta-t) + var(--hud-meta-h) + 4px);
-    --hud-pause-l: var(--hud-pad);
+    /* BB-V7.37 — left chrome is one column: HP, then floor/score/frag, then pause.
+       Place stays far right. */
     --hud-place-t: var(--hud-pad);
     --hud-place-r: var(--hud-pad);
     --hud-pips-t: calc(var(--hud-pad) + 10px);
@@ -215,13 +210,9 @@
     --hud-place-w: clamp(64px, 9.5vh, 78px);
     --hud-place-h: clamp(70px, 10.5vh, 86px);
     --hud-place-fs: clamp(11px, 1.7vh, 14px);
-    --hud-pause: clamp(48px, 6.4vh, 58px);
+    --hud-pause: clamp(52px, 7.2vh, 62px);
     --hud-top: calc(var(--hud-pad) + var(--hud-heart-h));
     --hud-hp-t: var(--hud-top);
-    --hud-meta-t: calc(var(--hud-hp-t) + var(--hud-heart-h) + 4px);
-    --hud-meta-l: var(--hud-pad);
-    --hud-pause-t: calc(var(--hud-meta-t) + var(--hud-meta-h) + 4px);
-    --hud-pause-l: var(--hud-pad);
     --hud-place-t: var(--hud-top);
     --hud-pips-t: calc(var(--hud-top) + 6px);
   }
@@ -634,13 +625,23 @@
     pointer-events: none;
   }
   .hud-item { position: absolute; display: none; }
+  #hud.play #hudLeft { display: flex; }
   #hud.play #hpPips { display: flex; }
   #hud.play #metaRow { display: flex; }
   #hud.play #placePips { display: grid; }
   #hud.play #btnBlock { display: block; }
   #hud.play #btnPause { display: flex; }
-  #hpPips {
+  #hudLeft {
     top: var(--hud-hp-t); left: var(--hud-hp-l);
+    flex-direction: column; align-items: flex-start; gap: 6px;
+    z-index: 5;
+    max-width: calc(100% - var(--hud-place-r) - var(--hud-place-w) - 16px);
+  }
+  #hudLeft .hud-item {
+    position: relative;
+    top: auto; left: auto; right: auto;
+  }
+  #hpPips {
     flex-wrap: nowrap; align-items: center; max-width: 48vw;
   }
   /* BB-V7.35 — HP is rectangles, not hearts. They share a fixed track so extra
@@ -700,9 +701,7 @@
     flex: 0 0 auto;
   }
   #metaRow {
-    top: var(--hud-meta-t); left: var(--hud-meta-l);
     align-items: center; gap: var(--hud-meta-gap);
-    max-width: calc(100% - var(--hud-place-r) - var(--hud-place-w) - 16px);
     flex-wrap: wrap;
   }
   .meta {
@@ -784,11 +783,9 @@
   .place-btn.deny .iso-left { fill: rgba(200,90,70,0.32); }
   .place-btn.deny .iso-right { fill: rgba(150,60,45,0.32); }
   #btnPause {
-    top: var(--hud-pause-t); left: var(--hud-pause-l);
     background: transparent;
     border: 0;
     box-shadow: none;
-    z-index: 5;
     touch-action: manipulation;
     filter: drop-shadow(0 1px 0 rgba(26,18,12,0.45));
   }
@@ -820,6 +817,7 @@
 <div id="shell">
   <canvas id="game" width="1280" height="720"></canvas>
   <div id="hud">
+    <div id="hudLeft" class="hud-item">
     <div id="hpPips" class="hud-item" aria-label="health"></div>
     <div id="metaRow" class="hud-item" aria-label="run stats">
       <span class="meta" id="flChip" title="floor">
@@ -835,6 +833,10 @@
         <b id="frNum">0</b>
       </span>
     </div>
+    <button type="button" class="hud-item bb icon-btn" id="btnPause" aria-label="pause">
+      <svg width="22" height="22" viewBox="0 0 14 14" aria-hidden="true"><rect x="2" y="1" width="4" height="12" fill="#f0e6d4"/><rect x="8" y="1" width="4" height="12" fill="#f0e6d4"/></svg>
+    </button>
+    </div>
     <div id="placePips" class="hud-item" aria-hidden="true"></div>
     <button type="button" class="hud-item place-btn" id="btnBlock" aria-label="place me">
       <svg class="place-svg" viewBox="0 0 80 88" aria-hidden="true">
@@ -843,9 +845,6 @@
         <polygon class="iso-right" points="40,42 74,24 74,56 40,76" fill="rgba(140,96,40,0.18)" stroke="rgba(255,210,140,0.36)" stroke-width="1.4"/>
       </svg>
       <span class="place-words">place<br>me</span>
-    </button>
-    <button type="button" class="hud-item bb icon-btn" id="btnPause" aria-label="pause">
-      <svg width="22" height="22" viewBox="0 0 14 14" aria-hidden="true"><rect x="2" y="1" width="4" height="12" fill="#f0e6d4"/><rect x="8" y="1" width="4" height="12" fill="#f0e6d4"/></svg>
     </button>
     <!-- CHIEF FIX BB-V6.7 — the bottom strip sat under both thumbs. BALL and SEED
          were read-only labels that belong on the pause card, not across the play
