@@ -176,16 +176,17 @@
     --hud-place-w: clamp(80px, 18vh, 100px);
     --hud-place-h: clamp(88px, 20vh, 110px);
     --hud-place-fs: clamp(13px, 3.4vh, 18px);
-    --hud-pause: clamp(44px, 11vh, 60px);
-    --hud-pause-slot: clamp(52px, 13vh, 72px);
+    --hud-pause: clamp(44px, 9vh, 52px);
     --hud-hp-t: var(--hud-pad);
     --hud-hp-l: var(--hud-pad);
+    /* BB-V7.32 — pause is a ghost under the hearts, leading the floor/score band.
+       Place hugs the far right now that pause no longer takes a top-right slot. */
+    --hud-pause-t: calc(var(--hud-pad) + clamp(28px, 7.8vh, 42px));
+    --hud-pause-l: var(--hud-pad);
     --hud-meta-t: calc(var(--hud-pad) + clamp(28px, 7.8vh, 42px));
-    --hud-meta-l: var(--hud-pad);
-    --hud-pause-t: var(--hud-pad);
-    --hud-pause-r: var(--hud-pad);
+    --hud-meta-l: calc(var(--hud-pad) + var(--hud-pause) + 4px);
     --hud-place-t: var(--hud-pad);
-    --hud-place-r: calc(var(--hud-pad) + var(--hud-pause-slot));
+    --hud-place-r: var(--hud-pad);
     --hud-pips-t: calc(var(--hud-pad) + 10px);
     --hud-pips-r: calc(var(--hud-place-r) + var(--hud-place-w) + 8px);
   }
@@ -210,12 +211,13 @@
     --hud-place-w: clamp(64px, 9.5vh, 78px);
     --hud-place-h: clamp(70px, 10.5vh, 86px);
     --hud-place-fs: clamp(11px, 1.7vh, 14px);
-    --hud-pause: clamp(36px, 5.2vh, 46px);
-    --hud-pause-slot: clamp(40px, 5.8vh, 52px);
+    --hud-pause: clamp(36px, 4.8vh, 44px);
     --hud-top: calc(var(--hud-pad) + var(--hud-heart-h));
     --hud-hp-t: var(--hud-top);
+    --hud-pause-t: calc(var(--hud-top) + clamp(22px, 3.6vh, 30px));
+    --hud-pause-l: var(--hud-pad);
     --hud-meta-t: calc(var(--hud-top) + clamp(22px, 3.6vh, 30px));
-    --hud-pause-t: var(--hud-top);
+    --hud-meta-l: calc(var(--hud-pad) + var(--hud-pause) + 4px);
     --hud-place-t: var(--hud-top);
     --hud-pips-t: calc(var(--hud-top) + 6px);
   }
@@ -722,8 +724,16 @@
   .place-btn.deny .iso-left { fill: rgba(200,90,70,0.32); }
   .place-btn.deny .iso-right { fill: rgba(150,60,45,0.32); }
   #btnPause {
-    top: var(--hud-pause-t); right: var(--hud-pause-r);
+    top: var(--hud-pause-t); left: var(--hud-pause-l);
+    background: transparent;
+    border: 0;
+    box-shadow: none;
+    filter: drop-shadow(0 1px 0 rgba(26,18,12,0.35));
   }
+  #btnPause svg { opacity: 0.22; }
+  #btnPause:hover svg,
+  #btnPause:focus-visible svg { opacity: 0.48; }
+  #btnPause:active svg { opacity: 0.62; }
   #hud button.bb.icon-btn {
     width: var(--hud-pause);
     height: var(--hud-pause);
@@ -777,9 +787,8 @@
     </button>
     <!-- CHIEF FIX BB-V6.7 — the bottom strip sat under both thumbs. BALL and SEED
          were read-only labels that belong on the pause card, not across the play
-         field; BLOCK and UPGRADE are real controls and have moved up beside PAUSE,
-         where nothing is holding the screen. The bottom of the screen now belongs
-         to the two rings and nothing else. -->
+         field; BLOCK sits top-right and PAUSE is a ghost under the hearts (BB-V7.32).
+         The bottom of the screen belongs to the two rings and nothing else. -->
     <div id="botbar">
       <div class="row"></div>
       <div class="row"></div>
@@ -4438,7 +4447,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      BB-V7.31 — rAF survives an exception (was a freeze on the last frame);
      WebAudio beeps cannot kill the loop; shade/ellipse/blocks/cos/ball
      guards; splash JPEG dropped when a run starts. */
-  var BUILD = "v7.31";
+  var BUILD = "v7.32";
   var FEEL_DEF = { spd: 250, accel: 2600, brake: 3600, throwSpd: 620, aimMode: "drag", aimDead: 2, aimHold: 64 };
   var FEEL = (function () {
     var f = {};
