@@ -1029,7 +1029,7 @@
     aimHelp: false,
     /* BB-V7.32 — MIX (true) lets Audible / Music keep playing under the beeps. */
     mixAudio: true,
-    /* BB-V7.33 — 0–100 master for the oscillator beeps. 100 = shipped loudness. */
+    /* BB-V7.36 — 0–100 master. 100 is 6× the original MIX beeps. */
     sfxVol: 100
   };
 
@@ -1064,7 +1064,7 @@
       if (o.aimHelp) store.aimHelp = true;
       if (o.mixAudio === false) store.mixAudio = false;
       if (typeof o.sfxVol === "number" && isFinite(o.sfxVol)) {
-        store.sfxVol = Math.max(0, Math.min(100, Math.round(o.sfxVol)));
+        store.sfxVol = Math.max(0, Math.min(SFX_VOL_MAX, Math.round(o.sfxVol)));
       }
       S.seenAimHelp = !!o.aimHelp;
     } catch (e) {}
@@ -1142,6 +1142,10 @@
 
   var audioCtx = null;
   var lastBeepGain = 0;
+  /* BB-V7.36 — oscillator patches were ~0.05, inaudible under Audible at MIX.
+     6× at slider 100. Cap so stacked saws do not clip. */
+  var SFX_VOL_MAX = 100;
+  var SFX_GAIN = 6;
   /* BB-V7.32 — Safari/iOS `auto` can grab exclusive playback and kill Audible.
      MIX asks for an ambient session so other apps keep going; SOLO is exclusive.
      Must be set before creating or resuming the AudioContext. */
@@ -1165,12 +1169,12 @@
   function sfxVol() {
     var n = store.sfxVol;
     if (n == null || !isFinite(n)) n = 100;
-    return Math.max(0, Math.min(100, Math.round(n)));
+    return Math.max(0, Math.min(SFX_VOL_MAX, Math.round(n)));
   }
   function setSfxVol(n) {
     n = Math.round(+n);
     if (!isFinite(n)) n = 100;
-    store.sfxVol = Math.max(0, Math.min(100, n));
+    store.sfxVol = Math.max(0, Math.min(SFX_VOL_MAX, n));
     saveStore();
     return store.sfxVol;
   }
@@ -1184,7 +1188,8 @@
   }
   function beep(type, freq, dur, vol, slide) {
     if (S.muteFx > 0) return;
-    var gain = (vol || 0.06) * (sfxVol() / 100);
+    var gain = (vol || 0.06) * (sfxVol() / 100) * SFX_GAIN;
+    if (gain > 0.9) gain = 0.9;
     lastBeepGain = gain;
     if (gain <= 0) return;
     try {
@@ -4560,8 +4565,9 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      BB-V7.33 — BEEPS slider (0–100) on menu + pause; 0 is mute.
      BB-V7.34 — pause is a ghost under the HP pips; place hugs the far right.
      BB-V7.35 — HP pips are rectangles that narrow with max HP, merge into a
-     ticked bar, then a plain numbered bar. No heart shapes in the HUD. */
-  var BUILD = "v7.35";
+     ticked bar, then a plain numbered bar. No heart shapes in the HUD.
+     BB-V7.36 — MIX beeps 6× louder at 100; slider stays 0–100. */
+  var BUILD = "v7.36";
   var FEEL_DEF = { spd: 250, accel: 2600, brake: 3600, throwSpd: 620, aimMode: "drag", aimDead: 2, aimHold: 64 };
   var FEEL = (function () {
     var f = {};
@@ -6746,7 +6752,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
   function soundVolRow(idPrefix) {
     return "<div class='soundVol'>" +
       "<span>BEEPS</span>" +
-      "<input type='range' id='" + idPrefix + "Vol' min='0' max='100' step='5' value='" + sfxVol() + "'>" +
+      "<input type='range' id='" + idPrefix + "Vol' min='0' max='" + SFX_VOL_MAX + "' step='5' value='" + sfxVol() + "'>" +
       "<span class='muted' id='" + idPrefix + "VolN'>" + soundVolLabel() + "</span></div>";
   }
   function bindSoundVol(idPrefix) {
@@ -7645,6 +7651,8 @@ function endRunToMenu() {
       return {
         mix: store.mixAudio !== false,
         vol: sfxVol(),
+        max: SFX_VOL_MAX,
+        boost: SFX_GAIN,
         lastGain: lastBeepGain,
         session: session,
         ctx: audioCtx ? audioCtx.state : null
