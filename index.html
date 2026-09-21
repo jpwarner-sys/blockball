@@ -954,11 +954,13 @@
   var MOB_VIS = 0.56;
   var KNIGHT_VIS = 0.86; /* minis: between HS 1.7 hero and the floor lord */
   var LORD_VIS = 0.72;   /* Skull Lord: ~+35% taller than a knight on screen */
+  var KING_VIS = 0.80;   /* Bone King: between knight and Skull Lord */
   var BOSS_VIS = 0.76;   /* ash / thorn legacy arts */
   function enemyVis(e) {
     if (!e || !e.boss) return MOB_VIS;
     if (e.boss === "mini") return KNIGHT_VIS;
     if (e.boss === "lord") return LORD_VIS;
+    if (e.boss === "bone") return KING_VIS;
     return BOSS_VIS;
   }
   /* art radius used by draw* — physics uses bodyR / e.r after fitSilhouette */
@@ -2181,8 +2183,15 @@
       body = u * 0.46;
       hurt = u * 0.70;
       lift = u * 1.18;
-    } else if (e.boss === "bone" || e.boss === "slag") {
-      /* Bone / Slag King: blocky torso + head (legacy art). */
+    } else if (e.boss === "bone") {
+      /* Bone King: skull + ribs are solid; cloak / scepter are drama only.
+         u matches drawBoneKing. */
+      u = ar * 1.42 * vis;
+      body = u * 0.48;
+      hurt = u * 0.74;
+      lift = u * 1.12;
+    } else if (e.boss === "slag") {
+      /* Slag King: blocky torso + head (legacy art). */
       u = ar * vis;
       body = u * 0.92;
       hurt = u * 1.08;
@@ -4178,6 +4187,103 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     e.lungeStreak = 0;
   }
 
+  /* BB-V7.43 — Bone King pose clock for the scepter volley. */
+  function ensureBoneKing(e) {
+    if (e.boneReady) return;
+    e.boneReady = true;
+    e.atk = null;
+    e.atkT = 0;
+    e.atkWind = 0.82;
+    e.atkActive = 0.18;
+    e.atkRecover = 0.55;
+    e.atkHit = false;
+    e.face = 1;
+    e.lean = 0;
+    e.staffAng = 0.35;
+    e.staffLift = 0;
+    e.crouch = 0;
+    e.stride = 0;
+    e.stridePhase = 0;
+    e.capesway = 0;
+    if (e.bobPhase == null) e.bobPhase = Math.random() * 6.3;
+  }
+
+  function fireBoneKingVolley(e) {
+    var n = 8;
+    var spin = (e.phase || 0) * 0.55;
+    for (var k = 0; k < n; k++) {
+      var a = k * (Math.PI * 2 / n) + spin;
+      fireShot(e.x, e.y, Math.cos(a), Math.sin(a), 158, 1, "bone", {
+        owner: e, r: 7, life: 2.6, col: "#e8e0d0", body: "#79808c", accent: "#c9a44c"
+      });
+    }
+    sfx("spire");
+    burst(e.x, e.y, "#c9a44c", 10);
+    S.shake = Math.max(S.shake, 0.22);
+  }
+
+  function updateBoneKing(e, dt, dx, dy, dist) {
+    ensureBoneKing(e);
+    var n = Math.max(1, dist);
+    e.face = dx < 0 ? -1 : 1;
+    e.capesway = (e.capesway || 0) + dt;
+    e.stridePhase = (e.stridePhase || 0) + dt * (dist > 50 ? 7 : 3);
+    e.stride = Math.sin(e.stridePhase) * 0.12;
+    e.lean = Math.sin((e.phase || 0) * 1.6) * 0.05;
+    if (e.atk === "volley") {
+      e.atkT += dt;
+      var t = e.atkT;
+      var wind = e.atkWind, act = e.atkActive, rec = e.atkRecover;
+      if (t < wind) {
+        var w = t / wind;
+        e.staffLift = 0.15 + w * 0.95;
+        e.staffAng = e.face * (0.15 - w * 1.15);
+        e.tell = wind - t;
+        e.tellMax = wind;
+        e.crouch = w * 0.12;
+        moveToward(e, dx / n * 0.12, dy / n * 0.12, e.spd, dt);
+      } else if (t < wind + act) {
+        e.tell = 0;
+        e.staffLift = 0.55;
+        e.staffAng = e.face * 0.85;
+        e.crouch = 0.18;
+        if (!e.atkHit) {
+          e.atkHit = true;
+          fireBoneKingVolley(e);
+        }
+      } else if (t < wind + act + rec) {
+        var r = (t - wind - act) / rec;
+        e.staffLift = 0.55 * (1 - r);
+        e.staffAng = e.face * (0.85 - r * 0.5);
+        e.crouch = 0.18 * (1 - r);
+        moveToward(e, dx / n * 0.2, dy / n * 0.2, e.spd, dt);
+      } else {
+        e.atk = null;
+        e.atkT = 0;
+        e.atkHit = false;
+        e.staffLift = 0;
+        e.staffAng = e.face * 0.35;
+        e.crouch = 0;
+        e.cd = 1.55 + rnd() * 0.45;
+      }
+    } else {
+      e.staffLift = Math.max(0, (e.staffLift || 0) - dt);
+      e.staffAng = e.face * 0.35;
+      e.tell = 0;
+      moveToward(e, dx / n * 0.3, dy / n * 0.3, e.spd, dt);
+      if (e.cd <= 0) {
+        e.atk = "volley";
+        e.atkT = 0;
+        e.atkHit = false;
+        e.atkWind = 0.82;
+        e.atkActive = 0.18;
+        e.atkRecover = 0.55;
+        e.tell = e.atkWind;
+        e.tellMax = e.atkWind;
+      }
+    }
+  }
+
   function spawnSkullAdds(boss, n) {
     if (!room || !room.grid) return;
     var roster = ["skel", "slime", "bat", "skel"];
@@ -4537,15 +4643,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     } else if (e.boss === "lord") {
       updateSkullLord(e, dt, dx, dy, dist);
     } else if (e.boss === "bone") {
-      /* BB-V7.18 -- Bone King: slow chase + radial bone volley. */
-      if (e.cd <= 0) {
-        for (var k = 0; k < 6; k++) {
-          var a = k * Math.PI / 3 + e.phase;
-          fireShot(e.x, e.y, Math.cos(a), Math.sin(a), 170, 1, "knife", { owner: e });
-        }
-        e.cd = 2.0;
-      }
-      moveToward(e, dx / dist * 0.3, dy / dist * 0.3, e.spd, dt);
+      updateBoneKing(e, dt, dx, dy, dist);
     } else if (e.boss === "slag") {
       /* BB-V7.19 -- Slag King: forge biome boss, radial hot knives + chase. */
       if (e.cd <= 0) {
@@ -4883,8 +4981,9 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      BB-V7.41 — HUD origin includes safe-area + bezel so filled rect pips
      don't clip the round screen corners.
      BB-V7.42 — MIX 100 locked as NORMAL (slider 50); smooth mute → normal →
-     boosted → max, max is 2× normal. */
-  var BUILD = "v7.42";
+     boosted → max, max is 2× normal.
+     BB-V7.43 — Bone King cube sprite (crown, ribs, scepter) + bone-shard volley. */
+  var BUILD = "v7.43";
   var FEEL_DEF = { spd: 250, accel: 2600, brake: 3600, throwSpd: 620, aimMode: "drag", aimDead: 2, aimHold: 64 };
   var FEEL = (function () {
     var f = {};
@@ -6697,6 +6796,152 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     }
   }
 
+  /* BB-V7.43 — Bone King rebuilt on cube(), not the V5 fillRect paper doll.
+     Same undead language as Skull Lord (skull, ribs, ember eyes) but a
+     different silhouette: gold crown (no wind-up key), burgundy cloak like
+     Bone Knight, bone scepter instead of greatsword+shield. Scale sits
+     between knight and lord. Volley wind-up raises the scepter. */
+  function drawBoneKing(g, e) {
+    ensureBoneKing(e);
+    var BONE = "#f0e8dc", BONE_D = "#a89880", GOLD = "#e0b44a";
+    var CLOAK = "#5a2230", CLOAK_D = "#3a141c", LINING = "#8a2840";
+    var EMBER = "#ff7a2a", STEEL = "#79808c";
+    var u = artR(e) * 1.42;
+    e.artH = u * 3.15;
+    var x = e.x;
+    if (e.bobPhase == null) e.bobPhase = Math.random() * 6.3;
+    var face = e.face || (player && player.x < e.x ? -1 : 1);
+    var bob = Math.sin(S.t * 1.7 + e.bobPhase) * u * 0.04;
+    var crouch = (e.crouch || 0) * u;
+    var lean = (e.lean || 0) * u;
+    var yt = e.y - u * 2.22 + bob + crouch;
+    var body = e.flash > 0 ? "#ffffff" : BONE;
+    var tell = 0;
+    if (e.tell > 0) {
+      tell = e.tellMax > 0 ? 1 - Math.max(0, e.tell) / e.tellMax : Math.min(1, e.tell);
+    }
+
+    if (tell > 0) {
+      g.save();
+      g.globalAlpha = 0.18 + tell * 0.38;
+      g.strokeStyle = "#e0b44a";
+      g.lineWidth = 2.4;
+      g.beginPath();
+      g.arc(x, e.y, u * (1.05 + tell * 0.55) + Math.sin(S.t * 14) * u * 0.06, 0, 6.3);
+      g.stroke();
+      g.globalAlpha = 0.10 + tell * 0.16;
+      g.fillStyle = "#c9a44c";
+      g.beginPath();
+      g.arc(x, e.y, u * (0.7 + tell * 0.35), 0, 6.3);
+      g.fill();
+      g.restore();
+    }
+
+    g.save(); g.globalAlpha = 0.46; g.fillStyle = "#0a0806";
+    g.beginPath();
+    g.ellipse(x + lean * 0.12, e.y + u * 0.28, u * (1.12 + (e.crouch || 0) * 0.28), u * 0.30, 0, 0, 6.3);
+    g.fill(); g.restore();
+
+    g.save();
+    g.translate(lean, 0);
+
+    var sway = Math.sin((e.capesway || 0) * 1.4) * u * 0.07 - lean * 0.1;
+    var capeDrop = (e.crouch || 0) * u * 0.2;
+    cube(g, x - u * 0.92 + sway, yt + u * 0.50, u * 0.38, u * 1.48 + capeDrop, u * 0.08, LINING);
+    cube(g, x + u * 0.54 + sway * 0.6, yt + u * 0.54, u * 0.38, u * 1.40 + capeDrop, u * 0.08, LINING);
+    cube(g, x - u * 0.78 + sway * 0.7, yt + u * 0.40, u * 0.48, u * 1.62 + capeDrop, u * 0.10, CLOAK_D);
+    cube(g, x - u * 0.32 + sway * 0.45, yt + u * 0.36, u * 0.64, u * 1.70 + capeDrop, u * 0.12, CLOAK);
+    cube(g, x + u * 0.28 + sway * 0.4, yt + u * 0.40, u * 0.48, u * 1.55 + capeDrop, u * 0.10, CLOAK_D);
+    g.fillStyle = shade(CLOAK, 0.55);
+    g.fillRect(x - u * 0.70 + sway, yt + u * 1.90 + capeDrop, u * 0.16, u * 0.14);
+    g.fillRect(x - u * 0.08 + sway * 0.5, yt + u * 1.96 + capeDrop, u * 0.18, u * 0.16);
+    g.fillRect(x + u * 0.42 + sway * 0.4, yt + u * 1.86 + capeDrop, u * 0.16, u * 0.12);
+
+    var stride = (e.stride || 0) * u;
+    cube(g, x - u * 0.38, yt + u * 1.68 + stride, u * 0.28, u * 0.34, u * 0.16, BONE_D);
+    cube(g, x + u * 0.10, yt + u * 1.68 - stride, u * 0.28, u * 0.34, u * 0.16, BONE_D);
+
+    cube(g, x - u * 0.42, yt + u * 0.72, u * 0.84, u * 0.94, u * 0.26, body);
+    g.fillStyle = shade(body, 0.45);
+    for (var ri = 0; ri < 4; ri++) {
+      g.fillRect(x - u * 0.34, yt + u * (0.86 + ri * 0.16), u * 0.68, u * 0.05);
+    }
+    g.fillStyle = "#1a100c";
+    g.fillRect(x - u * 0.18, yt + u * 0.90, u * 0.36, u * 0.62);
+    g.fillStyle = shade(body, 0.85);
+    for (var rj = 0; rj < 4; rj++) {
+      g.fillRect(x - u * 0.32, yt + u * (0.86 + rj * 0.16), u * 0.64, u * 0.065);
+    }
+    g.fillStyle = GOLD;
+    g.globalAlpha = 0.65 + 0.35 * Math.sin(S.t * 3.6 + e.bobPhase);
+    g.fillRect(x - u * 0.09, yt + u * 1.06, u * 0.18, u * 0.14);
+    g.globalAlpha = 1;
+    g.fillStyle = shade(GOLD, 1.2);
+    g.fillRect(x - u * 0.05, yt + u * 1.09, u * 0.10, u * 0.07);
+
+    /* off-hand bone (matches facing) */
+    cube(g, x - face * u * 0.62, yt + u * 0.82, u * 0.22, u * 0.42, u * 0.12, BONE_D);
+    cube(g, x - face * u * 0.70, yt + u * 1.18, u * 0.26, u * 0.18, u * 0.10, body);
+
+    /* scepter — raised on volley wind-up */
+    var lift = (e.staffLift || 0) * u;
+    var bang = (e.staffAng != null ? e.staffAng : face * 0.35);
+    var hx = x + face * u * 0.72;
+    var hy = yt + u * 0.95 - lift * 0.55;
+    g.save();
+    g.translate(hx, hy);
+    g.rotate(bang);
+    g.translate(-hx, -hy);
+    cube(g, hx - u * 0.12, hy - u * 0.04, u * 0.24, u * 0.36, u * 0.12, BONE_D);
+    cube(g, hx - u * 0.08, hy - u * 1.55, u * 0.16, u * 1.55, u * 0.08, STEEL);
+    cube(g, hx - u * 0.18, hy - u * 1.78, u * 0.36, u * 0.32, u * 0.14, body);
+    g.fillStyle = "#0a0604";
+    g.fillRect(hx - u * 0.12, hy - u * 1.70, u * 0.10, u * 0.10);
+    g.fillRect(hx + u * 0.02, hy - u * 1.70, u * 0.10, u * 0.10);
+    cube(g, hx - u * 0.22, hy - u * 1.48, u * 0.44, u * 0.12, u * 0.08, GOLD);
+    if (tell > 0.4 || (e.atk === "volley" && e.atkT >= e.atkWind && e.atkT < e.atkWind + e.atkActive)) {
+      g.fillStyle = "#ffe8a0";
+      g.globalAlpha = 0.35 + tell * 0.5;
+      g.beginPath();
+      g.arc(hx, hy - u * 1.62, u * 0.28, 0, 6.3);
+      g.fill();
+      g.globalAlpha = 1;
+    }
+    g.restore();
+
+    /* skull */
+    cube(g, x - u * 0.40, yt + u * 0.04, u * 0.80, u * 0.58, u * 0.24, body);
+    cube(g, x - u * 0.30, yt + u * 0.56, u * 0.60, u * 0.18, u * 0.14, shade(body, 0.9));
+    g.fillStyle = "#0a0604";
+    g.fillRect(x - u * 0.28, yt + u * 0.18, u * 0.24, u * 0.24);
+    g.fillRect(x + u * 0.04, yt + u * 0.18, u * 0.24, u * 0.24);
+    g.fillStyle = EMBER;
+    var glow = 0.55 + 0.45 * Math.sin(S.t * 3.2 + e.bobPhase);
+    if (tell > 0) glow = 0.85 + 0.15 * Math.sin(S.t * 16);
+    g.globalAlpha = Math.min(1, glow);
+    g.fillRect(x - u * 0.22 + face * u * 0.03, yt + u * 0.24, u * 0.12, u * 0.11);
+    g.fillRect(x + u * 0.10 + face * u * 0.03, yt + u * 0.24, u * 0.12, u * 0.11);
+    g.globalAlpha = 1;
+    g.fillStyle = "#0a0604";
+    g.fillRect(x - u * 0.05, yt + u * 0.42, u * 0.10, u * 0.12);
+    for (var tooth = 0; tooth < 4; tooth++) {
+      g.fillRect(x - u * 0.22 + tooth * u * 0.12, yt + u * 0.58, u * 0.055, u * 0.14);
+    }
+
+    /* gold crown — three points, no wind-up key */
+    cube(g, x - u * 0.48, yt - u * 0.18, u * 0.96, u * 0.26, u * 0.14, GOLD);
+    cube(g, x - u * 0.46, yt - u * 0.42, u * 0.16, u * 0.28, u * 0.07, GOLD);
+    cube(g, x - u * 0.10, yt - u * 0.52, u * 0.20, u * 0.38, u * 0.08, GOLD);
+    cube(g, x + u * 0.30, yt - u * 0.42, u * 0.16, u * 0.28, u * 0.07, GOLD);
+    g.fillStyle = EMBER;
+    g.fillRect(x - u * 0.06, yt - u * 0.10, u * 0.12, u * 0.10);
+    g.fillStyle = "#4a80c8";
+    g.fillRect(x - u * 0.32, yt - u * 0.08, u * 0.09, u * 0.08);
+    g.fillRect(x + u * 0.23, yt - u * 0.08, u * 0.09, u * 0.08);
+
+    g.restore();
+  }
+
   function drawEnemy(g, e) {
     if (!e.alive && e.deadT <= 0) return;
     var a = !e.alive ? Math.max(0, e.deadT) : 1;
@@ -6745,14 +6990,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     } else if (e.boss === "lord") {
       drawSkullLord(g, e);
     } else if (e.boss === "bone") {
-      g.fillStyle = "#e8e0d0";
-      g.fillRect(e.x - 16, e.y - 18, 32, 40);
-      g.fillStyle = "#f4eee0";
-      g.fillRect(e.x - 14, e.y - 36, 28, 22);
-      g.fillStyle = "#1a120c";
-      g.fillRect(e.x - 8, e.y - 28, 6, 6); g.fillRect(e.x + 2, e.y - 28, 6, 6);
-      g.fillRect(e.x - 6, e.y - 18, 12, 3);
-      for (var r = 0; r < 4; r++) g.fillRect(e.x - 12, e.y - 8 + r * 7, 24, 3);
+      drawBoneKing(g, e);
     } else if (e.boss === "slag") {
       g.fillStyle = "#d07030";
       g.fillRect(e.x - 17, e.y - 18, 34, 42);
@@ -8041,7 +8279,7 @@ function endRunToMenu() {
       var dpr = canvas.width / Math.max(1, window.innerWidth);
       var G = stickGeom();
       return {
-        build: BUILD, hs: HS, mobVis: MOB_VIS, knightVis: KNIGHT_VIS, lordVis: LORD_VIS, bossVis: BOSS_VIS,
+        build: BUILD, hs: HS, mobVis: MOB_VIS, knightVis: KNIGHT_VIS, lordVis: LORD_VIS, kingVis: KING_VIS, bossVis: BOSS_VIS,
         tileCssTarget: TILE_CSS, tileCssFrame: TILE_CSS_FRAME, tileCssMin: TILE_CSS_MIN, camPanRate: CAM_PAN_RATE,
         scale: cam.scale, tileCss: TILE * cam.scale / dpr,
         overshoot: t.overshoot, softWant: t.softWant, want: t.want, wantFrame: t.wantFrame, fit: t.fit,
@@ -8442,6 +8680,22 @@ function endRunToMenu() {
         hp: e.hp, maxHp: e.maxHp, cd: Math.round((e.cd || 0) * 100) / 100
       };
     },
+    boneKingState: function () {
+      if (!room) return null;
+      var e = null, i;
+      for (i = 0; i < room.enemies.length; i++) if (room.enemies[i].boss === "bone") e = room.enemies[i];
+      if (!e) return null;
+      return {
+        type: e.type, name: e.name, atk: e.atk || null,
+        atkT: Math.round((e.atkT || 0) * 100) / 100,
+        wind: e.atkWind, active: e.atkActive, recover: e.atkRecover,
+        staffLift: +(e.staffLift || 0).toFixed(2),
+        vis: enemyVis(e), artR: artR(e), artH: Math.round(e.artH || 0),
+        bodyR: e.bodyR, hitR: e.hitR, hitLift: e.hitLift,
+        x: Math.round(e.x), y: Math.round(e.y), hp: e.hp, maxHp: e.maxHp,
+        cd: Math.round((e.cd || 0) * 100) / 100
+      };
+    },
     gotoSkullLair: function (seed) {
       startRun(seed || "SKULL-ARENA");
       S.floor = SKULL_LORD_FLOOR;
@@ -8463,6 +8717,28 @@ function endRunToMenu() {
         boss: this.enemies().filter(function (en) { return en.boss === "lord"; })[0] || null
       };
     },
+    gotoBoss: function (seed, fl) {
+      fl = fl || 3;
+      startRun(seed || "BOSS-ARENA");
+      S.floor = fl;
+      S.rooms = buildFloor(fl);
+      var i, idx = S.rooms.length - 1;
+      for (i = 0; i < S.rooms.length; i++) if (S.rooms[i].kind === "boss") idx = i;
+      loadRoom(idx);
+      S.mode = "play";
+      S.pause = false;
+      resize();
+      hidePanels();
+      if (player) { player.inv = 8; player.hp = player.maxHp; }
+      return {
+        floor: S.floor, cols: playCols(), rows: playRows(),
+        piece: room && room.spec ? room.spec.piece : null,
+        kind: room && room.kind, hoop: !!(room && room.hoop),
+        tileset: room && room.tileset ? room.tileset.id : null,
+        boss: this.enemies().filter(function (en) { return !!en.boss; })[0] || null
+      };
+    },
+    gotoBoneKing: function (seed) { return this.gotoBoss(seed || "BONE-ARENA", 3); },
     /* Jump to the end-of-floor knight chamber (mini) on floor 1 by default. */
     gotoKnight: function (seed, fl) {
       startRun(seed || "KNIGHT-HOOP");
