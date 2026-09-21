@@ -1004,7 +1004,7 @@
     aimHelp: false,
     /* BB-V7.32 — MIX (true) lets Audible / Music keep playing under the beeps. */
     mixAudio: true,
-    /* BB-V7.35 — 0–150 master. 100 is the loud MIX default; 150 is extra. */
+    /* BB-V7.35 — 0–100 master. 100 is 6× the original MIX beeps. */
     sfxVol: 100
   };
 
@@ -1118,8 +1118,8 @@
   var audioCtx = null;
   var lastBeepGain = 0;
   /* BB-V7.35 — oscillator patches were ~0.05, inaudible under Audible at MIX.
-     6× at slider 100, headroom to 150. Cap so stacked saws do not clip. */
-  var SFX_VOL_MAX = 150;
+     6× at slider 100. Cap so stacked saws do not clip. */
+  var SFX_VOL_MAX = 100;
   var SFX_GAIN = 6;
   /* BB-V7.32 — Safari/iOS `auto` can grab exclusive playback and kill Audible.
      MIX asks for an ambient session so other apps keep going; SOLO is exclusive.
@@ -4537,7 +4537,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      MIX is the default, SOLO on pause is exclusive game audio.
      BB-V7.33 — BEEPS slider (0–100) on menu + pause; 0 is mute.
      BB-V7.34 — pause is a ghost under the hearts; place hugs the far right.
-     BB-V7.35 — MIX beeps 6× louder at 100; slider goes to 150. */
+     BB-V7.35 — MIX beeps 6× louder at 100; slider stays 0–100. */
   var BUILD = "v7.35";
   var FEEL_DEF = { spd: 250, accel: 2600, brake: 3600, throwSpd: 620, aimMode: "drag", aimDead: 2, aimHold: 64 };
   var FEEL = (function () {
@@ -6752,7 +6752,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       "<h1>PAUSE</h1>" +
       "<p class='muted'>" + S.seed + " · " + diffLabel() + " · Floor " + S.floor + " · " + (player ? player.token : "") +
         " · BALL " + ((player && player.ballAffix && player.ballAffix.length) ? player.ballAffix.join("+") : (player && player.permaFire ? "FIRE" : "PLAIN")) + "</p>" +
-      "<p class='muted'>MIX keeps Audible / Music going with the beeps. SOLO is game-only. BEEPS 100 is loud; 150 is extra.</p>" +
+      "<p class='muted'>MIX keeps Audible / Music going with the beeps. SOLO is game-only. BEEPS is the game volume.</p>" +
       soundMixRow() +
       soundVolRow("pause") +
       "</div><div class='landBtns row'>" +
