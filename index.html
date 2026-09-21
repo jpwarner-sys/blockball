@@ -2118,12 +2118,22 @@
     return g[ty][tx];
   }
   /* BB-V7.25 — rim hangs on the wall face (boardY < 0). Open a narrow north-wall
-     corridor so a hoop-ready heave can reach the net instead of bouncing off stone. */
+     corridor so a hoop-ready heave can reach the net instead of bouncing off stone.
+     BB-V7.37 — ty===0 was not enough. On wallH 3–4 the rim sits at negative y, and
+     BALL_R samples y−r into ty<0, which tileAt treats as void-stone. A painted
+     hit then banked off the wall with no swish. Open from the wall row through
+     the rim plane; keep the backboard (further north) solid. Keep the lane open
+     during the net-drop so the make does not bounce on the same bricks. */
   function hoopLaneOpen(tx, ty) {
-    if (ty !== 0) return false;
-    if (!S.hoopReady || !room || !room.hoop || room.hoop.swished) return false;
-    var hx = Math.floor(room.hoop.x / TILE);
-    return Math.abs(tx - hx) <= 2;
+    if (!room || !room.hoop) return false;
+    var h = room.hoop;
+    var live = (!!S.hoopReady && !h.swished) || (h.swished && h.netT > 0);
+    if (!live) return false;
+    var hx = Math.floor(h.x / TILE);
+    if (Math.abs(tx - hx) > 2) return false;
+    var northTy = Math.floor((h.y - BALL_R - 6) / TILE);
+    /* Court is ty>=1. Open the wall row (0) and extruded-face rows the rim occupies. */
+    return ty <= 0 && ty >= northTy;
   }
   function tileAtBall(g, x, y) {
     var tx = Math.floor(x / TILE), ty = Math.floor(y / TILE);
@@ -2485,14 +2495,15 @@
     if (h.swished || !ball || !ball.live || ball.ret) return;
     var d = Math.hypot(ball.x - h.x, ball.y - h.y);
     var prevD = Math.hypot(prevX - h.x, prevY - h.y);
-    /* rim is thin — fast throws tunnel past a point test, so also accept a
-       swept segment that crosses the scoring cylinder */
-    var entered = (prevD > h.r * 0.95 && d < h.r * 0.85) ||
-      sweptHits(prevX, prevY, ball.x, ball.y, h.x, h.y, h.r * 0.72);
+    /* Hole is the painted rim. Fast throws tunnel a point test, so also accept
+       a swept segment. A bank off the board comes back south through the same
+       cylinder — count that as a goal, but ignore a sideways graze. */
+    var hole = h.r * 0.95;
+    var entered = (prevD > hole && d < hole) ||
+      sweptHits(prevX, prevY, ball.x, ball.y, h.x, h.y, hole);
     if (!entered) return;
     var toward = ball.vx * h.faceX + ball.vy * h.faceY;
-    /* require a real heave into the backboard (north), not a sideways graze */
-    if (toward > 40) triggerHoopSwish(h);
+    if (Math.abs(toward) > 40) triggerHoopSwish(h);
   }
 
   function drawHoop(g, h) {
@@ -4566,8 +4577,10 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      BB-V7.34 — pause is a ghost under the HP pips; place hugs the far right.
      BB-V7.35 — HP pips are rectangles that narrow with max HP, merge into a
      ticked bar, then a plain numbered bar. No heart shapes in the HUD.
-     BB-V7.36 — MIX beeps 6× louder at 100; slider stays 0–100. */
-  var BUILD = "v7.36";
+     BB-V7.36 — MIX beeps 6× louder at 100; slider stays 0–100.
+     BB-V7.37 — post-kill hoop shot reaches the rim (lane through the wall
+     face) so a hit swishes instead of banking off stone. */
+  var BUILD = "v7.37";
   var FEEL_DEF = { spd: 250, accel: 2600, brake: 3600, throwSpd: 620, aimMode: "drag", aimDead: 2, aimHold: 64 };
   var FEEL = (function () {
     var f = {};
@@ -7883,6 +7896,31 @@ function endRunToMenu() {
       ball.life = opts.life != null ? opts.life : 2.8;
       ball.trail = []; ball.bounces = 0; ball.hits = []; ball.ret = false;
       return { ball: this.ballState(), hoop: this.hoop(), spd: spd };
+    },
+    /* Step the live ball without waiting on rAF (headless hoop tests). */
+    stepBall: function (n, dt) {
+      dt = dt == null ? DT : dt;
+      n = n == null ? 1 : n;
+      var i;
+      for (i = 0; i < n; i++) updateBall(dt);
+      return { ball: this.ballState(), hoop: this.hoop() };
+    },
+    /* Arm, throw at the rim, simulate until make / bounce-home / timeout. */
+    simHoopShot: function (opts) {
+      var launched = this.throwAtHoop(opts);
+      if (launched.err) return launched;
+      var i, frames = (opts && opts.frames) || 90;
+      for (i = 0; i < frames; i++) {
+        updateBall(DT);
+        if (room && room.hoop && room.hoop.swished) break;
+        if (!ball || !ball.live || ball.ret) break;
+      }
+      return {
+        frames: i + 1,
+        swished: !!(room && room.hoop && room.hoop.swished),
+        ball: this.ballState(),
+        hoop: this.hoop()
+      };
     },
     /* sprinkle post-boss loot / residual shake for celebration previews */
     dressAftermath: function () {
