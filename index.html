@@ -429,6 +429,157 @@
     .shopTitle { white-space: nowrap; }
     .shopBuy { font-size: clamp(15px, 1.9vw, 18px); min-width: 5.4em; }
   }
+  /* BB-V7.30 — main menu is always a fluid horizontal board. Portrait keeps
+     the same row of columns and sizes type/gaps off the card width (container
+     queries), never a transform-scale of a 900px mock. Floor 13.5px type and
+     44px tap targets; the card itself must not scroll. */
+  #menuPanel {
+    align-items: center;
+    justify-content: center;
+    padding: clamp(6px, 1.2vmin, 12px);
+  }
+  #menuCard.menuCard {
+    container-type: inline-size;
+    container-name: menu;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: clamp(6px, 1.2cqi, 10px);
+    width: 100%;
+    max-width: none;
+    height: auto;
+    max-height: 100%;
+    overflow: hidden;
+    padding: clamp(8px, 1.5cqi, 14px);
+    touch-action: manipulation;
+    overscroll-behavior: none;
+  }
+  #menuCard .menuLay {
+    display: flex;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    align-items: stretch;
+    gap: clamp(6px, 1.4cqi, 14px);
+    min-width: 0;
+    min-height: 0;
+    flex: 1 1 auto;
+  }
+  #menuCard .menuBrand,
+  #menuCard .menuCol {
+    display: flex;
+    flex-direction: column;
+    gap: clamp(4px, 0.9cqi, 8px);
+    min-width: 0;
+    min-height: 0;
+    flex: 1 1 0;
+  }
+  #menuCard .menuHead {
+    flex: 0 0 auto;
+    display: flex;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    align-items: baseline;
+    gap: clamp(6px, 1.2cqi, 12px);
+    min-width: 0;
+  }
+  #menuCard h1.title {
+    text-align: left;
+    font-size: clamp(13.5px, 4.2cqi, 28px);
+    letter-spacing: 0.06em;
+    line-height: 0.95;
+    margin: 0;
+    white-space: nowrap;
+  }
+  #menuCard h1.tTop { margin: 0; }
+  #menuCard h1.tBot { margin: 0; }
+  #menuCard .menuBrand { flex: 0.9 1 0; }
+  #menuCard .menuDiff { flex: 1.22 1 0; }
+  #menuCard .menuSeed { flex: 1.12 1 0; }
+  #menuCard h2 {
+    margin: 0;
+    font-size: clamp(13.5px, 2.1cqi, 15px);
+    letter-spacing: 0.08em;
+    line-height: 1.2;
+  }
+  #menuCard h2.fold {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    box-sizing: border-box;
+    min-height: 44px;
+    padding: 0 clamp(6px, 1.2cqi, 10px);
+    background: #3a3026;
+    border: 2px solid #6a5a44;
+    border-radius: 4px;
+  }
+  #menuCard .foldArrow { font-size: clamp(13.5px, 2cqi, 15px); }
+  #menuCard .menuStack {
+    display: flex;
+    flex-direction: column;
+    flex-wrap: nowrap;
+    align-items: stretch;
+    gap: clamp(4px, 0.8cqi, 6px);
+    flex: 1 1 auto;
+  }
+  #menuCard .menuStack .bb,
+  #menuCard .menuBrand .bb.pri {
+    width: 100%;
+    box-sizing: border-box;
+    min-height: 44px;
+    flex: 1 1 44px;
+    padding: 6px clamp(2px, 0.7cqi, 10px);
+    font-size: clamp(13.5px, 2.3cqi, 16px);
+    line-height: 1.15;
+    white-space: nowrap;
+    text-align: center;
+  }
+  #menuCard .menuSeed .menuStack .bb {
+    white-space: normal;
+    overflow-wrap: break-word;
+  }
+  #menuCard input.bb {
+    width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+    min-height: 44px;
+    padding: 6px 8px;
+    font-size: clamp(13.5px, 2.3cqi, 16px);
+  }
+  #menuCard .muted,
+  #menuCard .menuBlurb,
+  #menuCard .menuFoot {
+    font-size: clamp(13.5px, 2cqi, 14px);
+    margin: 0;
+    line-height: 1.25;
+  }
+  #menuCard .menuBlurb {
+    flex: 0 0 auto;
+  }
+  #menuCard .menuFoot {
+    flex: 0 0 auto;
+  }
+  #menuCard.menuCosOpen {
+    gap: clamp(6px, 1.2cqi, 10px);
+  }
+  #menuCard.menuCosOpen #cosBox {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    gap: clamp(4px, 0.8cqi, 6px);
+  }
+  #menuCard.menuCosOpen #cosBox .row {
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+  #menuCard.menuCosOpen #cosBox .bb {
+    min-height: 44px;
+    box-sizing: border-box;
+    padding: 6px 8px;
+    font-size: clamp(13.5px, 2.2cqi, 15px);
+  }
   #toasts {
     position: absolute; left: 50%; transform: translateX(-50%);
     top: calc(88px + env(safe-area-inset-top));
@@ -646,7 +797,7 @@
   </div>
   <div id="rotate"><div class="phone"></div><div style="font-size:22px;font-weight:800">Turn sideways to play</div><div class="muted">The dungeon is wider than it is tall. Rotate the device and the run picks up where it is.</div></div>
   <div class="panel splash" id="splashPanel"><div class="card splashCard" id="splashCard"></div></div>
-  <div class="panel" id="menuPanel"><div class="card" id="menuCard"></div></div>
+  <div class="panel" id="menuPanel"><div class="card menuCard" id="menuCard"></div></div>
   <div class="panel" id="pausePanel"><div class="card" id="pauseCard"></div></div>
   <div class="panel" id="shopPanel"><div class="card" id="shopCard"></div></div>
   <div class="panel" id="floorPanel"><div class="card" id="floorCard"></div></div>
@@ -4264,7 +4415,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      start to bail without placing/throwing; cube owned by its own pointerId so
      other fingers no longer drop the block; pointercancel never throws;
      refused place shakes the cube (no NO SPACE / NO BLOCKS / SEED toasts). */
-  var BUILD = "v7.29";
+  var BUILD = "v7.30";
   var FEEL_DEF = { spd: 250, accel: 2600, brake: 3600, throwSpd: 620, aimMode: "drag", aimDead: 2, aimHold: 64 };
   var FEEL = (function () {
     var f = {};
@@ -6323,34 +6474,49 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       var d = DIFFS[k];
       return "<button class='bb" + (k === curDiff ? " on" : "") + "' data-d='" + k + "'>" + d.label + "</button>";
     }).join("");
+    var lookHead = "<h2 class='fold' id='cosHead'>LOOK <span class='foldArrow'>" + (cosOpen ? "\u25be" : "\u25b8") + "</span></h2>";
+    el.className = "card menuCard" + (cosOpen ? " menuCosOpen" : "");
+    /* BB-V7.30 — same four-column board in both orientations. LOOK still folds
+       the dress-up (once-a-week) so RUN/DIFFICULTY/PROFILE/SEED stay on one screen. */
+    if (cosOpen) {
+      el.innerHTML = lookHead + "<div id='cosBox'></div>";
+      paintCos();
+      el.querySelector("#cosHead").onclick = function () { cosOpen = !cosOpen; showMenu(); };
+      syncHud();
+      return;
+    }
     el.innerHTML =
+      "<div class='menuHead'>" +
       "<h1 class=\"title tTop\">BLOCKBALL</h1>" +
-            "<h1 class=\"title tBot\">DUNGEON</h1>" +
-      /* CHIEF FIX BB-V4.6 — RUN moved above the cosmetics. On a short screen the
-         card overflows, and the one control the player always wants (PLAY) was
-         below four rows of dress-up, off the bottom of the panel. */
+      "<h1 class=\"title tBot\">DUNGEON</h1>" +
+      "</div>" +
+      "<div class='menuLay'>" +
+      "<div class='menuBrand'>" +
       "<h2>RUN</h2>" +
-      "<div class='row'>" +
+      "<div class='row menuStack'>" +
       "<button class='bb pri' id='btnPlay'>PLAY</button>" +
       "</div>" +
+      "</div>" +
+      "<div class='menuCol menuDiff'>" +
       "<h2>DIFFICULTY</h2>" +
-      "<div class='row' id='diffRow'>" + diffs + "</div>" +
-      "<p class='muted' style='margin:2px 0 0'>" + (DIFFS[curDiff] || DIFFS.easy).blurb + "</p>" +
-      "<p class='muted' style='margin:2px 0 0'>" + BUILD + "</p>" +
-      "<h2>PROFILE</h2><div class='row' id='profRow'>" + profs + "</div>" +
-      /* CHIEF FIX BB-V4.10 — five rows of dress-up pushed SEED two screens down
-         on a phone. They are a once-a-week choice, not a per-run one, so they
-         fold away behind one heading and the whole menu fits one screen. */
-      "<h2 class='fold' id='cosHead'>LOOK <span class='foldArrow'>" + (cosOpen ? "\u25be" : "\u25b8") + "</span></h2>" +
-      "<div id='cosBox'" + (cosOpen ? "" : " hidden") + "></div>" +
+      "<div class='row menuStack' id='diffRow'>" + diffs + "</div>" +
+      "<p class='muted menuBlurb'>" + (DIFFS[curDiff] || DIFFS.easy).blurb + "</p>" +
+      "</div>" +
+      "<div class='menuCol'>" +
+      "<h2>PROFILE</h2>" +
+      "<div class='row menuStack' id='profRow'>" + profs + "</div>" +
+      "</div>" +
+      "<div class='menuCol menuSeed'>" +
+      lookHead +
       "<h2>SEED</h2>" +
-      "<div class='row'>" +
-      "<input class='bb' id='seedIn' value='" + S.seed + "' maxlength='16' style='width:140px'>" +
+      "<div class='row menuStack'>" +
+      "<input class='bb' id='seedIn' value='" + S.seed + "' maxlength='16'>" +
       "<button class='bb' id='btnSeed'>PLAY SEED</button>" +
       "<button class='bb' id='btnRand'>NEW SEED</button>" +
       "</div>" +
-      "<p class='muted'>Best floor " + store.bestFloor + " · Trick kills " + store.trickKills + " · Stash " + store.stash.length + "</p>";
-    paintCos();
+      "</div>" +
+      "</div>" +
+      "<p class='muted menuFoot'>Best floor " + store.bestFloor + " · Trick kills " + store.trickKills + " · Stash " + store.stash.length + " · " + BUILD + "</p>";
     el.querySelector("#cosHead").onclick = function () { cosOpen = !cosOpen; showMenu(); };
     el.querySelector("#profRow").onclick = function (ev) {
       var b = ev.target.closest("button");
