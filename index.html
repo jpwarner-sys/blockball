@@ -366,6 +366,23 @@
   .swatch { width: 28px; height: 28px; border: 2px solid #111; display: inline-block; }
   .landSplit { display: flex; flex-direction: column; gap: 8px; }
   .landBtns { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .soundRow { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .soundVol {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    max-width: 340px;
+    margin-top: 4px;
+  }
+  .soundVol span:first-child { font-weight: 700; letter-spacing: 0.06em; font-size: 13px; }
+  .soundVol input[type="range"] {
+    flex: 1;
+    min-width: 110px;
+    min-height: 32px;
+    accent-color: #d06018;
+  }
+  .soundVol .muted { min-width: 36px; text-align: right; }
   .shopGrid { display: flex; flex-direction: column; gap: 8px; }
   .shopCol { display: flex; flex-direction: column; gap: 8px; }
   .shopRow {
@@ -417,6 +434,8 @@
       flex-wrap: nowrap;
     }
     .landSplit .landCopy { flex: 1; min-width: 0; text-align: right; }
+    .landSplit .landCopy .soundRow { justify-content: flex-end; }
+    .landSplit .landCopy .soundVol { margin-left: auto; }
     .landSplit .landBtns { flex: 0 0 auto; flex-direction: column; align-items: stretch; gap: 10px; min-width: 220px; }
     #shopCard h1 { font-size: clamp(30px, 4.6vw, 44px); margin: 0 0 8px; }
     .shopGrid {
@@ -559,6 +578,21 @@
   #menuCard .menuFoot {
     flex: 0 0 auto;
   }
+  #menuCard .menuSound {
+    flex: 0 0 auto;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: clamp(6px, 1cqi, 10px);
+    min-width: 0;
+  }
+  #menuCard .menuSound .soundVol {
+    margin-top: 0;
+    max-width: none;
+    width: 100%;
+    flex: 1 1 auto;
+  }
+  #menuCard .menuSound .soundRow { flex: 0 0 auto; }
   #menuCard.menuCosOpen {
     gap: clamp(6px, 1.2cqi, 10px);
   }
@@ -958,7 +992,11 @@
       { token: "RIFT", cos: { body: "swift", hat: "bow", ball: "midnight", trail: "ribbon", pal: "lilac" } }
     ],
     installHide: false,
-    aimHelp: false
+    aimHelp: false,
+    /* BB-V7.32 — MIX (true) lets Audible / Music keep playing under the beeps. */
+    mixAudio: true,
+    /* BB-V7.33 — 0–100 master for the oscillator beeps. 100 = shipped loudness. */
+    sfxVol: 100
   };
 
   function lsGet(k) {
@@ -990,6 +1028,10 @@
       }
       if (o.installHide) store.installHide = true;
       if (o.aimHelp) store.aimHelp = true;
+      if (o.mixAudio === false) store.mixAudio = false;
+      if (typeof o.sfxVol === "number" && isFinite(o.sfxVol)) {
+        store.sfxVol = Math.max(0, Math.min(100, Math.round(o.sfxVol)));
+      }
       S.seenAimHelp = !!o.aimHelp;
     } catch (e) {}
   }
@@ -1023,7 +1065,9 @@
         profiles: store.profiles,
         difficulty: store.difficulty || "easy",
         installHide: store.installHide,
-        aimHelp: store.aimHelp
+        aimHelp: store.aimHelp,
+        mixAudio: store.mixAudio !== false,
+        sfxVol: sfxVol()
       }));
     } catch (e) {}
   }
@@ -1063,7 +1107,41 @@
   function seedRng(extra) { rng = mulberry(hashStr(S.seed + ":" + extra)); }
 
   var audioCtx = null;
+  var lastBeepGain = 0;
+  /* BB-V7.32 — Safari/iOS `auto` can grab exclusive playback and kill Audible.
+     MIX asks for an ambient session so other apps keep going; SOLO is exclusive.
+     Must be set before creating or resuming the AudioContext. */
+  function applyAudioMix() {
+    try {
+      if (!navigator.audioSession) return null;
+      /* Splash / menu stay ambient so TAP TO START cannot kill Audible.
+         SOLO only claims exclusive playback once a run is live. */
+      var live = S.mode === "play";
+      var solo = store.mixAudio === false && live;
+      navigator.audioSession.type = solo ? "playback" : "ambient";
+      return navigator.audioSession.type;
+    } catch (err) { return null; }
+  }
+  function setMixAudio(on) {
+    store.mixAudio = on !== false;
+    saveStore();
+    applyAudioMix();
+    return store.mixAudio;
+  }
+  function sfxVol() {
+    var n = store.sfxVol;
+    if (n == null || !isFinite(n)) n = 100;
+    return Math.max(0, Math.min(100, Math.round(n)));
+  }
+  function setSfxVol(n) {
+    n = Math.round(+n);
+    if (!isFinite(n)) n = 100;
+    store.sfxVol = Math.max(0, Math.min(100, n));
+    saveStore();
+    return store.sfxVol;
+  }
   function ensureAudio() {
+    applyAudioMix();
     if (audioCtx) return audioCtx;
     var AC = window.AudioContext || window.webkitAudioContext;
     if (!AC) return null;
@@ -1072,6 +1150,9 @@
   }
   function beep(type, freq, dur, vol, slide) {
     if (S.muteFx > 0) return;
+    var gain = (vol || 0.06) * (sfxVol() / 100);
+    lastBeepGain = gain;
+    if (gain <= 0) return;
     try {
       var ac = ensureAudio();
       if (!ac) return;
@@ -1083,7 +1164,7 @@
       o.type = type || "square";
       o.frequency.setValueAtTime(Math.max(1, freq || 220), t0);
       if (slide) o.frequency.exponentialRampToValueAtTime(Math.max(1, slide), t0 + len);
-      g.gain.setValueAtTime(Math.max(0.0008, vol || 0.06), t0);
+      g.gain.setValueAtTime(Math.max(0.0008, gain), t0);
       g.gain.exponentialRampToValueAtTime(0.001, t0 + len);
       o.connect(g); g.connect(ac.destination);
       o.start(t0);
@@ -4437,8 +4518,11 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      refused place shakes the cube (no NO SPACE / NO BLOCKS / SEED toasts).
      BB-V7.31 — rAF survives an exception (was a freeze on the last frame);
      WebAudio beeps cannot kill the loop; shade/ellipse/blocks/cos/ball
-     guards; splash JPEG dropped when a run starts. */
-  var BUILD = "v7.31";
+     guards; splash JPEG dropped when a run starts.
+     BB-V7.32 — ambient audio session so Audible / Music mix with the beeps;
+     MIX is the default, SOLO on pause is exclusive game audio.
+     BB-V7.33 — BEEPS slider (0–100) on menu + pause; 0 is mute. */
+  var BUILD = "v7.33";
   var FEEL_DEF = { spd: 250, accel: 2600, brake: 3600, throwSpd: 620, aimMode: "drag", aimDead: 2, aimHold: 64 };
   var FEEL = (function () {
     var f = {};
@@ -6560,6 +6644,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       "</div>" +
       "</div>" +
       "</div>" +
+      "<div class='menuSound'>" + soundMixRow() + soundVolRow("menu") + "</div>" +
       "<p class='muted menuFoot'>Best floor " + store.bestFloor + " · Trick kills " + store.trickKills + " · Stash " + store.stash.length + " · " + BUILD + "</p>";
     el.querySelector("#cosHead").onclick = function () { cosOpen = !cosOpen; showMenu(); };
     el.querySelector("#profRow").onclick = function (ev) {
@@ -6577,6 +6662,8 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     document.getElementById("btnPlay").onclick = function () { startRun(makeSeed(), null); };
     document.getElementById("btnSeed").onclick = function () { startRun(document.getElementById("seedIn").value, null); };
     document.getElementById("btnRand").onclick = function () { S.seed = makeSeed(); showMenu(); };
+    bindSoundMix(showMenu);
+    bindSoundVol("menu");
     syncHud();
   }
 
@@ -6605,6 +6692,42 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     };
   }
 
+  function soundVolLabel() {
+    var v = sfxVol();
+    return v ? String(v) : "OFF";
+  }
+  function soundVolRow(idPrefix) {
+    return "<div class='soundVol'>" +
+      "<span>BEEPS</span>" +
+      "<input type='range' id='" + idPrefix + "Vol' min='0' max='100' step='5' value='" + sfxVol() + "'>" +
+      "<span class='muted' id='" + idPrefix + "VolN'>" + soundVolLabel() + "</span></div>";
+  }
+  function bindSoundVol(idPrefix) {
+    var el = document.getElementById(idPrefix + "Vol");
+    var out = document.getElementById(idPrefix + "VolN");
+    if (!el) return;
+    var last = 0;
+    el.oninput = function () {
+      setSfxVol(el.value);
+      if (out) out.textContent = soundVolLabel();
+      var now = Date.now();
+      if (now - last > 140) { last = now; sfx("ui"); }
+    };
+  }
+  function soundMixRow() {
+    var mixOn = store.mixAudio !== false;
+    return "<div class='soundRow'>" +
+      "<button class='bb" + (mixOn ? " on" : "") + "' id='btnMix'>MIX</button>" +
+      "<button class='bb" + (mixOn ? "" : " on") + "' id='btnSolo'>SOLO</button>" +
+      "</div>";
+  }
+  function bindSoundMix(after) {
+    var mix = document.getElementById("btnMix");
+    var solo = document.getElementById("btnSolo");
+    if (mix) mix.onclick = function () { setMixAudio(true); toast("BEEPS + AUDIBLE"); if (after) after(); };
+    if (solo) solo.onclick = function () { setMixAudio(false); toast("GAME ONLY"); if (after) after(); };
+  }
+
   function showPause() {
     hidePanels();                 /* same trap as showShop had */
     document.getElementById("pausePanel").className = "panel show";
@@ -6613,6 +6736,9 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       "<h1>PAUSE</h1>" +
       "<p class='muted'>" + S.seed + " · " + diffLabel() + " · Floor " + S.floor + " · " + (player ? player.token : "") +
         " · BALL " + ((player && player.ballAffix && player.ballAffix.length) ? player.ballAffix.join("+") : (player && player.permaFire ? "FIRE" : "PLAIN")) + "</p>" +
+      "<p class='muted'>MIX keeps Audible / Music going with the beeps. SOLO is game-only. BEEPS is the game volume.</p>" +
+      soundMixRow() +
+      soundVolRow("pause") +
       "</div><div class='landBtns row'>" +
       "<button class='bb pri' id='btnRes'>RESUME</button>" +
       "<button class='bb' id='btnUpg'>UPGRADE · " + player.frag + "</button>" +
@@ -6621,6 +6747,8 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     document.getElementById("btnUpg").onclick = function () { showShop(); };
     document.getElementById("btnRes").onclick = function () { document.getElementById("pausePanel").className = "panel"; S.pause = false; };
     document.getElementById("btnMenu").onclick = function () { S.pause = false; endRunToMenu(); };
+    bindSoundMix(showPause);
+    bindSoundVol("pause");
   }
 function endRunToMenu() {
     if (player) {
@@ -7325,6 +7453,7 @@ function endRunToMenu() {
   /* ---------- boot ---------- */
   loadStore();
   resetItemsAndBoostsOnLoad();
+  applyAudioMix();
   setupInstall();
   resize();
   showSplash();
@@ -7449,6 +7578,30 @@ function endRunToMenu() {
       setDifficulty(id);
       if (S.mode === "play") S.difficulty = store.difficulty;
       return this.difficulty();
+    },
+    audio: function () {
+      var session = null;
+      try { session = navigator.audioSession ? navigator.audioSession.type : null; } catch (e) {}
+      return {
+        mix: store.mixAudio !== false,
+        vol: sfxVol(),
+        lastGain: lastBeepGain,
+        session: session,
+        ctx: audioCtx ? audioCtx.state : null
+      };
+    },
+    setMix: function (on) {
+      setMixAudio(on !== false);
+      ensureAudio();
+      return this.audio();
+    },
+    setVol: function (n) {
+      setSfxVol(n);
+      return this.audio();
+    },
+    sfx: function (name) {
+      sfx(name || "ui");
+      return this.audio();
     },
     feel: function () {
       return { spd: FEEL.spd, accel: FEEL.accel, brake: FEEL.brake, throwSpd: FEEL.throwSpd,
