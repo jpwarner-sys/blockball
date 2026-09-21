@@ -1141,6 +1141,7 @@
   var cloudTimer = 0;
   var cloudSlots = { device: null, finger: null };
   var wipeArmed = 0;
+  var WIPE_ARM_MS = 8000;
   var hadLocalStore = false;
 
   function deviceId() {
@@ -1310,7 +1311,7 @@
   }
   function armWipe() {
     var now = Date.now();
-    if (wipeArmed && now - wipeArmed < 4000) {
+    if (wipeArmed && now - wipeArmed < WIPE_ARM_MS) {
       wipeAllProgress();
       return;
     }
@@ -1320,11 +1321,11 @@
     toast("TAP AGAIN TO WIPE");
     if (typeof sfx === "function") sfx("deny");
     setTimeout(function () {
-      if (!wipeArmed || Date.now() - wipeArmed < 3900) return;
+      if (!wipeArmed || Date.now() - wipeArmed < WIPE_ARM_MS - 100) return;
       wipeArmed = 0;
       var b2 = document.getElementById("btnWipe");
       if (b2) b2.textContent = "WIPE ALL PROGRESS";
-    }, 4000);
+    }, WIPE_ARM_MS);
   }
   function saveStore(opts) {
     opts = opts || {};
@@ -6969,7 +6970,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     box.innerHTML = row("BODY", BODIES, "body") + row("HAT", HATS, "hat") + row("BALL", BALLS, "ball") + row("TRAIL", TRAILS, "trail") +
       "<div class='muted'>COLOUR</div><div class='row'>" + pals + "</div>" +
       "<div class='wipeRow'>" +
-      "<button class='bb warn' id='btnWipe'>" + (wipeArmed && Date.now() - wipeArmed < 4000 ? "SURE? WIPE EVERYTHING" : "WIPE ALL PROGRESS") + "</button>" +
+      "<button class='bb warn' id='btnWipe'>" + (wipeArmed && Date.now() - wipeArmed < WIPE_ARM_MS ? "SURE? WIPE EVERYTHING" : "WIPE ALL PROGRESS") + "</button>" +
       "<p class='muted'>Looks and records stay on this device and this network, even after a fresh Home Screen install.</p>" +
       "</div>";
     box.onclick = function (ev) {
