@@ -165,8 +165,10 @@
     --hud-pad: 8px;
     --hud-heart: clamp(24px, 7vh, 36px);
     --hud-heart-h: clamp(21px, 6.1vh, 32px);
-    --hud-hp-bar-w: clamp(110px, 28vh, 160px);
-    --hud-hp-bar-h: clamp(14px, 3.6vh, 20px);
+    /* Five starting pips share this track as near-squares; extra HP narrows them. */
+    --hud-hp-track: calc(var(--hud-heart-h) * 5 + 16px);
+    --hud-hp-bar-w: var(--hud-hp-track);
+    --hud-hp-bar-h: var(--hud-heart-h);
     --hud-hp-num: clamp(13px, 3.6vh, 18px);
     --hud-meta-gap: clamp(10px, 2.4vh, 16px);
     --hud-meta-fs: clamp(18px, 5.4vh, 28px);
@@ -200,8 +202,9 @@
     --hud-pad: 6px;
     --hud-heart: clamp(18px, 3.2vh, 26px);
     --hud-heart-h: clamp(16px, 2.8vh, 23px);
-    --hud-hp-bar-w: clamp(96px, 14vh, 132px);
-    --hud-hp-bar-h: clamp(12px, 1.8vh, 16px);
+    --hud-hp-track: calc(var(--hud-heart-h) * 5 + 12px);
+    --hud-hp-bar-w: var(--hud-hp-track);
+    --hud-hp-bar-h: var(--hud-heart-h);
     --hud-hp-num: clamp(12px, 1.9vh, 15px);
     --hud-meta-gap: clamp(8px, 1.4vh, 12px);
     --hud-meta-fs: clamp(15px, 2.4vh, 20px);
@@ -637,24 +640,36 @@
   #hud.play #btnPause { display: flex; }
   #hpPips {
     top: var(--hud-hp-t); left: var(--hud-hp-l);
-    flex-wrap: wrap; gap: 5px; align-items: center; max-width: 48vw;
+    flex-wrap: nowrap; align-items: center; max-width: 48vw;
   }
-  #hpPips svg.heart {
-    display: block;
-    width: var(--hud-heart);
+  /* BB-V7.35 — HP is rectangles, not hearts. They share a fixed track so extra
+     max HP makes each pip narrower, then they merge into a ticked bar, then a bar. */
+  #hpPips.hp-pips {
+    width: var(--hud-hp-track);
+    gap: var(--hp-gap, 4px);
+  }
+  #hpPips .hpPip {
+    flex: 1 1 0;
+    min-width: 0;
     height: var(--hud-heart-h);
-    filter: drop-shadow(0 1px 0 #1a120c);
+    box-sizing: border-box;
+    background: #2a1814;
+    border: 2px solid #5a5040;
+    box-shadow: 0 1px 0 #1a120c;
   }
-  /* BB-V7.13 — hearts stay individual through 8 HP; after that a compact meter.
-     Sized to ride with the v7.14 phone HUD clamps above. */
+  #hpPips .hpPip.on {
+    background: linear-gradient(#e07058, #c03830);
+    border-color: #c87870;
+    box-shadow: 0 1px 0 #1a120c, 0 0 6px rgba(208,64,56,0.35);
+  }
   .hpMeter {
     display: flex; align-items: center; gap: 6px;
     min-width: 0;
   }
-  .hpMeter svg.heart { flex: 0 0 auto; }
   .hpBar {
     position: relative;
     width: var(--hud-hp-bar-w); height: var(--hud-hp-bar-h);
+    flex: 0 0 auto;
     background: #2a1814;
     border: 2px solid #8a5048;
     box-sizing: border-box;
@@ -665,6 +680,16 @@
     display: block; height: 100%;
     background: linear-gradient(#e07058, #c03830);
     box-shadow: 0 0 6px rgba(208,64,56,0.45);
+  }
+  .hpTick {
+    position: absolute;
+    top: 0; bottom: 0;
+    width: 1px;
+    margin-left: -0.5px;
+    background: rgba(240, 224, 208, 0.42);
+    box-shadow: 0 0 0 1px rgba(26, 18, 12, 0.28);
+    pointer-events: none;
+    z-index: 1;
   }
   .hpNum {
     font-weight: 800; font-size: var(--hud-hp-num); color: #f0e6d4;
@@ -1004,7 +1029,7 @@
     aimHelp: false,
     /* BB-V7.32 — MIX (true) lets Audible / Music keep playing under the beeps. */
     mixAudio: true,
-    /* BB-V7.35 — 0–100 master. 100 is 6× the original MIX beeps. */
+    /* BB-V7.36 — 0–100 master. 100 is 6× the original MIX beeps. */
     sfxVol: 100
   };
 
@@ -1117,7 +1142,7 @@
 
   var audioCtx = null;
   var lastBeepGain = 0;
-  /* BB-V7.35 — oscillator patches were ~0.05, inaudible under Audible at MIX.
+  /* BB-V7.36 — oscillator patches were ~0.05, inaudible under Audible at MIX.
      6× at slider 100. Cap so stacked saws do not clip. */
   var SFX_VOL_MAX = 100;
   var SFX_GAIN = 6;
@@ -3015,7 +3040,9 @@
 
   var PLACE_HITS_PER = 5;
   var PLACE_MAX_HARD = 6;
-  var HP_HEARTS_MAX = 8;
+  /* BB-V7.35 — discrete rectangles through 8, ticked bar through 16, then a plain bar. */
+  var HP_PIPS_MAX = 8;
+  var HP_TICKS_MAX = 16;
   function placeHitsNeed() {
     return Math.max(3, PLACE_HITS_PER - (player && player.placeRateLv ? player.placeRateLv : 0));
   }
@@ -4492,7 +4519,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      BB-V7.12 — placed cubes: 2 HP, normal mob chips, knight+ one-shots, ball clears.
      BB-V7.12b — Skull Lord (was Bone King slot): curated lair, melee cleave+lunge,
      trash waves at 75/50/25, arena wipe on death.
-     BB-V7.13 — NBA hoop + cinematic swish; HEART pips collapse to a bar after 8.
+     BB-V7.13 — NBA hoop + cinematic swish; HP pips collapse to a bar after 8.
      BB-V7.14 — larger translucent walk/shot rings; phone HUD sized off viewport.
      BB-V7.15 — silhouette hitboxes: contact matches painted body for hero,
      trash, knights, and Skull Lord; split KNIGHT_VIS / LORD_VIS.
@@ -4536,9 +4563,11 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      BB-V7.32 — ambient audio session so Audible / Music mix with the beeps;
      MIX is the default, SOLO on pause is exclusive game audio.
      BB-V7.33 — BEEPS slider (0–100) on menu + pause; 0 is mute.
-     BB-V7.34 — pause is a ghost under the hearts; place hugs the far right.
-     BB-V7.35 — MIX beeps 6× louder at 100; slider stays 0–100. */
-  var BUILD = "v7.35";
+     BB-V7.34 — pause is a ghost under the HP pips; place hugs the far right.
+     BB-V7.35 — HP pips are rectangles that narrow with max HP, merge into a
+     ticked bar, then a plain numbered bar. No heart shapes in the HUD.
+     BB-V7.36 — MIX beeps 6× louder at 100; slider stays 0–100. */
+  var BUILD = "v7.36";
   var FEEL_DEF = { spd: 250, accel: 2600, brake: 3600, throwSpd: 620, aimMode: "drag", aimDead: 2, aimHold: 64 };
   var FEEL = (function () {
     var f = {};
@@ -6471,20 +6500,28 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     var hpEl = document.getElementById("hpPips");
     if (hpEl) {
       var html = "", i, maxHp = player ? player.maxHp : 5, hp = player ? player.hp : 0;
-      /* BB-V7.13/14 — phone-sized hearts (CSS clamp); bar once max HP > 8 */
-      var heartSvg = function (on) {
-        return '<svg class="heart' + (on ? " on" : "") + '" viewBox="0 0 16 14" width="30" height="26" aria-hidden="true"><path d="M8 13 L2.2 7.4 A3.6 3.6 0 1 1 8 3.1 A3.6 3.6 0 1 1 13.8 7.4 Z" fill="' + (on ? "#d05040" : "transparent") + '" stroke="' + (on ? "#f09888" : "#5a5040") + '" stroke-width="1.4"/></svg>';
-      };
-      if (maxHp > HP_HEARTS_MAX) {
-        var pct = maxHp > 0 ? Math.max(0, Math.min(1, hp / maxHp)) : 0;
-        html = '<div class="hpMeter" role="meter" aria-label="health" aria-valuemin="0" aria-valuemax="' + maxHp + '" aria-valuenow="' + hp + '">' +
-          heartSvg(hp > 0) +
-          '<div class="hpBar"><i class="hpFill" style="width:' + Math.round(pct * 100) + '%"></i></div>' +
-          '<b class="hpNum">' + hp + "/" + maxHp + "</b></div>";
+      /* BB-V7.35 — rectangles share a track (narrower as max HP grows);
+         after 8 they merge into a ticked bar, then a plain bar. */
+      var trackMode = maxHp <= HP_PIPS_MAX ? "pips" : (maxHp <= HP_TICKS_MAX ? "ticks" : "bar");
+      hpEl.classList.remove("hp-pips", "hp-ticks", "hp-bar");
+      hpEl.classList.add("hp-" + trackMode);
+      if (trackMode === "pips") {
+        var gap = maxHp <= 5 ? 4 : maxHp <= 6 ? 3 : maxHp <= 7 ? 2 : 1;
+        hpEl.style.setProperty("--hp-gap", gap + "px");
+        for (i = 0; i < maxHp; i++) html += '<i class="hpPip' + (i < hp ? " on" : "") + '"></i>';
       } else {
-        for (i = 0; i < maxHp; i++) html += heartSvg(i < hp);
+        var pct = maxHp > 0 ? Math.max(0, Math.min(1, hp / maxHp)) : 0;
+        var ticks = "";
+        if (trackMode === "ticks") {
+          for (i = 1; i < maxHp; i++) {
+            ticks += '<i class="hpTick" style="left:' + ((i / maxHp) * 100).toFixed(3) + '%"></i>';
+          }
+        }
+        html = '<div class="hpMeter" role="meter" aria-label="health" aria-valuemin="0" aria-valuemax="' + maxHp + '" aria-valuenow="' + hp + '">' +
+          '<div class="hpBar"><i class="hpFill" style="width:' + Math.round(pct * 100) + '%"></i>' + ticks + "</div>" +
+          '<b class="hpNum">' + hp + "/" + maxHp + "</b></div>";
       }
-      var hpState = maxHp + ":" + hp;
+      var hpState = trackMode + ":" + maxHp + ":" + hp;
       if (hpEl.__bbState !== hpState) {
         hpEl.innerHTML = html;
         hpEl.__bbState = hpState;
@@ -7506,6 +7543,19 @@ function endRunToMenu() {
     heal: healPlayer,
     setHp: function (n) { if (!player) return; player.hp = n; player.inv = 9; syncHud(); },
     setMaxHp: function (n) { if (!player) return; player.maxHp = n; if (player.hp > n) player.hp = n; syncHud(); },
+    hpHud: function () {
+      var el = document.getElementById("hpPips");
+      if (!el) return null;
+      var fill = el.querySelector(".hpFill");
+      return {
+        mode: el.classList.contains("hp-pips") ? "pips" : el.classList.contains("hp-ticks") ? "ticks" : el.classList.contains("hp-bar") ? "bar" : "",
+        pips: el.querySelectorAll(".hpPip").length,
+        on: el.querySelectorAll(".hpPip.on").length,
+        ticks: el.querySelectorAll(".hpTick").length,
+        num: (el.querySelector(".hpNum") && el.querySelector(".hpNum").textContent) || "",
+        fill: fill ? fill.style.width : ""
+      };
+    },
     hurt: function (n) { if (player) player.inv = 0; hurtPlayer(n); },
     downed: function () { return S.downed ? { t: S.downed.t, dur: S.downed.dur } : null; },
     forceDown: function () { if (!player) return; player.inv = 0; player.hp = 0; startDowned(); },
