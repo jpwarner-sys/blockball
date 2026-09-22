@@ -816,6 +816,22 @@
   }
   #bfChip.off { display: none; }
   #bfNum { font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  /* BB-V7.49 — force-field pips. The kid's cubes stay; this is only the shell. */
+  #fdChip {
+    gap: 3px;
+    font-size: calc(var(--hud-meta-fs) * 0.62);
+    letter-spacing: 0.08em;
+    color: #8fd4ff;
+  }
+  #fdChip.off { display: none; }
+  #fdChip i {
+    width: 6px; height: 11px;
+    border: 2px solid currentColor;
+    background: transparent;
+    box-shadow: 0 1px 0 #1a120c;
+  }
+  #fdChip i.on { background: currentColor; }
+  #fdChip b { font-weight: 800; }
   .trophyRow {
     display: flex; flex-wrap: wrap; gap: 6px; align-items: center;
     margin: 6px 0 2px;
@@ -973,6 +989,7 @@
       <span class="meta off" id="bfChip" title="swish buff">
         <b id="bfNum"></b>
       </span>
+      <span class="meta off" id="fdChip" title="force field"></span>
     </div>
     <button type="button" class="hud-item bb icon-btn" id="btnPause" aria-label="pause">
       <svg width="22" height="22" viewBox="0 0 14 14" aria-hidden="true"><rect x="2" y="1" width="4" height="12" fill="#f0e6d4"/><rect x="8" y="1" width="4" height="12" fill="#f0e6d4"/></svg>
@@ -1661,6 +1678,10 @@
       setTimeout(function () { beep("square", 523, 0.16, 0.06, 784); }, 360);
     }
     else if (name === "ui") beep("square", 400, 0.04, 0.03);
+    else if (name === "field") beep("sine", 740, 0.07, 0.045, 420);
+    else if (name === "fieldbreak") beep("triangle", 240, 0.12, 0.05, 80);
+    else if (name === "fieldup") beep("sine", 880, 0.06, 0.03, 1280);
+    else if (name === "thorn") beep("square", 480, 0.05, 0.04, 160);
   }
 
   function curveCost(n) { return Math.pow(2, n); }
@@ -1679,6 +1700,18 @@
     legendary: { c: "#f0c030", n: "LEGENDARY" }
   };
   var AFFIX = ["Fire", "Split", "Heavy", "Homing", "Chain"];
+  /* BB-V7.49 — defensive gear is a force field, not worn armour, so the cube
+     kid keeps his look. Three shells, picked up like a ball:
+       PULSE   — thin, back in a hurry
+       BULWARK — thick pool, slow to knit
+       BRIAR   — middle pool, thorns the attacker
+     pool is a multiple of one body-bump (floor + difficulty), so a late
+     nightmare hit is not soaked by a floor-1 toy. */
+  var FIELDS = {
+    pulse:   { id: "pulse",   name: "PULSE",   tag: "FAST",    blurb: "fast recharge", pips: 1, pool: 2, recharge: 1.8, delay: 0.22, thorns: 0,    col: "#8fd4ff" },
+    bulwark: { id: "bulwark", name: "BULWARK", tag: "STRONG",  blurb: "strong",        pips: 3, pool: 6, recharge: 8.0, delay: 0.65, thorns: 0,    col: "#f0c040" },
+    briar:   { id: "briar",   name: "BRIAR",   tag: "THORNS",  blurb: "reflect",       pips: 2, pool: 3, recharge: 4.2, delay: 0.40, thorns: 1,    col: "#8ec85a" }
+  };
 
   /* BB-V7.22 — EASY locks the current (v7.20/v7.21) combat + loot numbers.
      Higher tiers raise enemy HP/damage and lean out drops, especially rare+.
@@ -1853,6 +1886,7 @@
       swishPow: 0, swishSpd: 0, swishFire: 0, swishHeavy: 0,
       blockStock: 3, blockMax: 3, placeHits: 0,
       inv: 0,
+      field: null,
       facing: 1,
       cos: JSON.parse(JSON.stringify(p.cos || defaultCos())),
       token: p.token
@@ -3352,14 +3386,21 @@
   }
 
   /* ---------- combat ---------- */
-  function hurtPlayer(n) {
-    if (S.downed || player.inv > 0) return;
+  function hurtPlayer(n, src) {
+    if (S.downed || !player || player.inv > 0) return;
     n = Math.max(1, Math.round(n * diff().dmg));
-    player.hp -= n;
+    var soaked = soakField(n, src);
+    var spill = n - soaked;
+    if (spill <= 0) {
+      player.inv = 0.7;
+      S.shake = Math.max(S.shake, 0.12);
+      return;
+    }
+    player.hp -= spill;
     player.inv = 0.9;
     S.shake = 0.25;
     sfx("hurt");
-    floatTxt(player.x, player.y - 24, "-" + n, "#ff8060");
+    floatTxt(player.x, player.y - 24, "-" + spill, "#ff8060");
     if (player.hp <= 0) {
       player.hp = 0;
       startDowned();
@@ -3702,7 +3743,9 @@
      BB-V7.22 — restY anchors the hop settle at the drop point (enemy/chest),
      not the bottom of the playfield.
      BB-V7.28 — knight/boss rich rarity uses absolute richLeg/richEpic per
-     difficulty (rare fills the rest); HARD ≈ 4% / 15% / 81%. */
+     difficulty (rare fills the rest); HARD ≈ 4% / 15% / 81%.
+     BB-V7.49 — a slice of the gear roll is a force field instead of a ball.
+     Trash gear ~22% field, knight/boss rich ~36%. Balls stay the usual drop. */
   function dropLoot(x, y, rich) {
     var d = diff();
     var table = rnd();
@@ -3721,7 +3764,9 @@
       } else {
         rar = rarityForFloor(S.floor);
       }
-      it = { kind: "ball", x: x, y: y, restY: y, r: 13, vy: -40, life: 12, rar: rar, affix: aff, taken: false };
+      var fieldCut = rich ? 0.36 : 0.22;
+      if (rnd() < fieldCut) it = makeFieldLoot(x, y, rar, null);
+      else it = { kind: "ball", x: x, y: y, restY: y, r: 13, vy: -40, life: 12, rar: rar, affix: aff, taken: false };
     } else {
       it = { kind: "frag", x: x, y: y, restY: y, r: 8, vy: -30, life: 10, rar: "common", n: 1, taken: false };
     }
@@ -3752,6 +3797,10 @@
     } else if (it.kind === "heart") {
       if (healPlayer(it.n || 1)) floatTxt(it.x, it.y, "+♥", "#e05040");
       else { player.frag += 1; floatTxt(it.x, it.y, "+1 FRAG", "#f0d080"); }
+    } else if (it.kind === "field") {
+      var def = equipField(it.field) || FIELDS.pulse;
+      floatTxt(it.x, it.y, def.name, def.col);
+      toast(def.name + " · " + def.blurb);
     } else {
       var aff = it.affix || [];
       var rar = it.rar || "common";
@@ -3763,6 +3812,119 @@
         (RARITY[rar] && RARITY[rar].c) || "#ccc");
       toast((aff.join("+") || "PLAIN") + " · " + rar);
     }
+  }
+
+  /* Common floors hand out PULSE. Rich knight tables lean BULWARK / BRIAR. */
+  function rollFieldId(rar) {
+    var bag = ["pulse", "bulwark", "briar"];
+    if (rar === "common") bag = ["pulse", "pulse", "pulse", "briar", "bulwark"];
+    else if (rar === "rare") bag = ["pulse", "pulse", "briar", "bulwark"];
+    else if (rar === "epic") bag = ["bulwark", "bulwark", "briar", "pulse"];
+    else if (rar === "legendary") bag = ["bulwark", "bulwark", "briar", "briar"];
+    return pick(bag);
+  }
+
+  function makeFieldLoot(x, y, rar, id) {
+    return {
+      kind: "field",
+      field: (id && FIELDS[id]) ? id : rollFieldId(rar || "rare"),
+      x: x, y: y, restY: y, r: 13, vy: -40, life: 12,
+      rar: rar || "rare", taken: false
+    };
+  }
+
+  function bumpDmg() {
+    return Math.max(1, Math.round((1 + Math.floor((S.floor || 1) / 6)) * diff().dmg));
+  }
+
+  function fieldMax(def) {
+    return Math.max(1, Math.round(bumpDmg() * def.pool));
+  }
+
+  function equipField(id) {
+    var def = FIELDS[id];
+    if (!def || !player) return null;
+    var max = fieldMax(def);
+    player.field = { id: def.id, pool: max, max: max, delay: 0, flash: 0, zap: null };
+    syncHud();
+    return def;
+  }
+
+  function fieldState() {
+    if (!player || !player.field) return null;
+    var f = player.field;
+    var def = FIELDS[f.id];
+    if (!def) return null;
+    return {
+      id: f.id, name: def.name, tag: def.tag, blurb: def.blurb,
+      pool: Math.round(f.pool * 10) / 10, max: f.max, pips: def.pips,
+      recharge: def.recharge, thorns: def.thorns,
+      delay: Math.round((f.delay || 0) * 100) / 100,
+      col: def.col
+    };
+  }
+
+  function updateField(dt) {
+    var f = player && player.field;
+    if (!f) return;
+    var def = FIELDS[f.id];
+    if (!def) return;
+    if (f.flash > 0) f.flash = Math.max(0, f.flash - dt);
+    if (f.zap && f.zap.t > 0) f.zap.t = Math.max(0, f.zap.t - dt);
+    var max = fieldMax(def);
+    if (f.max !== max) {
+      var ratio = f.max > 0 ? f.pool / f.max : 1;
+      f.max = max;
+      f.pool = Math.max(0, Math.min(max, ratio * max));
+    }
+    if (f.pool >= max) { f.pool = max; return; }
+    if (f.delay > 0) { f.delay = Math.max(0, f.delay - dt); return; }
+    var prev = f.pool;
+    f.pool = Math.min(max, f.pool + (max / def.recharge) * dt);
+    if (prev < max && f.pool >= max) {
+      f.pool = max;
+      sfx("fieldup");
+    }
+  }
+
+  function fieldAttacker(src) {
+    if (!src) return null;
+    if (src.owner && src.owner.alive && src.owner.hp != null) return src.owner;
+    if (src.alive && src.hp != null && src.maxHp != null) return src;
+    return null;
+  }
+
+  function reflectThorns(soaked, src) {
+    var f = player.field;
+    var def = f && FIELDS[f.id];
+    var en = fieldAttacker(src);
+    if (!def || !en) return;
+    var dealt = Math.max(1, Math.round(soaked * def.thorns));
+    f.zap = { x: en.x, y: en.y - (en.hitLift || 0), t: 0.35 };
+    hitEnemy(en, { hits: [], thorn: true }, dealt, false);
+    sfx("thorn");
+  }
+
+  /* Whole points soak. A bigger hit cracks the shell and spills into HP. */
+  function soakField(n, src) {
+    var f = player && player.field;
+    if (!f) return 0;
+    var def = FIELDS[f.id];
+    if (!def) return 0;
+    var avail = Math.floor(f.pool + 1e-4);
+    if (avail <= 0) return 0;
+    var soaked = Math.min(avail, n);
+    f.pool = Math.max(0, f.pool - soaked);
+    f.delay = def.delay;
+    f.flash = 0.24;
+    if (f.pool <= 0.001) {
+      f.pool = 0;
+      sfx("fieldbreak");
+    } else sfx("field");
+    burst(player.x, player.y - 12, def.col, soaked >= n ? 10 : 6);
+    if (def.thorns > 0) reflectThorns(soaked, src);
+    if (soaked >= n) floatTxt(player.x, player.y - 28, def.tag, def.col);
+    return soaked;
   }
 
   function hasAff(name) {
@@ -4101,7 +4263,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
         (e.boss === "lord" || e.atk === "reap" || e.atk === "charge" ||
          e.atk === "blink" || e.atk === "slam" || e.atk === "briar");
       if (!authoredAtk && Math.hypot(e.x - player.x, e.y - player.y) < bodyR(e) + player.r - 2) {
-        hurtPlayer(1 + Math.floor(S.floor / 6));
+        hurtPlayer(1 + Math.floor(S.floor / 6), e);
         var px = player.x - e.x, py = player.y - e.y, pd = Math.hypot(px, py) || 1;
         /* CHIEF FIX BB-V6.10 — THE clipping cause, found by instrumenting rather
            than by theory. This knock-back from an enemy hit moved the player 18px
@@ -4359,7 +4521,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     var ad = Math.abs(Math.atan2(Math.sin(pang - blade), Math.cos(pang - blade)));
     if (ad < 0.78) {
       e.atkHit = true;
-      hurtPlayer(2 + Math.floor(S.floor / 5));
+      hurtPlayer(2 + Math.floor(S.floor / 5), e);
       S.shake = Math.max(S.shake, 0.36);
       burst(player.x, player.y, "#a8dce4", 12);
       sfx("cleave");
@@ -4373,7 +4535,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     if (Math.hypot(player.x - tipX, player.y - tipY) < player.r + artR(e) * 0.85 ||
         Math.hypot(player.x - e.x, player.y - e.y) < player.r + bodyR(e) * 1.2) {
       e.atkHit = true;
-      hurtPlayer(2 + Math.floor(S.floor / 4));
+      hurtPlayer(2 + Math.floor(S.floor / 4), e);
       S.shake = Math.max(S.shake, 0.4);
       burst(player.x, player.y, "#c0e070", 14);
       sfx("lunge");
@@ -4384,7 +4546,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     if (e.atkHit || !player) return;
     if (Math.hypot(player.x - e.x, player.y - e.y) < player.r + artR(e) * 1.7) {
       e.atkHit = true;
-      hurtPlayer(2 + Math.floor(S.floor / 5));
+      hurtPlayer(2 + Math.floor(S.floor / 5), e);
       S.shake = Math.max(S.shake, 0.34);
       burst(player.x, player.y, "#9fe8f0", 12);
       sfx("cleave");
@@ -4397,7 +4559,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       var pr = Math.hypot(player.x - e.x, player.y - e.y);
       if (Math.abs(pr - e.kitRingR) < 16) {
         e.kitRingHit = true;
-        hurtPlayer(dmg);
+        hurtPlayer(dmg, e);
         S.shake = Math.max(S.shake, 0.3);
         burst(player.x, player.y, e.kitRingCol, 10);
         sfx("hit");
@@ -5034,7 +5196,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
             var ad = Math.abs(Math.atan2(Math.sin(pang - e.gap), Math.cos(pang - e.gap)));
             if (Math.abs(pr - e.ringR) < 18 && ad >= 0.575) {
               e.ringHit = true;
-              hurtPlayer(8 + S.floor);
+              hurtPlayer(8 + S.floor, e);
               S.shake = Math.max(S.shake, 0.4);
               burst(player.x, player.y, "#ff6030", 12);
               sfx("hit");
@@ -5136,7 +5298,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     if (Math.hypot(player.x - tipX, player.y - tipY) < player.r + artR(e) * 0.9 ||
         Math.hypot(player.x - e.x, player.y - e.y) < player.r + bodyR(e) * 1.15) {
       e.atkHit = true;
-      hurtPlayer(2 + Math.floor(S.floor / 4));
+      hurtPlayer(2 + Math.floor(S.floor / 4), e);
       S.shake = Math.max(S.shake, 0.42);
       burst(player.x, player.y, "#c0e070", 14);
       sfx("lunge");
@@ -5377,7 +5539,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     var ad = Math.abs(Math.atan2(Math.sin(pang - blade), Math.cos(pang - blade)));
     if (ad < 0.70) {
       e.atkHit = true;
-      hurtPlayer(2 + Math.floor(S.floor / 4));
+      hurtPlayer(2 + Math.floor(S.floor / 4), e);
       S.shake = Math.max(S.shake, 0.42);
       burst(player.x, player.y, "#c9a44c", 14);
       sfx("hit");
@@ -5402,7 +5564,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     }
     if (hit) {
       e.atkHit = true;
-      hurtPlayer(3 + Math.floor(S.floor / 3));
+      hurtPlayer(3 + Math.floor(S.floor / 3), e);
       S.shake = Math.max(S.shake, 0.55);
       burst(player.x, player.y, "#e8e0d0", 16);
       sfx("hit");
@@ -5635,7 +5797,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
         killShot(i); continue;
       }
       if (Math.hypot(s.x - player.x, s.y - player.y) < player.r + s.r) {
-        hurtPlayer(s.dmg); killShot(i); continue;
+        hurtPlayer(s.dmg, s); killShot(i); continue;
       }
       if (s.life <= 0) killShot(i);
     }
@@ -5935,8 +6097,10 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      BB-V7.46 — left thumb walks from anywhere on the left half; the painted
      ring is a teacher, not the hit box.
      BB-V7.47 — MIX / SOLO and BEEPS sit in a SOUND submenu on menu + pause.
-     BB-V7.48 — hoop window slams TAKE / YOUR / SHOT! in block letters. */
-  var BUILD = "v7.48";
+     BB-V7.48 — hoop window slams TAKE / YOUR / SHOT! in block letters.
+     BB-V7.49 — force fields: PULSE recharges fast, BULWARK is the strong
+     shell, BRIAR reflects. The cube kid is unchanged underneath. */
+  var BUILD = "v7.49";
   var FEEL_DEF = { spd: 250, accel: 2600, brake: 3600, throwSpd: 620, aimMode: "drag", aimDead: 2, aimHold: 64 };
   var FEEL = (function () {
     var f = {};
@@ -7082,8 +7246,110 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     g.fillRect(pxl + sc * 0.52 + ex, pyt + sc * 0.2, e, e);
 
     drawHat(g, x, pyt, cos.hat, pal, sc);
+    drawField(g, sc);
     if (S.downed) g.restore();
     g.globalAlpha = 1;
+  }
+
+  function strokeHex(g, cx, cy, rad) {
+    g.beginPath();
+    var i, a, px, py;
+    for (i = 0; i < 6; i++) {
+      a = -Math.PI / 2 + i * (Math.PI / 3);
+      px = cx + Math.cos(a) * rad;
+      py = cy + Math.sin(a) * rad;
+      if (i === 0) g.moveTo(px, py);
+      else g.lineTo(px, py);
+    }
+    g.closePath();
+    g.stroke();
+  }
+
+  function drawHexNodes(g, cx, cy, rad, s, col, alpha) {
+    var prev = g.globalAlpha;
+    var i, a, px, py;
+    g.globalAlpha = alpha;
+    for (i = 0; i < 6; i++) {
+      a = -Math.PI / 2 + i * (Math.PI / 3);
+      px = cx + Math.cos(a) * rad;
+      py = cy + Math.sin(a) * rad;
+      cube(g, px - s, py - s, s * 2, s * 2, s * 0.75, col, false);
+    }
+    g.globalAlpha = prev;
+  }
+
+  function drawHexSpikes(g, cx, cy, rad, s, col, alpha) {
+    var prev = g.globalAlpha;
+    var i, a, ox, oy, px, py;
+    g.globalAlpha = alpha;
+    for (i = 0; i < 6; i++) {
+      a = -Math.PI / 2 + i * (Math.PI / 3);
+      ox = Math.cos(a);
+      oy = Math.sin(a);
+      px = cx + ox * (rad + s * 1.3);
+      py = cy + oy * (rad + s * 1.3);
+      cube(g, px - s * 0.7, py - s * 1.5, s * 1.4, s * 2.8, s * 0.55, col, false);
+    }
+    g.globalAlpha = prev;
+  }
+
+  function drawThornZap(g, f, cx, cy, baseA) {
+    var x1 = f.zap.x, y1 = f.zap.y;
+    var n = 5, i, u, x, y;
+    g.globalAlpha = baseA * Math.min(1, f.zap.t / 0.12);
+    g.strokeStyle = FIELDS.briar.col;
+    g.lineWidth = 2;
+    g.beginPath();
+    g.moveTo(cx, cy);
+    g.lineTo(x1, y1);
+    g.stroke();
+    for (i = 0; i <= n; i++) {
+      u = i / n;
+      x = cx + (x1 - cx) * u;
+      y = cy + (y1 - cy) * u;
+      cube(g, x - 3, y - 3, 6, 6, 3, FIELDS.briar.col, false);
+    }
+  }
+
+  /* Shell only — the hero cubes underneath are unchanged. */
+  function drawField(g, sc) {
+    var f = player && player.field;
+    if (!f) return;
+    var def = FIELDS[f.id];
+    if (!def) return;
+    var cx = player.x;
+    var cy = player.y - sc * 0.62;
+    var baseA = g.globalAlpha;
+    var fillU = f.max > 0 ? Math.max(0, Math.min(1, f.pool / f.max)) : 0;
+    var breath = 0.5 + 0.5 * Math.sin(S.t * (def.id === "pulse" ? 10 : def.id === "briar" ? 5 : 3.2));
+    var flash = f.flash > 0 ? Math.min(1, f.flash / 0.24) : 0;
+    var i, seg, have, rad;
+    g.lineJoin = "miter";
+    for (i = 0; i < def.pips; i++) {
+      seg = 1 / def.pips;
+      have = Math.max(0, Math.min(1, (fillU - i * seg) / seg));
+      rad = sc * (0.78 + i * 0.16);
+      g.globalAlpha = baseA * (0.12 + have * (0.5 + breath * 0.22) + flash * 0.35);
+      g.strokeStyle = flash > 0.45 ? "#fff4d0" : def.col;
+      g.lineWidth = def.id === "bulwark" ? 3.4 : def.id === "pulse" ? 1.7 : 2.3;
+      strokeHex(g, cx, cy, rad);
+      if (i === def.pips - 1 && have > 0.3 && def.id === "bulwark") {
+        drawHexNodes(g, cx, cy, rad, sc * 0.07, def.col, baseA * have * 0.95);
+      }
+      if (i === def.pips - 1 && have > 0.3 && def.id === "briar") {
+        drawHexSpikes(g, cx, cy, rad, sc * 0.09, def.col, baseA * have);
+      }
+    }
+    if (fillU < 0.995) {
+      g.globalAlpha = baseA * (0.35 + 0.45 * breath);
+      g.strokeStyle = def.col;
+      g.lineWidth = 2;
+      g.beginPath();
+      g.arc(cx, cy, sc * (0.78 + (def.pips - 1) * 0.16) + 6, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * fillU);
+      g.stroke();
+    }
+    if (f.zap && f.zap.t > 0) drawThornZap(g, f, cx, cy, baseA);
+    g.globalAlpha = baseA;
   }
 
   /* CHIEF BB-V6.1 — hats as cubes on top of the head cube, Joe's own placement. */
@@ -8406,6 +8672,18 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     } else if (it.kind === "ball") {
       g.fillStyle = (RARITY[it.rar] && RARITY[it.rar].c) || "#ccc";
       g.beginPath(); g.arc(it.x, it.y, 8, 0, 6.3); g.fill();
+    } else if (it.kind === "field") {
+      var fd = FIELDS[it.field] || FIELDS.pulse;
+      g.strokeStyle = fd.col;
+      g.lineWidth = fd.id === "bulwark" ? 3 : 2;
+      strokeHex(g, it.x, it.y, fd.id === "pulse" ? 8 : 9);
+      if (fd.id === "bulwark") {
+        g.lineWidth = 1.5;
+        strokeHex(g, it.x, it.y, 5);
+        drawHexNodes(g, it.x, it.y, 9, 2.4, fd.col, 1);
+      } else if (fd.id === "briar") {
+        drawHexSpikes(g, it.x, it.y, 9, 3.2, fd.col, 1);
+      }
     } else {
       g.fillStyle = "#f0d060";
       g.fillRect(it.x - 5, it.y - 5, 10, 10);
@@ -8469,6 +8747,30 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       } else {
         bf.classList.add("off");
         bfN.textContent = "";
+      }
+    }
+    var fdChip = document.getElementById("fdChip");
+    if (fdChip) {
+      var fst = fieldState();
+      if (!fst) {
+        fdChip.classList.add("off");
+        if (fdChip.__bbState !== "") { fdChip.innerHTML = ""; fdChip.__bbState = ""; }
+      } else {
+        fdChip.classList.remove("off");
+        fdChip.style.color = fst.col;
+        fdChip.title = fst.name + " · " + fst.blurb;
+        var seg = fst.max / fst.pips;
+        var bits = "", fi, onN = 0;
+        for (fi = 0; fi < fst.pips; fi++) {
+          var on = fst.pool >= (fi + 0.55) * seg;
+          if (on) onN++;
+          bits += '<i class="' + (on ? "on" : "") + '"></i>';
+        }
+        var fdState = fst.id + ":" + onN + ":" + fst.tag;
+        if (fdChip.__bbState !== fdState) {
+          fdChip.innerHTML = bits + "<b>" + fst.tag + "</b>";
+          fdChip.__bbState = fdState;
+        }
       }
     }
     var pips = document.getElementById("placePips");
@@ -8775,6 +9077,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       "<h1>PAUSE</h1>" +
       "<p class='muted'>" + S.seed + " · " + diffLabel() + " · Floor " + S.floor + " · " + (player ? player.token : "") +
         " · BALL " + ((player && player.ballAffix && player.ballAffix.length) ? player.ballAffix.join("+") : (player && player.permaFire ? "FIRE" : "PLAIN")) +
+        " · FIELD " + (player && player.field && FIELDS[player.field.id] ? (FIELDS[player.field.id].name + " " + Math.round(100 * player.field.pool / Math.max(1, player.field.max)) + "%") : "NONE") +
         " · SWISH " + hoopMadeCount() + "/" + hoopSeenCount() + (S.perfectRun && hoopSeenCount() > 0 ? " · PERFECT" : "") +
         (S.completeAwarded ? " · COMPLETE RUN" : "") + "</p>" +
       (activeSwishBuffLabels().length ? "<p class='muted'>BUFF " + activeSwishBuffLabels().join(" · ") + "</p>" : "") +
@@ -9446,10 +9749,12 @@ function endRunToMenu() {
     /* BB-V7.21 — while DOWN, freeze the fight; only the beat, FX, and shake run. */
     if (S.downed) {
       updateDowned(dt);
+      updateField(dt);
       updateFx(dt);
       syncHud();
       return;
     }
+    updateField(dt);
     updatePlayer(dt);
     updateCamera(dt);
     updateBall(dt);
@@ -9580,14 +9885,115 @@ function endRunToMenu() {
         fill: fill ? fill.style.width : ""
       };
     },
-    hurt: function (n) { if (player) player.inv = 0; hurtPlayer(n); },
+    hurt: function (n, from) {
+      if (!player) return null;
+      player.inv = 0;
+      var src = null, i;
+      if (from && room && room.enemies) {
+        for (i = room.enemies.length - 1; i >= 0; i--) {
+          if (room.enemies[i].alive) { src = room.enemies[i]; break; }
+        }
+      }
+      var hp0 = player.hp;
+      var eh0 = src ? src.hp : null;
+      hurtPlayer(n == null ? 1 : n, src);
+      return {
+        hp: player.hp,
+        lost: hp0 - player.hp,
+        enemyHp: src ? src.hp : null,
+        reflected: (src && eh0 != null) ? eh0 - src.hp : 0,
+        alive: src ? !!src.alive : null,
+        field: fieldState()
+      };
+    },
+    setField: function (id) {
+      if (!player) return null;
+      if (!id) { player.field = null; syncHud(); return null; }
+      equipField(id);
+      return fieldState();
+    },
+    field: function () { return fieldState(); },
+    tickField: function (sec) {
+      var left = sec || 0;
+      while (left > 0.0001) {
+        var step = Math.min(0.05, left);
+        updateField(step);
+        left -= step;
+      }
+      syncHud();
+      return fieldState();
+    },
+    dropField: function (id, x, y) {
+      var it = makeFieldLoot(x || (player ? player.x : 0), y || (player ? player.y : 0), "rare", id || null);
+      S.loot.push(it);
+      return { kind: it.kind, field: it.field, rar: it.rar };
+    },
+    /* Harness: a knife with an owner, already on the hero, so briar can thorn the shooter. */
+    step: function (n) {
+      n = n || 1;
+      var i;
+      for (i = 0; i < n; i++) update(DT);
+      return { field: fieldState(), hp: player ? player.hp : null, loot: S.loot.length, mode: S.mode };
+    },
+    fieldGlimpse: function () {
+      if (!player) return null;
+      S.shake = 0;
+      draw();
+      var w = S.world || { x: 0, y: 0, s: 1 };
+      var sc = 22 * HS;
+      var cx = player.x;
+      var cy = player.y - sc * 0.62;
+      var rad = sc * (player.field && FIELDS[player.field.id] ? (0.78 + (FIELDS[player.field.id].pips - 1) * 0.16) : 0.78);
+      function pix(wx, wy) {
+        var sx = Math.round(w.x + wx * w.s);
+        var sy = Math.round(w.y + wy * w.s);
+        sx = Math.max(0, Math.min(canvas.width - 1, sx));
+        sy = Math.max(0, Math.min(canvas.height - 1, sy));
+        var d = ctx.getImageData(sx, sy, 1, 1).data;
+        return { x: sx, y: sy, r: d[0], g: d[1], b: d[2] };
+      }
+      var best = null, k, p, score, dist;
+      for (k = 0; k <= 8; k++) {
+        dist = rad * (0.72 + k * 0.04);
+        p = pix(cx, cy - dist);
+        score = Math.max(p.g, p.b) - p.r * 0.35;
+        if (!best || score > best.score) best = { score: score, p: p, dist: Math.round(dist) };
+      }
+      var chip = document.getElementById("fdChip");
+      return {
+        hud: chip ? chip.textContent : "",
+        hudOn: chip ? !chip.classList.contains("off") : false,
+        ring: best.p,
+        ringScore: Math.round(best.score),
+        ringDist: best.dist,
+        body: pix(cx, player.y - sc * 0.2),
+        field: fieldState()
+      };
+    },
+    thornFromShot: function (dmg) {
+      if (!player || !room) return null;
+      var owner = null, i;
+      for (i = room.enemies.length - 1; i >= 0; i--) {
+        if (room.enemies[i].alive) { owner = room.enemies[i]; break; }
+      }
+      player.inv = 0;
+      var eh0 = owner ? owner.hp : null;
+      var hp0 = player.hp;
+      hurtPlayer(dmg == null ? 1 : dmg, { kind: "knife", owner: owner, dmg: dmg });
+      return {
+        lost: hp0 - player.hp,
+        reflected: (owner && eh0 != null) ? eh0 - owner.hp : 0,
+        field: fieldState()
+      };
+    },
     downed: function () { return S.downed ? { t: S.downed.t, dur: S.downed.dur } : null; },
     forceDown: function () { if (!player) return; player.inv = 0; player.hp = 0; startDowned(); },
     dropHeart: dropHeart,
     dropLoot: dropLoot,
     loot: function () {
       return S.loot.map(function (it) {
-        return { kind: it.kind, x: Math.round(it.x), y: Math.round(it.y),
+        return { kind: it.kind, field: it.field || null, rar: it.rar || null,
+          x: Math.round(it.x), y: Math.round(it.y),
           restY: it.restY != null ? Math.round(it.restY) : null, vy: Math.round(it.vy) };
       });
     },
@@ -9605,7 +10011,7 @@ function endRunToMenu() {
       return 1;
     },
     placeAt: tryPlaceBlock,
-    playerStats: function () { return { frag: player.frag, maxHp: player.maxHp, hp: player.hp, dmgLv: player.dmgLv, spdLv: player.spdLv, blkLv: player.blkLv, fireLv: player.fireLv, permaFire: !!player.permaFire, hpBought: player.hpBought, blockStock: player.blockStock, blockMax: player.blockMax, placeHits: player.placeHits || 0, placeRateLv: player.placeRateLv || 0, swishPow: player.swishPow || 0, swishSpd: player.swishSpd || 0, swishFire: player.swishFire || 0, swishHeavy: player.swishHeavy || 0, dmg: currentDmg(), throwSpd: throwSpeed() }; },
+    playerStats: function () { return { frag: player.frag, maxHp: player.maxHp, hp: player.hp, dmgLv: player.dmgLv, spdLv: player.spdLv, blkLv: player.blkLv, fireLv: player.fireLv, permaFire: !!player.permaFire, hpBought: player.hpBought, blockStock: player.blockStock, blockMax: player.blockMax, placeHits: player.placeHits || 0, placeRateLv: player.placeRateLv || 0, swishPow: player.swishPow || 0, swishSpd: player.swishSpd || 0, swishFire: player.swishFire || 0, swishHeavy: player.swishHeavy || 0, dmg: currentDmg(), throwSpd: throwSpeed(), field: fieldState() }; },
     paused: function () { return !!S.pause; },
     tapPause: function () { return requestPause(); },
     pauseHud: function () {
