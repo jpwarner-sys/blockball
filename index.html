@@ -1646,6 +1646,7 @@
     else if (name === "kill") beep("square", 320, 0.12, 0.07, 520);
     else if (name === "trick") { beep("square", 440, 0.16, 0.08, 880); beep("triangle", 660, 0.2, 0.05, 1320); }
     else if (name === "loot") beep("sine", 520, 0.14, 0.06, 780);
+    else if (name === "smash") { beep("square", 150, 0.06, 0.05, 70); beep("triangle", 90, 0.09, 0.04, 40); }
     else if (name === "pickup") beep("sine", 660, 0.1, 0.07, 990);
     else if (name === "hurt") beep("sawtooth", 110, 0.18, 0.08, 40);
     else if (name === "down") {
@@ -2523,7 +2524,41 @@
         if (g[t.ty]) g[t.ty][t.tx] = 0;
         return t;
       }
-      fillEnts(ents, { takeTile: takeTile, forceTile: forceTile, g: g, cols: cols, spawn: spawn });
+      function takeNear(tx, ty) {
+        var i, t, d;
+        for (i = open.length - 1; i >= 0; i--) {
+          t = open[i];
+          if (t.ty <= 1 || t.ty >= made.rows - 2) continue;
+          d = Math.abs(t.tx - tx) + Math.abs(t.ty - ty);
+          if (d >= 1 && d <= 2 && Math.abs(t.tx - spawn.tx) + Math.abs(t.ty - spawn.ty) >= 3) {
+            open.splice(i, 1);
+            return t;
+          }
+        }
+        return null;
+      }
+      /* Prefer side/south wall hugs; skip the north lip so piles are not under the HUD. */
+      function takePropTile() {
+        var i, t, wallish = [], mid = [], hug;
+        for (i = 0; i < open.length; i++) {
+          t = open[i];
+          if (Math.abs(t.tx - spawn.tx) + Math.abs(t.ty - spawn.ty) < 3) continue;
+          if (t.ty <= 1 || t.ty >= made.rows - 2) continue;
+          hug = (g[t.ty] && (g[t.ty][t.tx - 1] || g[t.ty][t.tx + 1])) ||
+            (g[t.ty + 1] && g[t.ty + 1][t.tx]);
+          if (hug) wallish.push(i);
+          else mid.push(i);
+        }
+        var pool = wallish.length ? wallish : mid;
+        if (!pool.length) return takeTile();
+        i = pool[Math.floor(rnd() * pool.length)];
+        t = open[i];
+        open.splice(i, 1);
+        return t;
+      }
+      fillEnts(ents, { takeTile: takeTile, forceTile: forceTile, takeNear: takeNear, g: g, cols: cols, spawn: spawn });
+      /* BB-V7.48 — piles hug walls the way Diablo barrels do, after trash/chests claim tiles. */
+      sprinkleProps(ents, { takeTile: takePropTile, takeNear: takeNear }, kind, bio);
       var spec = {
         piece: piece, kind: kind, grid: g, ents: ents, cleared: false, blocks: [],
         spawn: spawn, cols: cols, rows: made.rows, pathOk: made.pathOk,
@@ -3265,6 +3300,7 @@
     var spec = S.rooms[idx];
     var ents = [];
     var chests = [];
+    var props = [];
     for (var i = 0; i < spec.ents.length; i++) {
       var e = spec.ents[i];
       var x = (e.tx + 0.5) * TILE, y = (e.ty + 0.5) * TILE;
@@ -3274,12 +3310,14 @@
         }));
         if (e.revive && ents.length) ents[ents.length - 1].revive = true;
       } else if (e.kind === "chest") chests.push({ x: x, y: y, open: false, r: 14 });
+      else if (e.kind === "prop") props.push(makeProp(e.type, x, y));
     }
     room = {
       spec: spec,
       grid: spec.grid,
       enemies: ents,
       chests: chests,
+      props: props,
       blocks: spec.blocks.slice(),
       kind: spec.kind,
       cleared: spec.cleared,
@@ -3933,6 +3971,173 @@
     if (rnd() < p) dropHeart(x, y);
   }
 
+  /* BB-V7.48 — Diablo smashables. Barrels / urns / crates spill lean frags
+     and the occasional heart; kegs chain-explode. Walk or throw to smash
+     so they never pin the hero in a doorway. */
+  var PROP_KIND = {
+    barrel: { r: 13, col: "#8a6238", hoop: "#3a2a18", empty: 0.28, heart: 0.16, gear: 0.08 },
+    urn:    { r: 12, col: "#b06040", hoop: "#7a3828", empty: 0.26, heart: 0.28, gear: 0.10 },
+    crate:  { r: 14, col: "#7a5a30", hoop: "#3a2814", empty: 0.20, heart: 0.10, gear: 0.12 },
+    keg:    { r: 13, col: "#8a4030", hoop: "#c04030", boom: true }
+  };
+
+  function pickPropType(kind, bio) {
+    var roll = rnd();
+    var id = bio && bio.id;
+    if (kind === "boss") return roll < 0.42 ? "keg" : (roll < 0.78 ? "barrel" : "urn");
+    if (id === "forge") {
+      if (roll < 0.20) return "keg";
+      if (roll < 0.58) return "barrel";
+      if (roll < 0.80) return "crate";
+      return "urn";
+    }
+    if (id === "crypt" || id === "throne") {
+      if (roll < 0.12) return "keg";
+      if (roll < 0.42) return "barrel";
+      if (roll < 0.80) return "urn";
+      return "crate";
+    }
+    if (id === "thorn") {
+      if (roll < 0.10) return "keg";
+      if (roll < 0.42) return "crate";
+      if (roll < 0.80) return "barrel";
+      return "urn";
+    }
+    if (roll < 0.12) return "keg";
+    if (roll < 0.52) return "barrel";
+    if (roll < 0.76) return "urn";
+    return "crate";
+  }
+
+  function sprinkleProps(ents, api, kind, bio) {
+    var n;
+    if (kind === "corridor") n = rnd() < 0.72 ? irnd(1, 2) : 0;
+    else if (kind === "boss") n = irnd(1, 3);
+    else if (kind === "mini") n = irnd(1, 3);
+    else n = irnd(2, 5);
+    var placed = [], i, t, last;
+    for (i = 0; i < n; i++) {
+      t = null;
+      last = placed.length ? placed[placed.length - 1] : null;
+      if (last && rnd() < 0.58 && api.takeNear) t = api.takeNear(last.tx, last.ty);
+      if (!t) t = api.takeTile();
+      if (!t) break;
+      placed.push(t);
+      ents.push({ kind: "prop", type: pickPropType(kind, bio), tx: t.tx, ty: t.ty });
+    }
+  }
+
+  function makeProp(type, x, y) {
+    var spec = PROP_KIND[type] || PROP_KIND.barrel;
+    return {
+      type: PROP_KIND[type] ? type : "barrel",
+      x: x, y: y, r: spec.r, alive: true, boom: !!spec.boom
+    };
+  }
+
+  function nearestProp(x, y) {
+    if (!room || !room.props) return null;
+    var best = null, bd = 110, i, p, d;
+    for (i = 0; i < room.props.length; i++) {
+      p = room.props[i];
+      if (!p.alive) continue;
+      d = Math.hypot(p.x - x, p.y - y);
+      if (d < bd) { bd = d; best = p; }
+    }
+    return best;
+  }
+
+  function dropPropLoot(p) {
+    var spec = PROP_KIND[p.type] || PROP_KIND.barrel;
+    if (spec.boom || !player) return;
+    var d = diff();
+    var roll = rnd();
+    var emptyT = spec.empty;
+    var heartT = emptyT + spec.heart * d.heart;
+    var gearT = heartT + spec.gear * d.gear;
+    if (roll < emptyT) return;
+    if (roll < heartT) {
+      if (player.hp < player.maxHp) dropHeart(p.x, p.y - 6);
+      else {
+        player.frag += Math.max(1, Math.round(d.frag));
+        floatTxt(p.x, p.y - 10, "+1 FRAG", "#f0d080");
+        sfx("pickup");
+      }
+      return;
+    }
+    if (roll < gearT) {
+      dropLoot(p.x, p.y - 6, false);
+      return;
+    }
+    player.frag += Math.max(1, Math.round(d.frag));
+    floatTxt(p.x, p.y - 10, "+1 FRAG", "#f0d080");
+    sfx("pickup");
+  }
+
+  function explodeKeg(p) {
+    sfx("slam");
+    S.shake = Math.max(S.shake, 0.34);
+    burst(p.x, p.y, "#ff6020", 18);
+    burst(p.x, p.y, "#f0c040", 10);
+    floatTxt(p.x, p.y - 16, "BOOM", "#ff8060");
+    var R = 78, i, e, q;
+    if (player && Math.hypot(player.x - p.x, player.y - p.y) < R + player.r) {
+      hurtPlayer(1);
+    }
+    if (room && room.enemies) {
+      for (i = 0; i < room.enemies.length; i++) {
+        e = room.enemies[i];
+        if (!e.alive) continue;
+        if (Math.hypot(e.x - p.x, e.y - p.y) < R + (e.r || 12)) {
+          hitEnemy(e, { hits: [] }, Math.max(6, Math.floor(currentDmg() * 0.85)), false);
+        }
+      }
+    }
+    if (room && room.props) {
+      for (i = 0; i < room.props.length; i++) {
+        q = room.props[i];
+        if (!q.alive || q === p) continue;
+        if (Math.hypot(q.x - p.x, q.y - p.y) < R + q.r) smashProp(q, "boom");
+      }
+    }
+  }
+
+  function smashProp(p, src) {
+    if (!p || !p.alive) return false;
+    p.alive = false;
+    var spec = PROP_KIND[p.type] || PROP_KIND.barrel;
+    burst(p.x, p.y, spec.col, p.boom ? 8 : 12);
+    burst(p.x, p.y, spec.hoop, 5);
+    sfx("smash");
+    if (p.boom) explodeKeg(p);
+    else dropPropLoot(p);
+    return true;
+  }
+
+  function propAt(x, y, r) {
+    if (!room || !room.props) return null;
+    var i, p, rad;
+    for (i = 0; i < room.props.length; i++) {
+      p = room.props[i];
+      if (!p.alive) continue;
+      rad = (p.r || 11) + (r || 0);
+      if (Math.hypot(p.x - x, p.y - y) < rad) return p;
+    }
+    return null;
+  }
+
+  function updateProps() {
+    if (!room || !room.props || !player) return;
+    var i, p;
+    for (i = 0; i < room.props.length; i++) {
+      p = room.props[i];
+      if (!p.alive) continue;
+      if (Math.hypot(p.x - player.x, p.y - player.y) < p.r + player.r * 0.7) {
+        smashProp(p, "walk");
+      }
+    }
+  }
+
   function takeLoot(it) {
     if (it.taken) return;
     if (it.kind === "relic") { claimRelic(it); return; }
@@ -4180,6 +4385,7 @@
     if (player.swishFire > 0 && ball.affix.indexOf("Fire") < 0) ball.affix.push("Fire");
     if (player.swishHeavy > 0 && ball.affix.indexOf("Heavy") < 0) ball.affix.push("Heavy");
     ball.trail = [];
+    ball.propSplit = false;
     ball.lift = 0; ball.squash = 0; ball.dribble = 0;
     sfx("throw");
     if (!S.seenAimHelp) { S.seenAimHelp = true; store.aimHelp = true; saveStore(); }
@@ -4250,7 +4456,7 @@
       return;
     }
     if (hasAff("Homing")) {
-      var t = nearestEnemy(ball.x, ball.y, null);
+      var t = nearestEnemy(ball.x, ball.y, null) || nearestProp(ball.x, ball.y);
       if (t) {
         var ang = Math.atan2(t.y - ball.y, t.x - ball.x);
         var spd = Math.hypot(ball.vx, ball.vy);
@@ -4303,6 +4509,18 @@
         }
       }
     }
+    if (room.props) {
+      for (i = 0; i < room.props.length; i++) {
+        var pr = room.props[i];
+        if (!pr.alive) continue;
+        var prad = pr.r + ball.r;
+        if (Math.hypot(pr.x - ball.x, pr.y - ball.y) < prad ||
+            sweptHits(prevX, prevY, ball.x, ball.y, pr.x, pr.y, prad)) {
+          smashProp(pr, ball);
+          if (hasAff("Split") && !ball.propSplit) { ball.propSplit = true; spawnSplit(); }
+        }
+      }
+    }
     ball.trail.push({ x: ball.x, y: ball.y, t: 0.25 });
     if (ball.trail.length > 14) ball.trail.shift();
     if (ball.life <= 0 || ball.bounces >= 9 || Math.hypot(ball.vx, ball.vy) < 40) ball.ret = true;
@@ -4325,6 +4543,12 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
         var e = room.enemies[j];
         var box = enemyHurtBox(e);
         if (e.alive && Math.hypot(box.x - s.x, box.y - s.y) < box.r + s.r) hitEnemy(e, s, Math.floor(currentDmg() * 0.45), true);
+      }
+      if (room.props) {
+        for (var pi = 0; pi < room.props.length; pi++) {
+          var prs = room.props[pi];
+          if (prs.alive && Math.hypot(prs.x - s.x, prs.y - s.y) < prs.r + s.r) smashProp(prs, s);
+        }
       }
       if (s.life <= 0) S.splits.splice(i, 1);
     }
@@ -5939,8 +6163,10 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       }
       s.x += s.vx * dt; s.y += s.vy * dt; s.life -= dt;
       var shotBlock = blockAt(room.blocks, s.x, s.y, s.r);
-      if (tileAt(room.grid, s.x, s.y) || shotBlock >= 0) {
+      var shotProp = propAt(s.x, s.y, s.r);
+      if (tileAt(room.grid, s.x, s.y) || shotBlock >= 0 || shotProp) {
         if (shotBlock >= 0) hurtBlockAt(shotBlock, blockDmgFromShot(s));
+        if (shotProp) smashProp(shotProp, s);
         killShot(i); continue;
       }
       if (Math.hypot(s.x - player.x, s.y - player.y) < player.r + s.r) {
@@ -6246,6 +6472,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      ring is a teacher, not the hit box.
      BB-V7.47 — MIX / SOLO and BEEPS sit in a SOUND submenu on menu + pause.
      BB-V7.48 — hoop window slams TAKE / YOUR / SHOT! in block letters.
+     BB-V7.48 — Diablo smashables: barrels, urns, crates, and chain-boom kegs.
      BB-V7.49 — force fields: PULSE recharges fast, BULWARK is the strong
      shell, BRIAR reflects. The cube kid is unchanged underneath.
      BB-V7.50 — fragments are an uncommon drop, not a kill payout. Very rare
@@ -6947,6 +7174,11 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
         for (c = 0; c < room.chests.length; c++) {
           if (sortRow(room.chests[c].y) === y) drawChest(g, room.chests[c]);
         }
+        if (room.props) {
+          for (c = 0; c < room.props.length; c++) {
+            if (room.props[c].alive && sortRow(room.props[c].y) === y) drawProp(g, room.props[c]);
+          }
+        }
         for (i = 0; i < room.enemies.length; i++) {
           if (sortRow(room.enemies[i].y) === y) drawEnemy(g, room.enemies[i]);
         }
@@ -7126,6 +7358,55 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       g.fillStyle = "#f0d060";
       g.fillRect(ch.x - 2, ch.y - 6, 4, 6);
     }
+  }
+
+  /* BB-V7.48 — voxel barrels / urns / crates / kegs. Chunkier than a floor
+     tile nub so a pile reads as Diablo clutter. Kegs pulse so you don't hug them. */
+  function drawProp(g, p) {
+    var x = p.x, y = p.y, spec = PROP_KIND[p.type] || PROP_KIND.barrel;
+    var col = spec.col, hoop = spec.hoop;
+    g.save();
+    g.globalAlpha = 0.32;
+    g.fillStyle = "#0a0806";
+    g.beginPath();
+    if (ellipseOk(12, 4)) g.ellipse(x, y + 5, 12, 4, 0, 0, 6.3);
+    else g.fillRect(x - 12, y + 2, 24, 6);
+    g.fill();
+    g.globalAlpha = 1;
+    if (p.type === "urn") {
+      cube(g, x - 9, y - 16, 18, 14, 6, col);
+      cube(g, x - 6, y - 24, 12, 9, 4, shade(col, 1.14));
+      cube(g, x - 7, y - 28, 14, 5, 3, hoop);
+      g.fillStyle = shade(col, 1.35);
+      g.fillRect(x - 3, y - 12, 6, 3);
+    } else if (p.type === "crate") {
+      cube(g, x - 13, y - 22, 26, 20, 7, col);
+      g.strokeStyle = hoop;
+      g.lineWidth = 2;
+      g.beginPath();
+      g.moveTo(x - 10, y - 20); g.lineTo(x + 10, y - 4);
+      g.moveTo(x + 10, y - 20); g.lineTo(x - 10, y - 4);
+      g.stroke();
+    } else {
+      cube(g, x - 10, y - 26, 20, 22, 7, col);
+      g.fillStyle = hoop;
+      g.fillRect(x - 10, y - 20, 20, 3);
+      g.fillRect(x - 10, y - 11, 20, 3);
+      cube(g, x - 8, y - 30, 16, 6, 4, shade(col, 1.16));
+      if (p.boom) {
+        var pulse = 0.45 + 0.35 * Math.sin(S.t * 8);
+        g.globalAlpha = pulse;
+        g.fillStyle = "#ff6020";
+        g.fillRect(x - 4, y - 34, 8, 5);
+        g.fillStyle = "#ffd060";
+        g.fillRect(x - 2, y - 37, 4, 4);
+        g.globalAlpha = 1;
+        g.strokeStyle = "#ff8060";
+        g.lineWidth = 1.5;
+        g.strokeRect(x - 10.5, y - 26.5, 21, 23);
+      }
+    }
+    g.restore();
   }
 
   /* CHIEF BB-V5.2 — the hero, rebuilt. He was a 14x22 slab with one dot for a face,
@@ -9522,7 +9803,7 @@ function endRunToMenu() {
   }
 
   function renderBuilder() {
-    var tools = ["wall", "erase", "slime", "bat", "skel", "archer", "imp", "chest", "spawn"].map(function (t) {
+    var tools = ["wall", "erase", "slime", "bat", "skel", "archer", "imp", "chest", "barrel", "urn", "crate", "keg", "spawn"].map(function (t) {
       return "<button class='bb" + (BLD.tool === t ? " on" : "") + "' data-tool='" + t + "'>" + t + "</button>";
     }).join("");
     var whBtns = [1, 2, 3, 4].map(function (h) {
@@ -9577,6 +9858,9 @@ function endRunToMenu() {
       } else if (BLD.tool === "chest") {
         BLD.ents = BLD.ents.filter(function (e) { return !(e.tx === tx && e.ty === ty); });
         BLD.ents.push({ kind: "chest", tx: tx, ty: ty });
+      } else if (BLD.tool === "barrel" || BLD.tool === "urn" || BLD.tool === "crate" || BLD.tool === "keg") {
+        BLD.ents = BLD.ents.filter(function (e) { return !(e.tx === tx && e.ty === ty); });
+        BLD.ents.push({ kind: "prop", type: BLD.tool, tx: tx, ty: ty });
       } else if (BLD.tool === "spawn") {
         BLD.ents = BLD.ents.filter(function (e) { return e.kind !== "spawn"; });
         BLD.ents.push({ kind: "spawn", tx: tx, ty: ty });
@@ -9606,6 +9890,7 @@ function endRunToMenu() {
     BLD.ents.forEach(function (e) {
       var x = e.tx * TILE + 4, y = e.ty * TILE + 4;
       if (e.kind === "chest") g.fillStyle = "#c09030";
+      else if (e.kind === "prop") g.fillStyle = e.type === "keg" ? "#c04030" : (e.type === "urn" ? "#b06040" : "#8a6238");
       else if (e.kind === "spawn") g.fillStyle = "#40c070";
       else g.fillStyle = "#c05040";
       g.fillRect(x, y, TILE - 8, TILE - 8);
@@ -9936,6 +10221,7 @@ function endRunToMenu() {
     updateLoot(dt);
     updateBlocks(dt);
     updateChests();
+    updateProps();
     updateFx(dt);
     if (S.t % 0.25 < dt) syncHud();
   }
@@ -10215,6 +10501,45 @@ function endRunToMenu() {
           x: Math.round(it.x), y: Math.round(it.y),
           restY: it.restY != null ? Math.round(it.restY) : null, vy: Math.round(it.vy) };
       });
+    },
+    props: function () {
+      return room && room.props ? room.props.map(function (p) {
+        return { type: p.type, x: Math.round(p.x), y: Math.round(p.y), alive: !!p.alive, boom: !!p.boom, r: p.r };
+      }) : [];
+    },
+    spawnProp: function (type, dx, dy) {
+      if (!room || !player) return null;
+      if (!room.props) room.props = [];
+      var p = makeProp(type || "barrel", player.x + (dx == null ? 50 : dx), player.y + (dy || 0));
+      room.props.push(p);
+      return { type: p.type, x: Math.round(p.x), y: Math.round(p.y), boom: !!p.boom, r: p.r };
+    },
+    smashProp: function (i) {
+      if (!room || !room.props || !room.props[i]) return false;
+      return smashProp(room.props[i], "harness");
+    },
+    auditProps: function (floors) {
+      var saved = S.seed, f, i, list, spec, n = 0, roomsN = 0, kinds = {}, types = {};
+      S.seed = "PROP-748";
+      for (f = 1; f <= (floors || 16); f++) {
+        list = buildFloor(f);
+        for (i = 0; i < list.length; i++) {
+          spec = list[i];
+          roomsN++;
+          var k = 0, e;
+          for (e = 0; e < spec.ents.length; e++) {
+            if (spec.ents[e].kind === "prop") {
+              k++; n++;
+              types[spec.ents[e].type] = (types[spec.ents[e].type] || 0) + 1;
+            }
+          }
+          kinds[spec.kind] = kinds[spec.kind] || { rooms: 0, props: 0 };
+          kinds[spec.kind].rooms++;
+          kinds[spec.kind].props += k;
+        }
+      }
+      S.seed = saved;
+      return { rooms: roomsN, props: n, perRoom: +(n / roomsN).toFixed(2), kinds: kinds, types: types };
     },
     playH: function () { return playH(); },
     blocks: function () { return room ? room.blocks.map(function (b) { return { tx: b.tx, ty: b.ty, life: b.life, maxLife: b.maxLife, hp: b.hp, maxHp: b.maxHp }; }) : []; },
@@ -10922,6 +11247,18 @@ function endRunToMenu() {
         this.armHoop();
         this.offerHoop();
         return info;
+      }
+      if (h === "props") {
+        this.loadArena(16, 12, 2);
+        this.clearAll();
+        this.spawnProp("barrel", 48, 0);
+        this.spawnProp("barrel", 72, 14);
+        this.spawnProp("urn", 100, -6);
+        this.spawnProp("crate", 128, 10);
+        this.spawnProp("keg", 160, -4);
+        this.spawnProp("keg", 184, 12);
+        if (player) { player.inv = 8; player.hp = player.maxHp; }
+        return { props: this.props() };
       }
       return null;
     },
