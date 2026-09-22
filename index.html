@@ -9714,6 +9714,25 @@ function endRunToMenu() {
       return this.trophies();
     },
     tickBuffs: function () { tickSwishBuffs(); syncHud(); return this.playerStats(); },
+    offerHoop: function () { return offerHoopTrophy(); },
+    seedPerfectCups: function (n) {
+      n = Math.max(0, n || 0);
+      S.hoopLog = [];
+      S.perfectRun = true;
+      S.completeAwarded = false;
+      var i;
+      for (i = 0; i < n; i++) {
+        S.hoopLog.push({
+          key: "seed:" + i,
+          floor: 1 + (i % SKULL_LORD_FLOOR),
+          kind: i % 4 === 3 ? "boss" : "mini",
+          made: true, pending: false, sealed: true, buff: "heart"
+        });
+      }
+      S.runSwish = n;
+      syncHud();
+      return this.trophies();
+    },
     cine: function () {
       return S.cine && S.cine.active ? {
         mode: S.cine.mode,
@@ -9969,6 +9988,12 @@ function endRunToMenu() {
       if (h === "thorn") return this.gotoThornQueen();
       if (h === "bone") return this.gotoBoneKing();
       if (h === "lord") return this.gotoSkullLair();
+      if (h === "swish") {
+        var info = this.gotoKnight("SWISH-DEMO", 1);
+        this.armHoop();
+        this.offerHoop();
+        return info;
+      }
       return null;
     },
     auditProgression: function () {
