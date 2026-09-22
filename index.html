@@ -9651,6 +9651,15 @@ function endRunToMenu() {
         hoopState: this.hoop()
       };
     },
+    bootHash: function () {
+      var h = (location.hash || "").replace(/^#/, "");
+      if (h === "slag") return this.gotoSlagKing();
+      if (h === "ash") return this.gotoAshTitan();
+      if (h === "thorn") return this.gotoThornQueen();
+      if (h === "bone") return this.gotoBoneKing();
+      if (h === "lord") return this.gotoSkullLair();
+      return null;
+    },
     auditProgression: function () {
       var out = [], f, list, last, kinds;
       for (f = 1; f <= 16; f++) {
@@ -9668,6 +9677,11 @@ function endRunToMenu() {
       return out;
     }
   };
+  if (location.hash) {
+    setTimeout(function () {
+      try { window.__BB_SELFTEST.bootHash(); } catch (e) {}
+    }, 0);
+  }
 })();
 </script>
 </body>
