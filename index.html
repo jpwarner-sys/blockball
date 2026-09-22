@@ -468,6 +468,7 @@
     .landSplit .landCopy { flex: 1; min-width: 0; text-align: right; }
     .landSplit .landCopy .soundRow { justify-content: flex-end; }
     .landSplit .landCopy .soundVol { margin-left: auto; }
+    .landSplit .landCopy h2.fold { margin-left: auto; }
     .landSplit .landBtns { flex: 0 0 auto; flex-direction: column; align-items: stretch; gap: 10px; min-width: 220px; }
     #shopCard h1 { font-size: clamp(30px, 4.6vw, 44px); margin: 0 0 8px; }
     .shopGrid {
@@ -610,6 +611,10 @@
   #menuCard .menuFoot {
     flex: 0 0 auto;
   }
+  #menuCard .menuSoundFold {
+    flex: 0 0 auto;
+    margin: 0;
+  }
   #menuCard .menuSound {
     flex: 0 0 auto;
     display: flex;
@@ -627,6 +632,45 @@
   #menuCard .menuSound .soundVolCol { min-width: 0; }
   #menuCard .menuSound .soundMarks { font-size: clamp(9px, 1.5cqi, 11px); }
   #menuCard .menuSound .soundRow { flex: 0 0 auto; }
+  #menuCard.menuSoundOpen {
+    gap: clamp(6px, 1.2cqi, 10px);
+  }
+  #menuCard.menuSoundOpen #menuSoundBox {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-x: hidden;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: clamp(8px, 1.2cqi, 12px);
+  }
+  #menuCard.menuSoundOpen #menuSoundBox .bb {
+    min-height: 44px;
+    box-sizing: border-box;
+    padding: 6px 8px;
+    font-size: clamp(13.5px, 2.2cqi, 15px);
+  }
+  #menuCard.menuSoundOpen .soundRow .bb { flex: 1 1 0; }
+  #pauseCard h2.fold {
+    display: inline-flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    min-height: 44px;
+    min-width: 8.5em;
+    box-sizing: border-box;
+    padding: 0 12px;
+    background: #3a3026;
+    border: 2px solid #6a5a44;
+    border-radius: 4px;
+  }
+  #pauseCard .pauseSound {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+    margin-top: 6px;
+  }
   #menuCard.menuCosOpen {
     gap: clamp(6px, 1.2cqi, 10px);
   }
@@ -1045,6 +1089,8 @@
   var BOSS_ART = "skull-lord-boss-landscape.jpg";
   /* CHIEF FIX BB-V4.10 — the LOOK section is folded away by default; see showMenu. */
   var cosOpen = false;
+  /* BB-V7.47 — MIX / SOLO and BEEPS live in a SOUND submenu, same fold as LOOK. */
+  var soundOpen = false;
 
   var S = {
     mode: "menu",
@@ -1430,6 +1476,7 @@
     store.updatedAt = Date.now();
     wipeArmed = 0;
     cosOpen = false;
+    soundOpen = false;
     saveStore({ now: true });
     toast("ALL PROGRESS WIPED");
     if (typeof sfx === "function") sfx("down");
@@ -3234,6 +3281,7 @@
       S.rooms = buildFloor(1);
     }
     loadRoom(0);
+    soundOpen = false;
     S.mode = "play";
     resize();
     hidePanels();
@@ -5722,8 +5770,9 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      BB-V7.45 — swish trophies: each hoop is a cup; all makes through Skull
      Lord is a complete run. Every swish grants a rotating buff.
      BB-V7.46 — left thumb walks from anywhere on the left half; the painted
-     ring is a teacher, not the hit box. */
-  var BUILD = "v7.46";
+     ring is a teacher, not the hit box.
+     BB-V7.47 — MIX / SOLO and BEEPS sit in a SOUND submenu on menu + pause. */
+  var BUILD = "v7.47";
   var FEEL_DEF = { spd: 250, accel: 2600, brake: 3600, throwSpd: 620, aimMode: "drag", aimDead: 2, aimHold: 64 };
   var FEEL = (function () {
     var f = {};
@@ -8380,13 +8429,22 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       return "<button class='bb" + (k === curDiff ? " on" : "") + "' data-d='" + k + "'>" + d.label + "</button>";
     }).join("");
     var lookHead = "<h2 class='fold' id='cosHead'>LOOK <span class='foldArrow'>" + (cosOpen ? "\u25be" : "\u25b8") + "</span></h2>";
-    el.className = "card menuCard" + (cosOpen ? " menuCosOpen" : "");
+    el.className = "card menuCard" + (cosOpen ? " menuCosOpen" : "") + (soundOpen ? " menuSoundOpen" : "");
     /* BB-V7.30 — same four-column board in both orientations. LOOK still folds
-       the dress-up (once-a-week) so RUN/DIFFICULTY/PROFILE/SEED stay on one screen. */
+       the dress-up (once-a-week) so RUN/DIFFICULTY/PROFILE/SEED stay on one screen.
+       BB-V7.47 — SOUND folds MIX / SOLO and BEEPS the same way. */
     if (cosOpen) {
       el.innerHTML = lookHead + "<div id='cosBox'></div>";
       paintCos();
-      el.querySelector("#cosHead").onclick = function () { cosOpen = !cosOpen; showMenu(); };
+      el.querySelector("#cosHead").onclick = function () { cosOpen = !cosOpen; if (cosOpen) soundOpen = false; showMenu(); };
+      syncHud();
+      return;
+    }
+    if (soundOpen) {
+      el.innerHTML = soundFoldHead("menu") + soundPanelHtml("menu");
+      bindSoundFold("menu", showMenu);
+      bindSoundMix("menu", showMenu);
+      bindSoundVol("menu");
       syncHud();
       return;
     }
@@ -8421,11 +8479,11 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       "</div>" +
       "</div>" +
       "</div>" +
-      "<div class='menuSound'>" + soundMixRow() + soundVolRow("menu") + "</div>" +
+      soundFoldHead("menu", "menuSoundFold") +
       "<p class='muted menuFoot'>Best floor " + store.bestFloor + " · Trick kills " + store.trickKills +
         " · Swishes " + (store.swishCount || 0) + " · Complete runs " + (store.completeRuns || 0) +
         " · Stash " + store.stash.length + " · " + BUILD + "</p>";
-    el.querySelector("#cosHead").onclick = function () { cosOpen = !cosOpen; showMenu(); };
+    el.querySelector("#cosHead").onclick = function () { cosOpen = !cosOpen; if (cosOpen) soundOpen = false; showMenu(); };
     el.querySelector("#profRow").onclick = function (ev) {
       var b = ev.target.closest("button");
       if (!b) return;
@@ -8442,8 +8500,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     document.getElementById("btnPlay").onclick = function () { startRun(makeSeed(), null); };
     document.getElementById("btnSeed").onclick = function () { startRun(document.getElementById("seedIn").value, null); };
     document.getElementById("btnRand").onclick = function () { S.seed = makeSeed(); showMenu(); };
-    bindSoundMix(showMenu);
-    bindSoundVol("menu");
+    bindSoundFold("menu", showMenu);
     syncHud();
   }
 
@@ -8512,16 +8569,35 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       if (now - last > 140) { last = now; sfx("ui"); }
     };
   }
-  function soundMixRow() {
+  function soundMixRow(idPrefix) {
     var mixOn = store.mixAudio !== false;
     return "<div class='soundRow'>" +
-      "<button class='bb" + (mixOn ? " on" : "") + "' id='btnMix'>MIX</button>" +
-      "<button class='bb" + (mixOn ? "" : " on") + "' id='btnSolo'>SOLO</button>" +
+      "<button class='bb" + (mixOn ? " on" : "") + "' id='" + idPrefix + "Mix'>MIX</button>" +
+      "<button class='bb" + (mixOn ? "" : " on") + "' id='" + idPrefix + "Solo'>SOLO</button>" +
       "</div>";
   }
-  function bindSoundMix(after) {
-    var mix = document.getElementById("btnMix");
-    var solo = document.getElementById("btnSolo");
+  function soundFoldHead(idPrefix, extraClass) {
+    return "<h2 class='fold" + (extraClass ? " " + extraClass : "") + "' id='" + idPrefix + "SoundHead'>SOUND <span class='foldArrow'>" +
+      (soundOpen ? "\u25be" : "\u25b8") + "</span></h2>";
+  }
+  function soundBlurb() {
+    return "<p class='muted'>MIX keeps Audible / Music going with the beeps. SOLO is game-only. BEEPS is mute \u2192 normal \u2192 boosted \u2192 max.</p>";
+  }
+  function soundPanelHtml(idPrefix) {
+    return "<div class='menuSound' id='" + idPrefix + "SoundBox'>" + soundBlurb() + soundMixRow(idPrefix) + soundVolRow(idPrefix) + "</div>";
+  }
+  function bindSoundFold(idPrefix, after) {
+    var h = document.getElementById(idPrefix + "SoundHead");
+    if (!h) return;
+    h.onclick = function () {
+      soundOpen = !soundOpen;
+      if (soundOpen) cosOpen = false;
+      if (after) after();
+    };
+  }
+  function bindSoundMix(idPrefix, after) {
+    var mix = document.getElementById(idPrefix + "Mix");
+    var solo = document.getElementById(idPrefix + "Solo");
     if (mix) mix.onclick = function () { setMixAudio(true); toast("BEEPS + AUDIBLE"); if (after) after(); };
     if (solo) solo.onclick = function () { setMixAudio(false); toast("GAME ONLY"); if (after) after(); };
   }
@@ -8538,9 +8614,8 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
         (S.completeAwarded ? " · COMPLETE RUN" : "") + "</p>" +
       (activeSwishBuffLabels().length ? "<p class='muted'>BUFF " + activeSwishBuffLabels().join(" · ") + "</p>" : "") +
       renderTrophyCups(S.hoopLog) +
-      "<p class='muted'>MIX keeps Audible / Music going with the beeps. SOLO is game-only. BEEPS is mute \u2192 normal \u2192 boosted \u2192 max.</p>" +
-      soundMixRow() +
-      soundVolRow("pause") +
+      soundFoldHead("pause") +
+      (soundOpen ? "<div class='pauseSound'>" + soundBlurb() + soundMixRow("pause") + soundVolRow("pause") + "</div>" : "") +
       "</div><div class='landBtns row'>" +
       "<button class='bb pri' id='btnRes'>RESUME</button>" +
       "<button class='bb' id='btnUpg'>UPGRADE · " + player.frag + "</button>" +
@@ -8548,9 +8623,12 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       "</div></div>";
     document.getElementById("btnUpg").onclick = function () { showShop(); };
     document.getElementById("btnRes").onclick = function () { document.getElementById("pausePanel").className = "panel"; S.pause = false; };
-    document.getElementById("btnMenu").onclick = function () { S.pause = false; endRunToMenu(); };
-    bindSoundMix(showPause);
-    bindSoundVol("pause");
+    document.getElementById("btnMenu").onclick = function () { S.pause = false; soundOpen = false; endRunToMenu(); };
+    bindSoundFold("pause", showPause);
+    if (soundOpen) {
+      bindSoundMix("pause", showPause);
+      bindSoundVol("pause");
+    }
   }
 function endRunToMenu() {
     if (player) {
@@ -9493,8 +9571,16 @@ function endRunToMenu() {
         boost: SFX_GAIN,
         lastGain: lastBeepGain,
         session: session,
-        ctx: audioCtx ? audioCtx.state : null
+        ctx: audioCtx ? audioCtx.state : null,
+        soundOpen: !!soundOpen
       };
+    },
+    openSound: function (on) {
+      soundOpen = on !== false;
+      if (soundOpen) cosOpen = false;
+      if (S.mode === "menu") showMenu();
+      else if (S.pause) showPause();
+      return this.audio();
     },
     setMix: function (on) {
       setMixAudio(on !== false);
