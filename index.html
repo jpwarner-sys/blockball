@@ -3582,6 +3582,8 @@
   function drawShotCall(g) {
     var sc = S.shotCall;
     if (!sc || S.mode !== "play" || S.portrait) return;
+    var floorEl = document.getElementById("floorPanel");
+    if (floorEl && floorEl.className.indexOf("show") >= 0) return;
     var alpha = (1 - sc.out) * (1 - 0.72 * (sc.dim || 0));
     if (alpha <= 0.02) return;
     var cw = canvas.width, ch = canvas.height;
@@ -9932,7 +9934,7 @@ function endRunToMenu() {
       return n;
     },
     hideChrome: function () {
-      ["toast","hudLeft","hudRight","sticks","padAim","btnPause"].forEach(function (id) {
+      ["toast","toasts","hudLeft","hudRight","sticks","padAim","btnPause"].forEach(function (id) {
         var el = document.getElementById(id);
         if (el) el.style.visibility = "hidden";
       });
@@ -9942,6 +9944,16 @@ function endRunToMenu() {
     },
     shotCall: function () { return shotCallInfo(); },
     startShotCall: function () { startShotCall(); return this.shotCall(); },
+    killAliveBoss: function () {
+      if (!room) return null;
+      var e = null, i;
+      for (i = 0; i < room.enemies.length; i++) {
+        if (room.enemies[i].alive && room.enemies[i].boss) { e = room.enemies[i]; break; }
+      }
+      if (!e) return null;
+      killEnemy(e, false);
+      return { hoop: this.hoop(), call: this.shotCall(), beat: S.bossBeat, kind: e.boss };
+    },
     stepShotCall: function (n, dt) {
       dt = dt == null ? DT : dt;
       n = n == null ? 1 : n;
