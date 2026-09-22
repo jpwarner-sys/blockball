@@ -761,6 +761,45 @@
   }
   .meta svg { display: block; flex: 0 0 auto; width: var(--hud-meta-ico); height: var(--hud-meta-ico); }
   .meta b { font-weight: 800; }
+  /* BB-V7.45 — swish trophies + the active post-swish buff sit with floor/score. */
+  #trChip.perfect { color: #f0c030; }
+  #trChip.perfect svg { filter: drop-shadow(0 0 5px rgba(240, 192, 48, 0.55)); }
+  #bfChip {
+    font-size: calc(var(--hud-meta-fs) * 0.72);
+    color: #f0c030;
+    letter-spacing: 0.04em;
+    max-width: 46vw;
+  }
+  #bfChip.off { display: none; }
+  #bfNum { font-weight: 800; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .trophyRow {
+    display: flex; flex-wrap: wrap; gap: 6px; align-items: center;
+    margin: 6px 0 2px;
+  }
+  .trophyCup {
+    width: 18px; height: 18px; display: inline-block;
+    background: #2a241c;
+    border: 2px solid #6a5a44;
+    border-radius: 3px 3px 6px 6px;
+    box-shadow: 0 1px 0 #1a120c;
+    position: relative;
+  }
+  .trophyCup:before {
+    content: "";
+    position: absolute; left: 3px; right: 3px; top: 2px; height: 5px;
+    background: #3a3328;
+    border-radius: 1px;
+  }
+  .trophyCup.on {
+    background: linear-gradient(#f0c030, #d09020);
+    border-color: #ffe070;
+    box-shadow: 0 1px 0 #1a120c, 0 0 6px rgba(240, 192, 48, 0.45);
+  }
+  .trophyCup.on:before { background: #fff2c0; }
+  .trophyCup.pending {
+    border-color: #f0c030;
+    box-shadow: 0 0 5px rgba(240, 192, 48, 0.35);
+  }
   #placePips {
     top: var(--hud-pips-t); right: var(--hud-pips-r);
     grid-template-columns: repeat(3, var(--hud-pip));
@@ -878,6 +917,17 @@
       <span class="meta" id="frChip" title="fragments">
         <svg width="22" height="26" viewBox="0 0 12 14" aria-hidden="true"><polygon points="6,1 11,6 8,13 4,13 1,6" fill="#70b0d0" stroke="#d0f0ff" stroke-width="1"/></svg>
         <b id="frNum">0</b>
+      </span>
+      <span class="meta" id="trChip" title="swish trophies">
+        <svg width="22" height="26" viewBox="0 0 14 14" aria-hidden="true">
+          <path d="M3 2 h8 v3 a4 4 0 0 1-8 0 z" fill="#d0a040" stroke="#f0e0a0" stroke-width="1"/>
+          <rect x="6" y="8.5" width="2" height="2.2" fill="#c49030"/>
+          <rect x="4.2" y="10.6" width="5.6" height="1.6" rx="0.4" fill="#e0b050" stroke="#f0e0a0" stroke-width="0.7"/>
+        </svg>
+        <b id="trNum">0/0</b>
+      </span>
+      <span class="meta off" id="bfChip" title="swish buff">
+        <b id="bfNum"></b>
       </span>
     </div>
     <button type="button" class="hud-item bb icon-btn" id="btnPause" aria-label="pause">
@@ -1039,6 +1089,10 @@
     muteFx: 0,
     bossBeat: 0,
     hoopReady: false,
+    hoopLog: [],
+    perfectRun: true,
+    completeAwarded: false,
+    runSwish: 0,
     cine: null,
     lordZoom: null,
     /* BB-V7.21 — soft death: brief DOWN beat, then room reset with loot kept.
@@ -1084,6 +1138,8 @@
   var store = {
     bestFloor: 1,
     trickKills: 0,
+    swishCount: 0,
+    completeRuns: 0,
     stash: [],
     difficulty: "easy",
     unlocks: { pal: ["ember", "quill", "nova", "rift", "rose", "lilac", "mint", "coral", "storm", "ink"], hat: HATS.slice(), ball: BALLS.slice(), trail: TRAILS.slice(), body: BODIES.slice() },
@@ -1143,6 +1199,8 @@
     if (!o || typeof o !== "object") return false;
     if (o.bestFloor) store.bestFloor = o.bestFloor;
     if (typeof o.trickKills === "number" && o.trickKills >= 0) store.trickKills = o.trickKills;
+    if (typeof o.swishCount === "number" && o.swishCount >= 0) store.swishCount = o.swishCount;
+    if (typeof o.completeRuns === "number" && o.completeRuns >= 0) store.completeRuns = o.completeRuns;
     if (o.stash) store.stash = o.stash;
     if (o.profiles && o.profiles.length) store.profiles = o.profiles;
     padProfiles();
@@ -1176,6 +1234,8 @@
       updatedAt: store.updatedAt || Date.now(),
       bestFloor: store.bestFloor,
       trickKills: store.trickKills,
+      swishCount: store.swishCount || 0,
+      completeRuns: store.completeRuns || 0,
       stash: store.stash.slice(0, 8),
       profiles: store.profiles,
       difficulty: store.difficulty || "easy",
@@ -1360,6 +1420,8 @@
   function wipeAllProgress() {
     store.bestFloor = 1;
     store.trickKills = 0;
+    store.swishCount = 0;
+    store.completeRuns = 0;
     store.stash = [];
     store.difficulty = "easy";
     S.difficulty = "easy";
@@ -1540,6 +1602,11 @@
       setTimeout(function () { beep("triangle", 660, 0.18, 0.07, 990); }, 60);
       setTimeout(function () { beep("square", 440, 0.22, 0.06, 880); }, 160);
     }
+    else if (name === "trophy") {
+      beep("sine", 660, 0.12, 0.06, 990);
+      setTimeout(function () { beep("triangle", 880, 0.16, 0.06, 1320); }, 80);
+      setTimeout(function () { beep("square", 1100, 0.2, 0.05, 880); }, 170);
+    }
     else if (name === "ui") beep("square", 400, 0.04, 0.03);
   }
 
@@ -1705,6 +1772,7 @@
       frag: 0,
       dmgLv: 0, spdLv: 0, blkLv: 0, hpBought: 0, fireLv: 0, placeRateLv: 0,
       permaFire: false,
+      swishPow: 0, swishSpd: 0, swishFire: 0, swishHeavy: 0,
       blockStock: 3, blockMax: 3, placeHits: 0,
       inv: 0,
       facing: 1,
@@ -1714,10 +1782,14 @@
   }
 
   function currentDmg() {
-    return scaleStat(8 + player.dmgLv * 6, S.floor);
+    var n = scaleStat(8 + player.dmgLv * 6, S.floor);
+    if (player && player.swishPow > 0) n = Math.floor(n * 1.35);
+    return n;
   }
   function throwSpeed() {
-    return FEEL.throwSpd + player.spdLv * 55;
+    var n = FEEL.throwSpd + player.spdLv * 55;
+    if (player && player.swishSpd > 0) n += 90;
+    return n;
   }
 
   function resetBallHome() {
@@ -2593,6 +2665,152 @@
     return !!(spec && (spec.kind === "boss" || spec.kind === "mini"));
   }
 
+  /* BB-V7.45 — each knight/boss hoop is a trophy chance. Swish them all
+     through Skull Lord for a complete run. Every make also hands a buff. */
+  var SWISH_BUFFS = [
+    { id: "heart", name: "WARM-UP", toast: "WARM-UP +HP", color: "#e07058" },
+    { id: "power", name: "HOT HAND", toast: "HOT HAND", color: "#f0a050", rooms: 3 },
+    { id: "quick", name: "QUICK RELEASE", toast: "QUICK RELEASE", color: "#70d0c8", rooms: 3 },
+    { id: "fire", name: "ON FIRE", toast: "ON FIRE", color: "#ff6a18", rooms: 3 },
+    { id: "cube", name: "BRICK WALL", toast: "BRICK WALL", color: "#d0a040" },
+    { id: "heavy", name: "BANK SHOT", toast: "BANK SHOT", color: "#c8a0ff", rooms: 3 }
+  ];
+
+  function hoopTrophyKey() {
+    return S.floor + ":" + S.roomI;
+  }
+  function findHoopTrophy(key) {
+    var log = S.hoopLog || [];
+    var i;
+    for (i = 0; i < log.length; i++) if (log[i].key === key) return log[i];
+    return null;
+  }
+  function hoopMadeCount() {
+    var n = 0, i, log = S.hoopLog || [];
+    for (i = 0; i < log.length; i++) if (log[i].made) n++;
+    return n;
+  }
+  function hoopSeenCount() {
+    return (S.hoopLog || []).length;
+  }
+  function hoopFloorTrophies(fl) {
+    return (S.hoopLog || []).filter(function (t) { return t.floor === fl; });
+  }
+  function offerHoopTrophy() {
+    if (!room || !room.hoop || S.customPlay) return null;
+    var key = hoopTrophyKey();
+    var t = findHoopTrophy(key);
+    if (t) return t;
+    t = {
+      key: key,
+      floor: S.floor,
+      kind: room.kind || "mini",
+      made: false,
+      pending: true,
+      sealed: false,
+      buff: null
+    };
+    S.hoopLog.push(t);
+    syncHud();
+    return t;
+  }
+  function tickSwishBuffs() {
+    if (!player) return;
+    if (player.swishPow > 0) player.swishPow -= 1;
+    if (player.swishSpd > 0) player.swishSpd -= 1;
+    if (player.swishFire > 0) player.swishFire -= 1;
+    if (player.swishHeavy > 0) player.swishHeavy -= 1;
+  }
+  function activeSwishBuffLabels() {
+    var out = [];
+    if (!player) return out;
+    if (player.swishPow > 0) out.push("HOT HAND " + player.swishPow);
+    if (player.swishSpd > 0) out.push("QUICK " + player.swishSpd);
+    if (player.swishFire > 0) out.push("FIRE " + player.swishFire);
+    if (player.swishHeavy > 0) out.push("BANK " + player.swishHeavy);
+    return out;
+  }
+  function applySwishBuff(def) {
+    if (!player || !def) return;
+    if (def.id === "heart") {
+      var got = healPlayer(2);
+      if (got <= 0) { player.maxHp += 1; player.hp += 1; }
+    } else if (def.id === "power") {
+      player.swishPow = (player.swishPow || 0) + (def.rooms || 3);
+    } else if (def.id === "quick") {
+      player.swishSpd = (player.swishSpd || 0) + (def.rooms || 3);
+    } else if (def.id === "fire") {
+      player.swishFire = (player.swishFire || 0) + (def.rooms || 3);
+    } else if (def.id === "cube") {
+      if (player.blockMax < PLACE_MAX_HARD) {
+        player.blockMax += 1;
+        player.blkLv += 1;
+      }
+      player.blockStock = Math.min(player.blockMax, player.blockStock + 1);
+      player.inv = Math.max(player.inv, 1.2);
+    } else if (def.id === "heavy") {
+      player.swishHeavy = (player.swishHeavy || 0) + (def.rooms || 3);
+    }
+    syncHud();
+  }
+  function grantSwishBuff() {
+    var def = SWISH_BUFFS[(S.runSwish || 0) % SWISH_BUFFS.length];
+    applySwishBuff(def);
+    if (room && room.hoop) {
+      floatTxt(room.hoop.x, room.hoop.y - 48, def.toast, def.color);
+    }
+    toast(def.toast);
+    sfx("trophy");
+    return def.id;
+  }
+  function maybeAwardCompleteRun() {
+    if (S.customPlay || S.completeAwarded || !S.perfectRun) return false;
+    if (S.floor !== SKULL_LORD_FLOOR) return false;
+    if (!room || room.kind !== "boss") return false;
+    var seen = hoopSeenCount();
+    if (seen < 1 || hoopMadeCount() < seen) return false;
+    S.completeAwarded = true;
+    store.completeRuns = (store.completeRuns || 0) + 1;
+    S.score += 2500 * Math.max(1, S.floor);
+    saveStore();
+    toast("COMPLETE RUN");
+    sfx("win");
+    return true;
+  }
+  function sealHoopTrophy(made) {
+    if (!room || !room.hoop) return null;
+    if (S.customPlay) {
+      if (made) {
+        grantSwishBuff();
+        S.runSwish = (S.runSwish || 0) + 1;
+      }
+      return null;
+    }
+    var t = offerHoopTrophy();
+    if (!t || t.sealed) return t;
+    t.pending = false;
+    t.sealed = true;
+    t.made = !!made;
+    if (made) {
+      t.buff = grantSwishBuff();
+      S.runSwish = (S.runSwish || 0) + 1;
+      store.swishCount = (store.swishCount || 0) + 1;
+      maybeAwardCompleteRun();
+      saveStore();
+    } else {
+      S.perfectRun = false;
+    }
+    syncHud();
+    return t;
+  }
+  function renderTrophyCups(log) {
+    if (!log || !log.length) return "";
+    return "<div class='trophyRow'>" + log.map(function (t) {
+      var cls = t.made ? " on" : (t.pending ? " pending" : "");
+      return "<i class='trophyCup" + cls + "' title='F" + t.floor + " " + (t.kind || "") + "'></i>";
+    }).join("") + "</div>";
+  }
+
   function makeBossHoop(spec) {
     var cols = spec.cols || gCols(spec.grid);
     var cx = Math.floor(cols / 2);
@@ -2774,6 +2992,7 @@
         slow: 1
       }
     });
+    sealHoopTrophy(true);
     /* keep the floor card waiting through the full cine beat */
     if (S.bossBeat < 3.4) S.bossBeat = 3.4;
     /* ball drops through the net then homes */
@@ -2907,6 +3126,8 @@
   }
 
   function loadRoom(idx) {
+    var sameRoom = !!(room && S.roomI === idx && S.mode === "play");
+    if (player && room && !sameRoom) tickSwishBuffs();
     S.roomI = idx;
     var spec = S.rooms[idx];
     var ents = [];
@@ -2938,7 +3159,14 @@
       wallH: applySpecWallH(spec)
     };
     S.lordZoom = null;
-    if (roomWantsHoop(spec)) room.hoop = makeBossHoop(spec);
+    if (roomWantsHoop(spec)) {
+      room.hoop = makeBossHoop(spec);
+      var keptCup = findHoopTrophy(S.floor + ":" + idx);
+      if (keptCup && keptCup.made) {
+        room.hoop.swished = true;
+        room.hoop.glow = 0.25;
+      }
+    }
     var spawnEnt = spec.ents.filter(function (e) { return e.kind === "spawn"; })[0];
     if (spawnEnt) {
       room.spawnX = (spawnEnt.tx + 0.5) * TILE;
@@ -2954,6 +3182,7 @@
     room.clearWait = 0;
     if (!ents.length) { room.cleared = true; room.doorReady = true; }
     if (!S.seenAimHelp) toast("LEFT RING to walk · DRAG anywhere to throw");
+    syncHud();
   }
 
   function startRun(seed, custom) {
@@ -2963,6 +3192,10 @@
     S.score = 0;
     S.runTricks = 0;
     S.hoopReady = false;
+    S.hoopLog = [];
+    S.perfectRun = true;
+    S.completeAwarded = false;
+    S.runSwish = 0;
     S.bossBeat = 0;
     S.cine = null;
     S.downed = null;
@@ -3007,6 +3240,7 @@
   }
 
   function nextRoomOrFloor() {
+    if (room && room.hoop && !room.hoop.swished) sealHoopTrophy(false);
     S.rooms[S.roomI].cleared = true;
     if (S.roomI < S.rooms.length - 1) {
       var nxt = S.rooms[S.roomI + 1];
@@ -3168,7 +3402,10 @@
       if (ball.live) ball.ret = true;
       else resetBallHome();
     }
-    if (S.hoopReady) toast("SWISH THE HOOP");
+    if (S.hoopReady) {
+      offerHoopTrophy();
+      toast("SWISH THE HOOP");
+    }
     /* BB-V7.20 — mini fountain was 4 rich balls; cut to 2.
        BB-V7.22 — fountain count scales with difficulty (EASY keeps 2). */
     var n = Math.max(1, Math.round(2 * diff().fountain));
@@ -3191,7 +3428,10 @@
       if (ball.live) ball.ret = true;
       else resetBallHome();
     }
-    if (S.hoopReady) toast("SWISH THE HOOP");
+    if (S.hoopReady) {
+      offerHoopTrophy();
+      toast("SWISH THE HOOP");
+    }
     /* BB-V7.12 — on floor-boss death the arena goes quiet: trash drops, shots
        freeze mid-flight so the beat is not stepped on by leftover knives. */
     if (room && room.enemies) {
@@ -3291,7 +3531,8 @@
   }
 
   function hasAff(name) {
-    if (name === "Fire" && player && player.permaFire) return true;
+    if (name === "Fire" && player && (player.permaFire || player.swishFire > 0)) return true;
+    if (name === "Heavy" && player && player.swishHeavy > 0) return true;
     return !!(ball && ball.affix && ball.affix.indexOf(name) >= 0);
   }
 
@@ -3392,6 +3633,8 @@
     ball.life = 2.6; ball.bounces = 0; ball.hits = [];
     ball.dmg = currentDmg();
     ball.affix = (player.ballAffix || []).slice();
+    if (player.swishFire > 0 && ball.affix.indexOf("Fire") < 0) ball.affix.push("Fire");
+    if (player.swishHeavy > 0 && ball.affix.indexOf("Heavy") < 0) ball.affix.push("Heavy");
     ball.trail = [];
     ball.lift = 0; ball.squash = 0; ball.dribble = 0;
     sfx("throw");
@@ -5449,8 +5692,11 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      don't clip the round screen corners.
      BB-V7.42 — MIX 100 locked as NORMAL (slider 50); smooth mute → normal →
      boosted → max, max is 2× normal.
-     BB-V7.43 — Bone King cube sprite (crown, ribs, scepter) + bone-shard volley. */
-  var BUILD = "v7.44";
+     BB-V7.43 — Bone King cube sprite (crown, ribs, scepter) + bone-shard volley.
+     BB-V7.44 — Slag King / Ash Titan / Thorn Queen cube sprites + pose clocks.
+     BB-V7.45 — swish trophies: each hoop is a cup; all makes through Skull
+     Lord is a complete run. Every swish grants a rotating buff. */
+  var BUILD = "v7.45";
   var FEEL_DEF = { spd: 250, accel: 2600, brake: 3600, throwSpd: 620, aimMode: "drag", aimDead: 2, aimHold: 64 };
   var FEEL = (function () {
     var f = {};
@@ -7964,6 +8210,26 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     if (sc) sc.textContent = fmt(S.score);
     var fr = document.getElementById("frNum");
     if (fr) fr.textContent = player ? String(player.frag) : "0";
+    var tr = document.getElementById("trChip");
+    var trN = document.getElementById("trNum");
+    if (tr && trN) {
+      var made = hoopMadeCount();
+      var seen = hoopSeenCount();
+      trN.textContent = made + "/" + seen;
+      tr.classList.toggle("perfect", !!S.perfectRun && seen > 0);
+    }
+    var bf = document.getElementById("bfChip");
+    var bfN = document.getElementById("bfNum");
+    if (bf && bfN) {
+      var labels = activeSwishBuffLabels();
+      if (labels.length) {
+        bf.classList.remove("off");
+        bfN.textContent = labels.join(" · ");
+      } else {
+        bf.classList.add("off");
+        bfN.textContent = "";
+      }
+    }
     var pips = document.getElementById("placePips");
     if (pips) {
       var max = player ? Math.max(0, Math.min(PLACE_MAX_HARD, player.blockMax)) : 3;
@@ -8129,7 +8395,9 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       "</div>" +
       "</div>" +
       "<div class='menuSound'>" + soundMixRow() + soundVolRow("menu") + "</div>" +
-      "<p class='muted menuFoot'>Best floor " + store.bestFloor + " · Trick kills " + store.trickKills + " · Stash " + store.stash.length + " · " + BUILD + "</p>";
+      "<p class='muted menuFoot'>Best floor " + store.bestFloor + " · Trick kills " + store.trickKills +
+        " · Swishes " + (store.swishCount || 0) + " · Complete runs " + (store.completeRuns || 0) +
+        " · Stash " + store.stash.length + " · " + BUILD + "</p>";
     el.querySelector("#cosHead").onclick = function () { cosOpen = !cosOpen; showMenu(); };
     el.querySelector("#profRow").onclick = function (ev) {
       var b = ev.target.closest("button");
@@ -8238,7 +8506,11 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       "<div class='landSplit'><div class='landCopy'>" +
       "<h1>PAUSE</h1>" +
       "<p class='muted'>" + S.seed + " · " + diffLabel() + " · Floor " + S.floor + " · " + (player ? player.token : "") +
-        " · BALL " + ((player && player.ballAffix && player.ballAffix.length) ? player.ballAffix.join("+") : (player && player.permaFire ? "FIRE" : "PLAIN")) + "</p>" +
+        " · BALL " + ((player && player.ballAffix && player.ballAffix.length) ? player.ballAffix.join("+") : (player && player.permaFire ? "FIRE" : "PLAIN")) +
+        " · SWISH " + hoopMadeCount() + "/" + hoopSeenCount() + (S.perfectRun && hoopSeenCount() > 0 ? " · PERFECT" : "") +
+        (S.completeAwarded ? " · COMPLETE RUN" : "") + "</p>" +
+      (activeSwishBuffLabels().length ? "<p class='muted'>BUFF " + activeSwishBuffLabels().join(" · ") + "</p>" : "") +
+      renderTrophyCups(S.hoopLog) +
       "<p class='muted'>MIX keeps Audible / Music going with the beeps. SOLO is game-only. BEEPS is mute \u2192 normal \u2192 boosted \u2192 max.</p>" +
       soundMixRow() +
       soundVolRow("pause") +
@@ -8429,12 +8701,21 @@ function endRunToMenu() {
     document.getElementById("floorPanel").className = "panel show";
     var bio = biomeOf(S.floor);
     var healed = S.floorHeal || 0;
+    var prevCups = hoopFloorTrophies(S.floor - 1);
+    var prevMade = prevCups.filter(function (t) { return t.made; }).length;
+    var floorSweep = prevCups.length > 0 && prevMade === prevCups.length;
+    var runLine = "SWISH " + hoopMadeCount() + "/" + hoopSeenCount() +
+      (S.perfectRun && hoopSeenCount() > 0 ? " · PERFECT" : "") +
+      (floorSweep ? " · FLOOR SWEEP" : "") +
+      (S.completeAwarded ? " · COMPLETE RUN" : "");
     document.getElementById("floorCard").innerHTML =
       "<div class='landSplit'><div class='landCopy'>" +
-      "<h1>" + (boss ? "BOSS DOWN" : "FLOOR " + (S.floor - 1) + " CLEAR") + "</h1>" +
+      "<h1>" + (S.completeAwarded && boss ? "COMPLETE RUN" : (boss ? "BOSS DOWN" : "FLOOR " + (S.floor - 1) + " CLEAR")) + "</h1>" +
       "<p>Entering " + bio.name + " · Floor " + S.floor +
         (healed ? " · +" + healed + "♥" : "") + "</p>" +
       "<p class='muted'>Seed " + S.seed + " · " + diffLabel() + " · Score " + fmt(S.score) + " · Tricks " + S.runTricks + "</p>" +
+      "<p class='muted'>" + runLine + "</p>" +
+      renderTrophyCups(S.hoopLog) +
       "</div><div class='landBtns row'>" +
       "<button class='bb pri' id='btnFloorGo'>DESCEND</button>" +
       "<button class='bb' id='btnFloorUpg'>UPGRADE · " + player.frag + " FRAG</button>" +
@@ -9048,7 +9329,7 @@ function endRunToMenu() {
       return 1;
     },
     placeAt: tryPlaceBlock,
-    playerStats: function () { return { frag: player.frag, maxHp: player.maxHp, hp: player.hp, dmgLv: player.dmgLv, spdLv: player.spdLv, blkLv: player.blkLv, fireLv: player.fireLv, permaFire: !!player.permaFire, hpBought: player.hpBought, blockStock: player.blockStock, blockMax: player.blockMax, placeHits: player.placeHits || 0, placeRateLv: player.placeRateLv || 0 }; },
+    playerStats: function () { return { frag: player.frag, maxHp: player.maxHp, hp: player.hp, dmgLv: player.dmgLv, spdLv: player.spdLv, blkLv: player.blkLv, fireLv: player.fireLv, permaFire: !!player.permaFire, hpBought: player.hpBought, blockStock: player.blockStock, blockMax: player.blockMax, placeHits: player.placeHits || 0, placeRateLv: player.placeRateLv || 0, swishPow: player.swishPow || 0, swishSpd: player.swishSpd || 0, swishFire: player.swishFire || 0, swishHeavy: player.swishHeavy || 0, dmg: currentDmg(), throwSpd: throwSpeed() }; },
     paused: function () { return !!S.pause; },
     tapPause: function () { return requestPause(); },
     pauseHud: function () {
@@ -9073,6 +9354,8 @@ function endRunToMenu() {
       return {
         bestFloor: store.bestFloor,
         trickKills: store.trickKills,
+        swishCount: store.swishCount || 0,
+        completeRuns: store.completeRuns || 0,
         stash: store.stash.length,
         difficulty: store.difficulty,
         activeProfile: activeProfile,
@@ -9403,6 +9686,34 @@ function endRunToMenu() {
       triggerHoopSwish(room.hoop);
       return this.hoop();
     },
+    trophies: function () {
+      return {
+        log: (S.hoopLog || []).map(function (t) {
+          return { key: t.key, floor: t.floor, kind: t.kind, made: !!t.made, pending: !!t.pending, sealed: !!t.sealed, buff: t.buff || null };
+        }),
+        made: hoopMadeCount(),
+        seen: hoopSeenCount(),
+        perfect: !!S.perfectRun,
+        completeAwarded: !!S.completeAwarded,
+        runSwish: S.runSwish || 0,
+        storeSwish: store.swishCount || 0,
+        completeRuns: store.completeRuns || 0,
+        buffs: activeSwishBuffLabels(),
+        hud: {
+          cups: (document.getElementById("trNum") && document.getElementById("trNum").textContent) || "",
+          perfect: !!(document.getElementById("trChip") && document.getElementById("trChip").classList.contains("perfect")),
+          buff: (document.getElementById("bfNum") && document.getElementById("bfNum").textContent) || "",
+          buffOn: !!(document.getElementById("bfChip") && !document.getElementById("bfChip").classList.contains("off"))
+        }
+      };
+    },
+    missHoop: function () {
+      if (!room || !room.hoop) return this.trophies();
+      room.hoop.swished = false;
+      sealHoopTrophy(false);
+      return this.trophies();
+    },
+    tickBuffs: function () { tickSwishBuffs(); syncHud(); return this.playerStats(); },
     cine: function () {
       return S.cine && S.cine.active ? {
         mode: S.cine.mode,
