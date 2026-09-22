@@ -3900,7 +3900,7 @@
     var en = fieldAttacker(src);
     if (!def || !en) return;
     var dealt = Math.max(1, Math.round(soaked * def.thorns));
-    f.zap = { x: en.x, y: en.y - (en.hitLift || 0), t: 0.18 };
+    f.zap = { x: en.x, y: en.y - (en.hitLift || 0), t: 0.35 };
     hitEnemy(en, { hits: [], thorn: true }, dealt, false);
     sfx("thorn");
   }
