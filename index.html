@@ -1691,12 +1691,37 @@
      ball: drag it to aim, let go to throw. Both are tracked by pointerId so a thumb
      on each works at once; a drag that starts anywhere else on the field still aims,
      which is what a mouse does. Geometry is in canvas pixels, recomputed every frame
-     so it follows a rotation without a resize event. */
+     so it follows a rotation without a resize event.
+     BB-V7.46 — a touch/pen on the left half of the screen claims the walk stick
+     even if it missed the painted disc. ox/oy is the analog origin: the ring
+     centre when the grab hits the icon, otherwise the first contact so a high
+     left tap does not instantly full-deflect off the corner. Mouse still aims
+     anywhere that is not the disc, so desk bank-shots keep the whole field. */
   var STK = {
-    L: { id: null, dx: 0, dy: 0 },
+    L: { id: null, dx: 0, dy: 0, ox: null, oy: null },
     R: { id: null, dx: 0, dy: 0 },
     FIELD: { id: null }
   };
+
+  function releaseLeftStick() {
+    STK.L.id = null; STK.L.dx = 0; STK.L.dy = 0; STK.L.ox = null; STK.L.oy = null;
+  }
+
+  function claimLeftStick(ev, c, G) {
+    if (STK.L.id !== null) return false;
+    var grab = G.rad * 1.5;
+    var onIcon = Math.hypot(c.x - G.L.cx, c.y - G.L.cy) < grab;
+    var onLeft = ev.pointerType !== "mouse" && c.x < canvas.width * 0.5;
+    if (!onIcon && !onLeft) return false;
+    STK.L.id = ev.pointerId;
+    STK.L.dx = 0;
+    STK.L.dy = 0;
+    /* Icon grab keeps the painted ring as the origin. A left-side thumb that
+       missed the disc starts analog from where it landed. */
+    if (onIcon) { STK.L.ox = G.L.cx; STK.L.oy = G.L.cy; }
+    else { STK.L.ox = c.x; STK.L.oy = c.y; }
+    return true;
+  }
 
   function stickGeom() {
     var cw = canvas.width, ch = canvas.height;
@@ -3181,7 +3206,7 @@
     S.shots = []; S.splits = [];
     room.clearWait = 0;
     if (!ents.length) { room.cleared = true; room.doorReady = true; }
-    if (!S.seenAimHelp) toast("LEFT RING to walk · DRAG anywhere to throw");
+    if (!S.seenAimHelp) toast("LEFT SIDE to walk · DRAG anywhere to throw");
     syncHud();
   }
 
@@ -5695,8 +5720,10 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      BB-V7.43 — Bone King cube sprite (crown, ribs, scepter) + bone-shard volley.
      BB-V7.44 — Slag King / Ash Titan / Thorn Queen cube sprites + pose clocks.
      BB-V7.45 — swish trophies: each hoop is a cup; all makes through Skull
-     Lord is a complete run. Every swish grants a rotating buff. */
-  var BUILD = "v7.45";
+     Lord is a complete run. Every swish grants a rotating buff.
+     BB-V7.46 — left thumb walks from anywhere on the left half; the painted
+     ring is a teacher, not the hit box. */
+  var BUILD = "v7.46";
   var FEEL_DEF = { spd: 250, accel: 2600, brake: 3600, throwSpd: 620, aimMode: "drag", aimDead: 2, aimHold: 64 };
   var FEEL = (function () {
     var f = {};
@@ -8878,7 +8905,11 @@ function endRunToMenu() {
      CHIEF BB-V5.1 — three pointers can be down at once: one on each ring and one on
      the field. Each is claimed by its pointerId at down and only that id can move or
      release it, so a thumb on the walk ring never steals the aim, and lifting one
-     never cancels the other. The old drag-anywhere aim is kept for the mouse. */
+     never cancels the other. The old drag-anywhere aim is kept for the mouse.
+     BB-V7.46 — the left thumb's hit box is the left half of the screen, not the
+     painted disc. The disc still shows direction; a miss starts analog at the
+     thumb. Pause / place chrome still win, and a mouse click on the left field
+     still aims. */
   function onDown(ev) {
     if (S.mode !== "play" || S.pause || S.portrait || S.downed) return;
     if (ev.target && ev.target.closest && ev.target.closest("#hud button, #btnBlock, #btnPause, #placePips")) return;
@@ -8886,10 +8917,7 @@ function endRunToMenu() {
     if (hudChromeHit(ev)) return;
     ensureAudio();
     var c = canvasFromEvent(ev), G = stickGeom();
-    var grab = G.rad * 1.5;
-    if (STK.L.id === null && Math.hypot(c.x - G.L.cx, c.y - G.L.cy) < grab) {
-      STK.L.id = ev.pointerId; STK.L.dx = 0; STK.L.dy = 0; return;
-    }
+    if (claimLeftStick(ev, c, G)) return;
     /* CHIEF BB-V5.7 — the right ring is a teacher, not a stick. Throwing is not tied
        to it: a drag anywhere on the field aims and throws, which is the whole point of
        a bank-shot game — you look at the wall you want, not at a control. The ring
@@ -8917,8 +8945,10 @@ function endRunToMenu() {
     var G = stickGeom();
     if (ev.pointerId === STK.L.id) {
       var c = canvasFromEvent(ev);
-      STK.L.dx = (c.x - G.L.cx) / G.feelRad;
-      STK.L.dy = (c.y - G.L.cy) / G.feelRad;
+      var ox = STK.L.ox != null ? STK.L.ox : G.L.cx;
+      var oy = STK.L.oy != null ? STK.L.oy : G.L.cy;
+      STK.L.dx = (c.x - ox) / G.feelRad;
+      STK.L.dy = (c.y - oy) / G.feelRad;
       var m = Math.hypot(STK.L.dx, STK.L.dy);
       if (m > 1) { STK.L.dx /= m; STK.L.dy /= m; }
       return;
@@ -8979,7 +9009,7 @@ function endRunToMenu() {
   }
 
   function onUp(ev) {
-    if (ev.pointerId === STK.L.id) { STK.L.id = null; STK.L.dx = 0; STK.L.dy = 0; return; }
+    if (ev.pointerId === STK.L.id) { releaseLeftStick(); return; }
     if (ev.pointerId !== STK.FIELD.id) return;
     STK.FIELD.id = null;
     if (!S.pointer.down) return;
@@ -8992,7 +9022,7 @@ function endRunToMenu() {
   /* A cancelled pointer is the OS taking the touch away (palm, system gesture,
      a third finger). That is never a throw; it used to fire one. */
   function onCancel(ev) {
-    if (ev.pointerId === STK.L.id) { STK.L.id = null; STK.L.dx = 0; STK.L.dy = 0; return; }
+    if (ev.pointerId === STK.L.id) { releaseLeftStick(); return; }
     if (ev.pointerId !== STK.FIELD.id) return;
     STK.FIELD.id = null;
     S.pointer.down = false;
@@ -9003,7 +9033,7 @@ function endRunToMenu() {
   function clearSticks() {
     KEYS.left = KEYS.right = KEYS.up = KEYS.down = false;
     if (player) { player.vx = 0; player.vy = 0; }
-    STK.L.id = null; STK.L.dx = 0; STK.L.dy = 0;
+    releaseLeftStick();
     STK.R.id = null; STK.R.dx = 0; STK.R.dy = 0;
     STK.FIELD.id = null; S.pointer.down = false; S.aim = null; S.dragFromCss = null;
     S.placeArmed = false; S.placeMode = false; S.placePull = false; S.placePid = null;
@@ -9284,7 +9314,10 @@ function endRunToMenu() {
     /* Harness: live pointer / place / aim state for the exit-pull sequences. */
     input: function () {
       return { placeArmed: !!S.placeArmed, placePull: !!S.placePull, placePid: S.placePid,
-        fieldId: STK.FIELD.id, stickId: STK.L.id, ballLive: !!(ball && ball.live), throws: S.throws,
+        fieldId: STK.FIELD.id, stickId: STK.L.id,
+        stickDx: +STK.L.dx.toFixed(3), stickDy: +STK.L.dy.toFixed(3),
+        stickOx: STK.L.ox, stickOy: STK.L.oy,
+        ballLive: !!(ball && ball.live), throws: S.throws,
         aim: S.aim ? { ang: +S.aim.ang.toFixed(3), pow: +S.aim.pow.toFixed(3), cancel: !!S.aim.cancel, reach: Math.round(S.aim.reach || 0) } : null };
     },
     giveFrag: function (n) { player.frag = n; },
