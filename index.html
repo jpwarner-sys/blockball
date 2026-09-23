@@ -6542,8 +6542,10 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      open eye channel, dual hook, taper. Fangs are longer and aimed
      at the pommel.
      BB-V7.61 — skull look stays locked. The fangs are the seat:
-     they are centered on the blade so the tip meets the steel. */
-  var BUILD = "v7.61";
+     they are centered on the blade so the tip meets the steel.
+     BB-V7.62 — the locked skull tip is smaller. The fangs still
+     sit on the center of the blade. */
+  var BUILD = "v7.62";
   var FEEL_DEF = { spd: 250, accel: 2600, brake: 3600, throwSpd: 620, aimMode: "drag", aimDead: 2, aimHold: 64 };
   var FEEL = (function () {
     var f = {};
@@ -8644,7 +8646,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
        the pommel, +y is down. After rotate(-PI/2), local +Y is the
        pommel and local +X is up. Fangs are not on the sheet: two
        added spikes from the upper teeth, aimed at the pommel. */
-    var cell = u * 0.115;
+    var cell = u * 0.082;
     var gx0 = 660, gy0 = 328, gcs = 8, gRight = 756;
     /* Fangs occupy rows 5–7 and 9–11. Their midpoint is the seat on the blade. */
     var gMid = 394;
