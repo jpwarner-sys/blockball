@@ -6547,8 +6547,16 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      sit on the center of the blade.
      BB-V7.63 — same skull, drawn so it still reads small. The
      blocks overlap into one solid shape. The dark line sits only
-     on the outer edge, so the close-up keeps the locked silhouette. */
-  var BUILD = "v7.63";
+     on the outer edge, so the close-up keeps the locked silhouette.
+     BB-V7.64 — the off-hand carries the concept kite: bone face,
+     gold rim, three spikes, red eyes, teeth along the point.
+     BB-V7.65 — that kite sits, a little smaller, on a metal tower shield.
+     BB-V7.66 — the shield is a tall steel rectangle. A shallow bow
+     is the curve you see from above; the face stays rectangular.
+     The kite is a small emblem on that face.
+     BB-V7.67 — plate and kite stay locked together, drawn at 80%.
+     BB-V7.68 — the plate's bow is inverted. The kite stays upright. */
+  var BUILD = "v7.68";
   var FEEL_DEF = { spd: 250, accel: 2600, brake: 3600, throwSpd: 620, aimMode: "drag", aimDead: 2, aimHold: 64 };
   var FEEL = (function () {
     var f = {};
@@ -6953,7 +6961,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     var lordU = 56 * 1.48, kingU = 42 * 1.42;
     var lordUp = lordU * 4.85 * LORD_VIS;
     var lordLeft = lordU * 5.5 * LORD_VIS;
-    var lordRight = lordU * 1.45 * LORD_VIS;
+    var lordRight = lordU * 2.14 * LORD_VIS;
     var kingUp = kingU * 3.5 * KING_VIS;
     var kingHalf = kingU * 1.7 * KING_VIS;
     var foot = ch * 0.80;
@@ -6984,6 +6992,8 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       e.flash = 0;
       if (e.boss === "lord") {
         ensureSkullLord(e);
+        e.face = -1;
+        e.aimX = -1;
         e.atk = null;
         e.bladeAng = skullRestAng(-1);
         e.bladeLift = 0;
@@ -8525,24 +8535,8 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     cube(g, x + u * 0.66, yt + u * 0.28, u * 0.14, u * 0.38, u * 0.08, BONE);
     cube(g, x + u * 0.86, yt + u * 0.34, u * 0.12, u * 0.32, u * 0.07, BONE);
 
-    /* ===== SKULL SHIELD — left of facing ===== */
-    var shPush = (e.shieldFwd || 0);
-    var shx = x - face * u * (1.05 + shPush * 0.6);
-    var shy = yt + u * (0.85 - shPush * 0.12);
-    cube(g, shx - u * 0.36, shy, u * 0.72, u * 0.88, u * 0.16, STEEL);
-    /* skull emblem */
-    cube(g, shx - u * 0.22, shy + u * 0.18, u * 0.44, u * 0.36, u * 0.06, BONE);
-    g.fillStyle = "#120d09";
-    g.fillRect(shx - u * 0.14, shy + u * 0.26, u * 0.12, u * 0.12);
-    g.fillRect(shx + u * 0.02, shy + u * 0.26, u * 0.12, u * 0.12);
-    g.fillStyle = shade(BONE, 0.7);
-    g.fillRect(shx - u * 0.16, shy + u * 0.52, u * 0.32, u * 0.10);
-    for (var st = 0; st < 3; st++) {
-      g.fillStyle = "#120d09";
-      g.fillRect(shx - u * 0.12 + st * u * 0.10, shy + u * 0.52, u * 0.05, u * 0.12);
-    }
-
-    /* Greatsword is painted after the crown so the giant blade sits in front. */
+    /* Greatsword is painted after the crown so the giant blade sits in front.
+       The kite is painted there too, in front of the body and behind the sword. */
 
     /* ===== SKULL HEAD — bigger than the crypt king's, bare bone under the crown ===== */
     cube(g, x - u * 0.58, yt - u * 0.06, u * 1.16, u * 0.82, u * 0.34, body);
@@ -8589,6 +8583,136 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     cube(g, x - u * 0.52, yt - u * 2.28, u * 1.04, u * 0.28, u * 0.12, shade(GOLD, 1.2));
     cube(g, x - u * 0.58, yt - u * 2.20, u * 0.16, u * 0.16, u * 0.07, shade(GOLD, 0.8));
     cube(g, x + u * 0.42, yt - u * 2.20, u * 0.16, u * 0.16, u * 0.07, shade(GOLD, 0.8));
+
+    /* ===== TOWER SHIELD — tall steel rectangle on the off-hand.
+       From the front the face is flat. From above, the plate bows:
+       every column is the same height, and the middle sits lower.
+       The kite stays upright on that face. The whole shield draws at 80%. */
+    var shPush = (e.shieldFwd || 0);
+    var shx = x - face * u * (1.16 + shPush * 0.55);
+    var shTop = yt + u * (0.32 - shPush * 0.10);
+    var shH = u * 1.72;
+    var shW = u * 0.60;
+    var gTop = shTop - u * 0.46;
+    var gBot = shTop + shH;
+    var gMidY = (gTop + gBot) * 0.5;
+    var emblem = 0.38;
+    var towerW = u * 0.96;
+    var towerH = u * 2.46;
+    var bow = u * 0.11;
+    var towerTop = yt + u * (0.16 - shPush * 0.10);
+    var shieldMidY = towerTop - bow * 0.5 + towerH * 0.5;
+    g.save();
+    g.translate(shx, shieldMidY);
+    g.scale(0.80, 0.80);
+    g.translate(-shx, -shieldMidY);
+    /* Flip the plate only. The kite is drawn after this restore. */
+    g.save();
+    g.translate(shx, shieldMidY);
+    g.scale(1, -1);
+    g.translate(-shx, -shieldMidY);
+    var plateN = 16;
+    function plateLift(i) {
+      var nx = ((i + 0.5) / plateN) * 2 - 1;
+      return bow * (1 - nx * nx);
+    }
+    function drawPlate(grow, colAt) {
+      var span = towerW + grow * 2;
+      var cw = span / plateN;
+      var left = shx - span * 0.5;
+      var h = towerH + grow * 2;
+      for (var i = 0; i < plateN; i++) {
+        var nx = ((i + 0.5) / plateN) * 2 - 1;
+        g.fillStyle = colAt(nx, i);
+        g.fillRect(left + i * cw, towerTop - plateLift(i) - grow, cw + 1, h);
+      }
+    }
+    drawPlate(u * 0.04, function () { return "#14181c"; });
+    drawPlate(0, function (nx) {
+      return shade(STEEL, 0.74 + 0.48 * (1 - nx * nx));
+    });
+    /* straight hot edge — the front face, not the bow */
+    (function () {
+      var span = towerW;
+      var cw = span / plateN;
+      var left = shx - span * 0.5;
+      var hot = Math.max(2, u * 0.028);
+      g.fillStyle = "#f4f7fb";
+      g.fillRect(left + 1, towerTop - plateLift(0) + u * 0.05, hot, towerH - u * 0.10);
+      g.fillStyle = "#c5ccd4";
+      for (var i = 0; i < plateN; i++) {
+        g.fillRect(left + i * cw, towerTop - plateLift(i), cw + 1, Math.max(2, u * 0.04));
+      }
+    })();
+    var riv = Math.max(3, u * 0.04);
+    g.fillStyle = "#e7edf2";
+    [1, plateN - 2].forEach(function (i) {
+      var span = towerW;
+      var cw = span / plateN;
+      var rx = shx - span * 0.5 + i * cw;
+      var topY = towerTop - plateLift(i) + u * 0.10;
+      g.fillRect(rx, topY, riv, riv);
+      g.fillRect(rx, topY + towerH - u * 0.28, riv, riv);
+    });
+    g.restore();
+    var destY = towerTop + towerH * 0.50;
+    g.save();
+    g.translate(shx, destY);
+    g.scale(emblem, emblem);
+    g.translate(-shx, -gMidY);
+    function kiteHalf(t) {
+      if (t < 0.58) return shW * (1 - t * 0.14);
+      var k = (t - 0.58) / 0.42;
+      return shW * 0.92 * (1 - k);
+    }
+    function drawKite(col, grow, stopT) {
+      var steps = 8;
+      var end = stopT == null ? 1 : stopT;
+      g.fillStyle = col;
+      for (var si = 0; si < steps; si++) {
+        var t0 = si / steps;
+        if (t0 >= end) break;
+        var t1 = Math.min(end, (si + 1) / steps);
+        var hw = Math.max(kiteHalf(t0), kiteHalf(t1)) + grow;
+        var y0 = shTop + shH * t0 - (si === 0 ? grow : 0);
+        var y1 = shTop + shH * t1;
+        g.fillRect(shx - hw, y0, hw * 2, Math.max(1, y1 - y0 + u * 0.02));
+      }
+    }
+    drawKite("#120e0c", u * 0.06, 1);
+    drawKite(GOLD, u * 0.045, 1);
+    drawKite(BONE, 0, 0.66);
+    function spike(dx, hgt, bw) {
+      cube(g, shx + dx - bw * 0.5, shTop - hgt, bw, hgt + u * 0.04, u * 0.05, BONE);
+      g.fillStyle = GOLD;
+      g.fillRect(shx + dx - bw * 0.75, shTop - u * 0.02, bw * 1.5, u * 0.07);
+    }
+    spike(-u * 0.34, u * 0.26, u * 0.11);
+    spike(0, u * 0.44, u * 0.13);
+    spike(u * 0.34, u * 0.26, u * 0.11);
+    var ey = shTop + shH * 0.18;
+    g.fillStyle = "#120e0c";
+    g.fillRect(shx - u * 0.30, ey, u * 0.22, u * 0.18);
+    g.fillRect(shx + u * 0.08, ey, u * 0.22, u * 0.18);
+    g.fillStyle = "#e01818";
+    g.fillRect(shx - u * 0.24, ey + u * 0.035, u * 0.11, u * 0.11);
+    g.fillRect(shx + u * 0.13, ey + u * 0.035, u * 0.11, u * 0.11);
+    g.fillStyle = "#120e0c";
+    g.fillRect(shx - u * 0.045, ey + u * 0.20, u * 0.09, u * 0.16);
+    var toothY = shTop + shH * 0.64;
+    var toothN = 5;
+    var toothSpan = shW * 0.86;
+    for (var ti = 0; ti < toothN; ti++) {
+      var slot = (toothSpan * 2) / toothN;
+      var tx = shx - toothSpan + ti * slot;
+      var th = u * (ti === 2 ? 0.50 : (ti === 1 || ti === 3 ? 0.34 : 0.22));
+      g.fillStyle = "#120e0c";
+      g.fillRect(tx - u * 0.01, toothY, slot + u * 0.02, th);
+      g.fillStyle = BONE;
+      g.fillRect(tx + u * 0.025, toothY, Math.max(1, slot - u * 0.05), th - u * 0.015);
+    }
+    g.restore();
+    g.restore();
 
     /* ===== GIANT SWORD — grip at the fist, skull at the tip.
        Local -Y is the tip. rotate(-PI/2) sends that tip left, the way he
