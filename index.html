@@ -1064,7 +1064,7 @@
      contact boxes are authored from the silhouette (torso), not r*N. */
   var MOB_VIS = 0.56;
   var KNIGHT_VIS = 0.86; /* minis: between HS 1.7 hero and the floor lord */
-  var LORD_VIS = 0.98;   /* Skull Lord: clearly bigger than Bone King on screen */
+  var LORD_VIS = 1.22;   /* Skull Lord: notably taller than Bone King on screen */
   var COURT_VIS = 0.84;  /* splash guards: knight-scale, lord colors */
   var KING_VIS = 0.80;   /* Bone King: between knight and Skull Lord */
   var SLAG_VIS = 0.80;   /* Slag King: same band as Bone King */
@@ -6524,8 +6524,10 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      BB-V7.53 — Skull Lord reads apart from Bone King: bigger, vivid purple
      cape, tall wind-up key, outlined giant sword. Cleave and lunge keep
      that slab horizontal instead of hoisting it like the crypt scepter.
-     The nave camera starts in close enough that the sword reads from the door. */
-  var BUILD = "v7.53";
+     The nave camera starts in close enough that the sword reads from the door.
+     BB-V7.54 — Skull Lord is notably taller. His crown is a wide jewelled
+     band with a wind-up key; Bone King wears a low tarnished circlet under a cowl. */
+  var BUILD = "v7.54";
   var FEEL_DEF = { spd: 250, accel: 2600, brake: 3600, throwSpd: 620, aimMode: "drag", aimDead: 2, aimHold: 64 };
   var FEEL = (function () {
     var f = {};
@@ -6928,7 +6930,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
   function paintBossSheet() {
     var cw = canvas.width, ch = canvas.height;
     var lordU = 56 * 1.48, kingU = 42 * 1.42;
-    var lordUp = lordU * 3.95 * LORD_VIS;
+    var lordUp = lordU * 4.85 * LORD_VIS;
     var lordLeft = lordU * 5.95 * LORD_VIS;
     var lordRight = lordU * 1.45 * LORD_VIS;
     var kingUp = kingU * 3.5 * KING_VIS;
@@ -8521,49 +8523,51 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
 
     /* Greatsword is painted after the crown so the giant blade sits in front. */
 
-    /* ===== SKULL HEAD — big exposed skull, not a helm ===== */
-    cube(g, x - u * 0.46, yt + u * 0.02, u * 0.92, u * 0.66, u * 0.28, body);
+    /* ===== SKULL HEAD — bigger than the crypt king's, bare bone under the crown ===== */
+    cube(g, x - u * 0.58, yt - u * 0.06, u * 1.16, u * 0.82, u * 0.34, body);
     /* cheek / jaw */
-    cube(g, x - u * 0.34, yt + u * 0.62, u * 0.68, u * 0.22, u * 0.16, shade(body, 0.9));
+    cube(g, x - u * 0.42, yt + u * 0.68, u * 0.84, u * 0.26, u * 0.18, shade(body, 0.9));
     /* eye sockets */
     g.fillStyle = "#0a0604";
-    g.fillRect(x - u * 0.34, yt + u * 0.20, u * 0.28, u * 0.28);
-    g.fillRect(x + u * 0.06, yt + u * 0.20, u * 0.28, u * 0.28);
+    g.fillRect(x - u * 0.42, yt + u * 0.16, u * 0.34, u * 0.32);
+    g.fillRect(x + u * 0.08, yt + u * 0.16, u * 0.34, u * 0.32);
     g.fillStyle = EMBER;
     var glow = 0.6 + 0.4 * Math.sin(S.t * 3.0 + e.bobPhase);
     if (e.atk) glow = 0.9 + 0.1 * Math.sin(S.t * 14);
     g.globalAlpha = Math.min(1, glow);
-    g.fillRect(x - u * 0.26 + face * u * 0.03, yt + u * 0.28, u * 0.14, u * 0.12);
-    g.fillRect(x + u * 0.14 + face * u * 0.03, yt + u * 0.28, u * 0.14, u * 0.12);
+    g.fillRect(x - u * 0.32 + face * u * 0.03, yt + u * 0.26, u * 0.16, u * 0.14);
+    g.fillRect(x + u * 0.16 + face * u * 0.03, yt + u * 0.26, u * 0.16, u * 0.14);
     g.globalAlpha = 1;
     /* nasal cavity */
     g.fillStyle = "#0a0604";
-    g.fillRect(x - u * 0.06, yt + u * 0.48, u * 0.12, u * 0.14);
+    g.fillRect(x - u * 0.07, yt + u * 0.50, u * 0.14, u * 0.16);
     /* teeth */
     for (var tooth = 0; tooth < 5; tooth++) {
       g.fillStyle = "#0a0604";
-      g.fillRect(x - u * 0.28 + tooth * u * 0.12, yt + u * 0.64, u * 0.06, u * 0.18);
+      g.fillRect(x - u * 0.34 + tooth * u * 0.14, yt + u * 0.70, u * 0.07, u * 0.20);
     }
 
-    /* ===== ORNATE CROWN + WIND-UP KEY ===== */
-    cube(g, x - u * 0.56, yt - u * 0.22, u * 1.12, u * 0.32, u * 0.16, GOLD);
-    /* jewel settings */
-    g.fillStyle = EMBER;
-    g.fillRect(x - u * 0.42, yt - u * 0.12, u * 0.14, u * 0.12);
-    g.fillRect(x - u * 0.07, yt - u * 0.14, u * 0.14, u * 0.14);
-    g.fillRect(x + u * 0.28, yt - u * 0.12, u * 0.14, u * 0.12);
-    g.fillStyle = "#4a80c8";
-    g.fillRect(x - u * 0.24, yt - u * 0.10, u * 0.10, u * 0.08);
-    g.fillRect(x + u * 0.14, yt - u * 0.10, u * 0.10, u * 0.08);
-    /* crown points */
-    cube(g, x - u * 0.54, yt - u * 0.52, u * 0.20, u * 0.36, u * 0.08, GOLD);
-    cube(g, x - u * 0.12, yt - u * 0.64, u * 0.24, u * 0.48, u * 0.10, GOLD);
-    cube(g, x + u * 0.34, yt - u * 0.52, u * 0.20, u * 0.36, u * 0.08, GOLD);
-    /* wind-up key — the spike Bone King does not have */
-    cube(g, x - u * 0.09, yt - u * 1.28, u * 0.18, u * 0.70, u * 0.09, GOLD);
-    cube(g, x - u * 0.36, yt - u * 1.48, u * 0.72, u * 0.24, u * 0.10, shade(GOLD, 1.2));
-    cube(g, x - u * 0.42, yt - u * 1.42, u * 0.14, u * 0.14, u * 0.06, shade(GOLD, 0.8));
-    cube(g, x + u * 0.28, yt - u * 1.42, u * 0.14, u * 0.14, u * 0.06, shade(GOLD, 0.8));
+    /* ===== WIDE CROWN + WIND-UP KEY — not Bone King's low circlet ===== */
+    cube(g, x - u * 0.82, yt - u * 0.34, u * 1.64, u * 0.40, u * 0.20, GOLD);
+    cube(g, x - u * 0.98, yt - u * 0.22, u * 0.24, u * 0.32, u * 0.12, shade(GOLD, 0.82));
+    cube(g, x + u * 0.74, yt - u * 0.22, u * 0.24, u * 0.32, u * 0.12, shade(GOLD, 0.82));
+    cube(g, x - u * 0.78, yt - u * 0.70, u * 0.16, u * 0.42, u * 0.08, GOLD);
+    cube(g, x - u * 0.44, yt - u * 0.86, u * 0.18, u * 0.58, u * 0.08, GOLD);
+    cube(g, x - u * 0.12, yt - u * 1.02, u * 0.24, u * 0.74, u * 0.10, GOLD);
+    cube(g, x + u * 0.26, yt - u * 0.86, u * 0.18, u * 0.58, u * 0.08, GOLD);
+    cube(g, x + u * 0.60, yt - u * 0.70, u * 0.16, u * 0.42, u * 0.08, GOLD);
+    g.fillStyle = "#d24ad8";
+    g.fillRect(x - u * 0.62, yt - u * 0.22, u * 0.16, u * 0.16);
+    g.fillRect(x - u * 0.08, yt - u * 0.26, u * 0.16, u * 0.18);
+    g.fillRect(x + u * 0.46, yt - u * 0.22, u * 0.16, u * 0.16);
+    g.fillStyle = "#7a32c8";
+    g.fillRect(x - u * 0.36, yt - u * 0.18, u * 0.12, u * 0.12);
+    g.fillRect(x + u * 0.24, yt - u * 0.18, u * 0.12, u * 0.12);
+    /* wind-up key — tall enough to be the head silhouette */
+    cube(g, x - u * 0.11, yt - u * 2.05, u * 0.22, u * 1.10, u * 0.11, GOLD);
+    cube(g, x - u * 0.52, yt - u * 2.28, u * 1.04, u * 0.28, u * 0.12, shade(GOLD, 1.2));
+    cube(g, x - u * 0.58, yt - u * 2.20, u * 0.16, u * 0.16, u * 0.07, shade(GOLD, 0.8));
+    cube(g, x + u * 0.42, yt - u * 2.20, u * 0.16, u * 0.16, u * 0.07, shade(GOLD, 0.8));
 
     /* ===== GIANT SWORD — concept sheet: horizontal slab, skull crossguard.
        Drawn in front of the body. Local -Y is the tip; skullRestAng lays it
@@ -8739,35 +8743,37 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     }
     g.restore();
 
-    /* skull */
-    cube(g, x - u * 0.40, yt + u * 0.04, u * 0.80, u * 0.58, u * 0.24, body);
-    cube(g, x - u * 0.30, yt + u * 0.56, u * 0.60, u * 0.18, u * 0.14, shade(body, 0.9));
+    /* burgundy cowl behind a smaller skull — crypt king, not the Lord's bare head */
+    cube(g, x - u * 0.55, yt - u * 0.22, u * 0.24, u * 0.86, u * 0.12, CLOAK_D);
+    cube(g, x + u * 0.31, yt - u * 0.22, u * 0.24, u * 0.86, u * 0.12, CLOAK_D);
+    cube(g, x - u * 0.40, yt - u * 0.36, u * 0.80, u * 0.32, u * 0.12, CLOAK);
+
+    /* skull — tighter than the Lord's */
+    cube(g, x - u * 0.34, yt + u * 0.10, u * 0.68, u * 0.50, u * 0.20, body);
+    cube(g, x - u * 0.26, yt + u * 0.54, u * 0.52, u * 0.16, u * 0.12, shade(body, 0.9));
     g.fillStyle = "#0a0604";
-    g.fillRect(x - u * 0.28, yt + u * 0.18, u * 0.24, u * 0.24);
-    g.fillRect(x + u * 0.04, yt + u * 0.18, u * 0.24, u * 0.24);
+    g.fillRect(x - u * 0.24, yt + u * 0.22, u * 0.20, u * 0.20);
+    g.fillRect(x + u * 0.04, yt + u * 0.22, u * 0.20, u * 0.20);
     g.fillStyle = EMBER;
     var glow = 0.55 + 0.45 * Math.sin(S.t * 3.2 + e.bobPhase);
     if (tell > 0) glow = 0.85 + 0.15 * Math.sin(S.t * 16);
     g.globalAlpha = Math.min(1, glow);
-    g.fillRect(x - u * 0.22 + face * u * 0.03, yt + u * 0.24, u * 0.12, u * 0.11);
-    g.fillRect(x + u * 0.10 + face * u * 0.03, yt + u * 0.24, u * 0.12, u * 0.11);
+    g.fillRect(x - u * 0.18 + face * u * 0.03, yt + u * 0.28, u * 0.10, u * 0.09);
+    g.fillRect(x + u * 0.08 + face * u * 0.03, yt + u * 0.28, u * 0.10, u * 0.09);
     g.globalAlpha = 1;
     g.fillStyle = "#0a0604";
-    g.fillRect(x - u * 0.05, yt + u * 0.42, u * 0.10, u * 0.12);
+    g.fillRect(x - u * 0.04, yt + u * 0.42, u * 0.08, u * 0.10);
     for (var tooth = 0; tooth < 4; tooth++) {
-      g.fillRect(x - u * 0.22 + tooth * u * 0.12, yt + u * 0.58, u * 0.055, u * 0.14);
+      g.fillRect(x - u * 0.18 + tooth * u * 0.10, yt + u * 0.54, u * 0.045, u * 0.12);
     }
 
-    /* gold crown — three points, no wind-up key */
-    cube(g, x - u * 0.48, yt - u * 0.18, u * 0.96, u * 0.26, u * 0.14, GOLD);
-    cube(g, x - u * 0.46, yt - u * 0.42, u * 0.16, u * 0.28, u * 0.07, GOLD);
-    cube(g, x - u * 0.10, yt - u * 0.52, u * 0.20, u * 0.38, u * 0.08, GOLD);
-    cube(g, x + u * 0.30, yt - u * 0.42, u * 0.16, u * 0.28, u * 0.07, GOLD);
-    g.fillStyle = EMBER;
-    g.fillRect(x - u * 0.06, yt - u * 0.10, u * 0.12, u * 0.10);
-    g.fillStyle = "#4a80c8";
-    g.fillRect(x - u * 0.32, yt - u * 0.08, u * 0.09, u * 0.08);
-    g.fillRect(x + u * 0.23, yt - u * 0.08, u * 0.09, u * 0.08);
+    /* tarnished circlet — low band, two nubs. No key, no tall points. */
+    var TGOLD = "#8a6428";
+    cube(g, x - u * 0.36, yt + u * 0.02, u * 0.72, u * 0.14, u * 0.10, TGOLD);
+    cube(g, x - u * 0.34, yt - u * 0.08, u * 0.10, u * 0.12, u * 0.06, TGOLD);
+    cube(g, x + u * 0.24, yt - u * 0.08, u * 0.10, u * 0.12, u * 0.06, TGOLD);
+    g.fillStyle = "#6a2030";
+    g.fillRect(x - u * 0.05, yt + u * 0.04, u * 0.10, u * 0.08);
 
     g.restore();
   }
