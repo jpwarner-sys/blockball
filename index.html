@@ -6529,8 +6529,10 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      band with a wind-up key; Bone King wears a low tarnished circlet under a cowl.
      BB-V7.55 — greatsword grip is in the fist, point outward, and the blade
      is a bit shorter so it doesn't swallow him.
-     BB-V7.56 — the skull is the blade tip. The handle is a plain grip. */
-  var BUILD = "v7.56";
+     BB-V7.56 — the skull is the blade tip. The handle is a plain grip.
+     BB-V7.57 — the short blade stays short: dark runic steel, bright
+     cutting edges, and a viewer-facing skull on the tip. */
+  var BUILD = "v7.57";
   var FEEL_DEF = { spd: 250, accel: 2600, brake: 3600, throwSpd: 620, aimMode: "drag", aimDead: 2, aimHold: 64 };
   var FEEL = (function () {
     var f = {};
@@ -8593,34 +8595,64 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     /* simple crossguard */
     cube(g, -u * 0.52, -u * 0.70, u * 1.04, u * 0.14, u * 0.12, "#8a9098");
     cube(g, -u * 0.46, -u * 0.76, u * 0.92, u * 0.08, u * 0.08, GOLD);
+    /* Short dark blade. Local +X is the upper cutting edge on screen,
+       local -X the lower one. Runes sit on the centerline. */
     var bladeLen = u * 2.85;
     var bladeW = u * 0.62;
-    var BLADE = "#e4e8ee";
     var bladeFar = -u * 0.82 - bladeLen;
-    g.strokeStyle = "#140e0a";
-    g.lineWidth = Math.max(5, u * 0.12);
+    g.strokeStyle = "#0c0908";
+    g.lineWidth = Math.max(4, u * 0.08);
     g.strokeRect(-bladeW * 0.5 - 2, bladeFar - 2, bladeW + 4, bladeLen + 4);
-    cube(g, -bladeW * 0.5, bladeFar, bladeW, bladeLen, u * 0.16, BLADE);
+    cube(g, -bladeW * 0.5, bladeFar, bladeW, bladeLen, u * 0.12, "#3e342c");
+    var edge = Math.max(3, u * 0.07);
+    g.fillStyle = "#f4f7fb";
+    g.fillRect(bladeW * 0.5 - edge, bladeFar, edge, bladeLen);
+    g.fillRect(-bladeW * 0.5, bladeFar, edge, bladeLen);
     g.fillStyle = "#ffffff";
-    g.fillRect(-u * 0.06, bladeFar + u * 0.08, u * 0.12, bladeLen * 0.88);
-    g.fillStyle = "#3a4048";
-    for (var notch = 0; notch < 4; notch++) {
-      g.fillRect(-bladeW * 0.28, bladeFar + u * 0.35 + notch * u * 0.55, bladeW * 0.56, u * 0.10);
+    g.fillRect(bladeW * 0.5 - edge * 0.42, bladeFar + u * 0.06, Math.max(2, edge * 0.32), bladeLen - u * 0.14);
+    g.fillRect(-bladeW * 0.5 + 1, bladeFar + u * 0.06, Math.max(2, edge * 0.22), bladeLen - u * 0.14);
+    var runeN = 4;
+    for (var ri = 0; ri < runeN; ri++) {
+      var ry = bladeFar + u * 0.32 + ri * (bladeLen - u * 0.7) / (runeN - 1);
+      if (ri % 2 === 0) {
+        g.fillStyle = GOLD;
+        g.fillRect(-u * 0.15, ry, u * 0.30, u * 0.045);
+        g.fillRect(-u * 0.04, ry - u * 0.07, u * 0.09, u * 0.16);
+        g.fillStyle = "#ff4a22";
+        g.fillRect(-u * 0.035, ry + u * 0.01, u * 0.07, u * 0.07);
+      } else {
+        g.fillStyle = GOLD;
+        g.fillRect(-u * 0.13, ry, u * 0.08, u * 0.045);
+        g.fillRect(-u * 0.03, ry + u * 0.045, u * 0.08, u * 0.045);
+        g.fillRect(u * 0.05, ry + u * 0.09, u * 0.08, u * 0.045);
+        g.fillStyle = "#ff4a22";
+        g.fillRect(-u * 0.04, ry + u * 0.04, u * 0.08, u * 0.05);
+      }
     }
-    /* skull is the tip, not the hilt */
-    var skullTop = bladeFar - u * 0.72;
-    cube(g, -u * 0.46, skullTop, u * 0.92, u * 0.78, u * 0.22, BONE);
-    cube(g, -u * 0.34, skullTop + u * 0.70, u * 0.68, u * 0.18, u * 0.12, shade(BONE, 0.9));
-    g.fillStyle = "#120d09";
-    g.fillRect(-u * 0.32, skullTop + u * 0.16, u * 0.24, u * 0.22);
-    g.fillRect(u * 0.08, skullTop + u * 0.16, u * 0.24, u * 0.22);
-    g.fillStyle = EMBER;
-    g.fillRect(-u * 0.24, skullTop + u * 0.22, u * 0.10, u * 0.10);
-    g.fillRect(u * 0.14, skullTop + u * 0.22, u * 0.10, u * 0.10);
-    g.fillStyle = "#120d09";
-    g.fillRect(-u * 0.06, skullTop + u * 0.40, u * 0.12, u * 0.12);
+    /* Skull is the tip and faces the viewer. After rotate(-PI/2),
+       local Y is screen X (more negative = further left, the outer tip)
+       and local X is screen -Y (positive local X = up). Eyes share a
+       local X so they sit side by side; the mouth is below them. */
+    var skullFar = bladeFar - u * 0.62;
+    cube(g, -u * 0.44, skullFar, u * 0.96, u * 0.90, u * 0.18, BONE);
+    cube(g, -u * 0.64, skullFar + u * 0.14, u * 0.30, u * 0.62, u * 0.12, shade(BONE, 0.94));
+    g.fillStyle = "#1a120e";
+    g.fillRect(u * 0.22, skullFar + u * 0.10, u * 0.08, u * 0.68);
+    g.fillRect(u * 0.02, skullFar + u * 0.12, u * 0.20, u * 0.22);
+    g.fillRect(u * 0.02, skullFar + u * 0.50, u * 0.20, u * 0.22);
+    g.fillStyle = "#e01818";
+    g.fillRect(u * 0.06, skullFar + u * 0.16, u * 0.12, u * 0.14);
+    g.fillRect(u * 0.06, skullFar + u * 0.54, u * 0.12, u * 0.14);
+    g.fillStyle = "#ff6060";
+    g.fillRect(u * 0.09, skullFar + u * 0.19, u * 0.05, u * 0.06);
+    g.fillRect(u * 0.09, skullFar + u * 0.57, u * 0.05, u * 0.06);
+    g.fillStyle = "#1a120e";
+    g.fillRect(-u * 0.04, skullFar + u * 0.38, u * 0.10, u * 0.12);
+    g.fillRect(-u * 0.36, skullFar + u * 0.16, u * 0.16, u * 0.58);
+    g.fillStyle = BONE;
     for (var fang = 0; fang < 4; fang++) {
-      g.fillRect(-u * 0.26 + fang * u * 0.14, skullTop + u * 0.72, u * 0.06, u * 0.12);
+      g.fillRect(-u * 0.36, skullFar + u * 0.20 + fang * u * 0.14, u * 0.09, u * 0.05);
+      g.fillRect(-u * 0.24, skullFar + u * 0.26 + fang * u * 0.13, u * 0.08, u * 0.045);
     }
     if (swinging) {
       g.globalAlpha = 0.85;
