@@ -6537,8 +6537,11 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      the concept sheet's dual hook.
      BB-V7.59 — tip skull follows the concept outline: stepped crown,
      eye channel, forked hook tapering to a point. Vampire fangs are
-     an added pair aimed at the pommel. */
-  var BUILD = "v7.59";
+     an added pair aimed at the pommel.
+     BB-V7.60 — the tip is the reference skull in blocks: stepped crown,
+     open eye channel, dual hook, taper. Fangs are longer and aimed
+     at the pommel. */
+  var BUILD = "v7.60";
   var FEEL_DEF = { spd: 250, accel: 2600, brake: 3600, throwSpd: 620, aimMode: "drag", aimDead: 2, aimHold: 64 };
   var FEEL = (function () {
     var f = {};
@@ -6942,7 +6945,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     var cw = canvas.width, ch = canvas.height;
     var lordU = 56 * 1.48, kingU = 42 * 1.42;
     var lordUp = lordU * 4.85 * LORD_VIS;
-    var lordLeft = lordU * 5.15 * LORD_VIS;
+    var lordLeft = lordU * 5.5 * LORD_VIS;
     var lordRight = lordU * 1.45 * LORD_VIS;
     var kingUp = kingU * 3.5 * KING_VIS;
     var kingHalf = kingU * 1.7 * KING_VIS;
@@ -8635,44 +8638,65 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
         g.fillRect(-u * 0.04, ry + u * 0.04, u * 0.08, u * 0.05);
       }
     }
-    /* Concept tip, traced from the sheet. Reference image +x runs toward
-       the pommel and +y runs down. After rotate(-PI/2), local +Y is the
-       pommel and local +X is up. The fork and the taper are the reference
-       shape. The two fangs are a modification: upper teeth aimed at the
-       pommel, and there is no lower jaw. */
-    var su = u * 0.0132;
-    var ax = 757, ay = 376;
-    function lx(ix, iy) { return -(iy - ay) * su; }
-    function ly(ix, iy) { return bladeFar + (ix - ax) * su; }
-    function bonePoly(pts, col) {
-      g.beginPath();
-      g.moveTo(lx(pts[0][0], pts[0][1]), ly(pts[0][0], pts[0][1]));
-      for (var pi = 1; pi < pts.length; pi++) {
-        g.lineTo(lx(pts[pi][0], pts[pi][1]), ly(pts[pi][0], pts[pi][1]));
-      }
-      g.closePath();
+    /* Reference tip, blocked off the concept sheet. Grid +x is toward
+       the pommel, +y is down. After rotate(-PI/2), local +Y is the
+       pommel and local +X is up. Fangs are not on the sheet: two
+       added spikes from the upper teeth, aimed at the pommel. */
+    var cell = u * 0.115;
+    var gx0 = 660, gy0 = 328, gcs = 8, gRight = 756, gMid = 376;
+    var su = cell / gcs;
+    function tipCell(c, r, col) {
+      var ix = gx0 + c * gcs;
+      var iy = gy0 + r * gcs;
+      var xTop = -(iy - gMid) * su;
+      var xBot = -(iy + gcs - gMid) * su;
+      var yLeft = bladeFar + (ix - gRight) * su;
+      var yRight = bladeFar + (ix + gcs - gRight) * su;
       g.fillStyle = col;
-      g.fill();
+      g.fillRect(xBot, yLeft, xTop - xBot, yRight - yLeft);
     }
-    bonePoly([
-      [705,332],[725,332],[725,358],[742,366],[757,376],
-      [757,456],[728,464],[718,476],[708,488],[698,488],
-      [688,476],[678,464],[668,450],[668,372],
-      [681,360],[692,348],[705,334]
-    ], BONE);
-    g.strokeStyle = "#1a120c";
-    g.lineWidth = Math.max(2, u * 0.04);
-    g.stroke();
-    bonePoly([[706,426],[722,426],[718,456],[702,456]], "#120e0c");
-    bonePoly([[694,364],[724,364],[726,396],[692,396]], "#120e0c");
-    bonePoly([[700,374],[710,374],[710,386],[700,386]], "#e01818");
-    bonePoly([[712,374],[722,374],[722,386],[712,386]], "#e01818");
-    g.strokeStyle = "#1a120c";
-    g.lineWidth = Math.max(2, u * 0.03);
-    bonePoly([[746,364],[757,372],[838,366]], "#f4efe4");
-    g.stroke();
-    bonePoly([[746,376],[757,386],[828,392]], "#f4efe4");
-    g.stroke();
+    var skullCells = [
+      [6,0],[7,0],
+      [4,1],[5,1],[6,1],[7,1],
+      [4,2],[5,2],[6,2],[7,2],
+      [2,3],[3,3],[4,3],[5,3],[6,3],[7,3],
+      [2,4],[3,4],[4,4],[5,4],[6,4],[7,4],[8,4],[9,4],[10,4],[11,4],
+      [1,5],[2,5],[3,5],[4,5],[5,5],[7,5],[8,5],[9,5],[10,5],[11,5],
+      [1,6],[2,6],[3,6],[4,6],[5,6],[8,6],[9,6],[10,6],[11,6],
+      [1,7],[2,7],[3,7],[4,7],[5,7],[8,7],[9,7],[10,7],[11,7],
+      [1,8],[2,8],[3,8],[4,8],[5,8],[6,8],[7,8],[8,8],[9,8],[10,8],[11,8],
+      [1,9],[2,9],[3,9],[4,9],[5,9],[6,9],[7,9],[8,9],[9,9],[10,9],[11,9],
+      [1,10],[2,10],[3,10],[4,10],[5,10],[6,10],[7,10],[8,10],[10,10],[11,10],
+      [1,11],[2,11],[3,11],[4,11],[5,11],[6,11],[7,11],[8,11],[9,11],[10,11],[11,11],
+      [1,12],[2,12],[3,12],[4,12],[5,12],[6,12],[7,12],[8,12],[9,12],[10,12],
+      [1,13],[2,13],[3,13],[4,13],[5,13],[8,13],[9,13],[10,13],[11,13],
+      [1,14],[2,14],[3,14],[4,14],[5,14],[8,14],[9,14],[10,14],[11,14],
+      [2,15],[3,15],[4,15],[5,15],[7,15],[8,15],[9,15],[10,15],[11,15],
+      [2,16],[3,16],[4,16],[5,16],[6,16],[7,16],[8,16],[9,16],[10,16],[11,16],
+      [3,17],[4,17],[5,17],[6,17],[7,17],
+      [4,18],[5,18],[6,18],[7,18],
+      [5,19],[6,19],[7,19]
+    ];
+    for (var sc = 0; sc < skullCells.length; sc++) tipCell(skullCells[sc][0], skullCells[sc][1], BONE);
+    /* eye channel */
+    tipCell(6, 5, "#1a120e");
+    tipCell(6, 6, "#1a120e");
+    tipCell(7, 6, "#1a120e");
+    tipCell(6, 7, "#1a120e");
+    tipCell(7, 7, "#1a120e");
+    g.fillStyle = "#e01818";
+    tipCell(6, 6, "#e01818");
+    tipCell(7, 6, "#e01818");
+    /* fangs: added, aimed at the pommel, no lower jaw */
+    var fangCells = [
+      [12,5],[13,5],[14,5],[15,5],
+      [12,6],[13,6],[14,6],[15,6],[16,6],[17,6],[18,6],
+      [12,7],[13,7],[14,7],[15,7],
+      [12,9],[13,9],[14,9],[15,9],
+      [12,10],[13,10],[14,10],[15,10],[16,10],[17,10],[18,10],
+      [12,11],[13,11],[14,11],[15,11]
+    ];
+    for (var fc = 0; fc < fangCells.length; fc++) tipCell(fangCells[fc][0], fangCells[fc][1], "#f4efe4");
     if (swinging) {
       g.globalAlpha = 0.85;
       g.fillStyle = "#fff2c0";
