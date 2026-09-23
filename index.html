@@ -6553,8 +6553,9 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      BB-V7.65 — that kite sits, a little smaller, on a metal tower shield.
      BB-V7.66 — the shield is a tall steel rectangle. A shallow bow
      is the curve you see from above; the face stays rectangular.
-     The kite is a small emblem on that face. */
-  var BUILD = "v7.66";
+     The kite is a small emblem on that face.
+     BB-V7.67 — plate and kite stay locked together, drawn at 80%. */
+  var BUILD = "v7.67";
   var FEEL_DEF = { spd: 250, accel: 2600, brake: 3600, throwSpd: 620, aimMode: "drag", aimDead: 2, aimHold: 64 };
   var FEEL = (function () {
     var f = {};
@@ -8585,7 +8586,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     /* ===== TOWER SHIELD — tall steel rectangle on the off-hand.
        From the front the face is flat. From above, the plate bows:
        every column is the same height, and the middle sits higher.
-       The kite is a small emblem on that face. */
+       The kite is locked on that face. The whole shield draws at 80%. */
     var shPush = (e.shieldFwd || 0);
     var shx = x - face * u * (1.16 + shPush * 0.55);
     var shTop = yt + u * (0.32 - shPush * 0.10);
@@ -8599,6 +8600,11 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     var towerH = u * 2.46;
     var bow = u * 0.11;
     var towerTop = yt + u * (0.16 - shPush * 0.10);
+    var shieldMidY = towerTop - bow * 0.5 + towerH * 0.5;
+    g.save();
+    g.translate(shx, shieldMidY);
+    g.scale(0.80, 0.80);
+    g.translate(-shx, -shieldMidY);
     var plateN = 16;
     function plateLift(i) {
       var nx = ((i + 0.5) / plateN) * 2 - 1;
@@ -8698,6 +8704,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       g.fillStyle = BONE;
       g.fillRect(tx + u * 0.025, toothY, Math.max(1, slot - u * 0.05), th - u * 0.015);
     }
+    g.restore();
     g.restore();
 
     /* ===== GIANT SWORD — grip at the fist, skull at the tip.
