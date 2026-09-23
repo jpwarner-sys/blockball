@@ -1161,6 +1161,7 @@
     runSwish: 0,
     cine: null,
     lordZoom: null,
+    bossSheet: false,
     /* BB-V7.21 — soft death: brief DOWN beat, then room reset with loot kept.
        Null when upright; { t, dur } while the hero is down. */
     downed: null,
@@ -3336,6 +3337,7 @@
       wallH: applySpecWallH(spec)
     };
     S.lordZoom = 1;
+    S.bossSheet = false;
     if (S.camFollow) S.camFollow.lordZ = 1;
     if (roomWantsHoop(spec)) {
       room.hoop = makeBossHoop(spec);
@@ -6921,11 +6923,84 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     return { scale: scale, ox: -camX * scale, oy: -camY * scale };
   }
 
+  /* Both bosses, one scale, feet on the same line. Sword extent is the
+     lord's resting greatsword (local -Y tip, laid horizontal). */
+  function paintBossSheet() {
+    var cw = canvas.width, ch = canvas.height;
+    var lordU = 56 * 1.48, kingU = 42 * 1.42;
+    var lordUp = lordU * 3.95 * LORD_VIS;
+    var lordLeft = lordU * 5.95 * LORD_VIS;
+    var lordRight = lordU * 1.45 * LORD_VIS;
+    var kingUp = kingU * 3.5 * KING_VIS;
+    var kingHalf = kingU * 1.7 * KING_VIS;
+    var foot = ch * 0.80;
+    var kingX = cw * 0.20;
+    var lordX = cw * 0.80;
+    var sH = (foot - 86) / Math.max(lordUp, kingUp);
+    var sW = Math.min(
+      (kingX - 28) / kingHalf,
+      (lordX - kingX - kingHalf - 40) / lordLeft,
+      (cw - 28 - lordX) / lordRight
+    );
+    var scale = Math.max(0.35, Math.min(sH, sW));
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.fillStyle = "#14110e";
+    ctx.fillRect(0, 0, cw, ch);
+    ctx.strokeStyle = "#3a3228";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(36, foot + 2);
+    ctx.lineTo(cw - 36, foot + 2);
+    ctx.stroke();
+    function paint(type, cx) {
+      var e = spawnEnemy(type, 0, 0, 1, true);
+      e.x = 0;
+      e.y = 0;
+      e.alive = true;
+      e.face = -1;
+      e.flash = 0;
+      if (e.boss === "lord") {
+        ensureSkullLord(e);
+        e.atk = null;
+        e.bladeAng = skullRestAng(-1);
+        e.bladeLift = 0;
+        e.lean = 0;
+        e.crouch = 0;
+        e.capeFlare = 0.2;
+      } else {
+        ensureBoneKing(e);
+        e.atk = null;
+        e.staffAng = e.face * 0.35;
+        e.staffLift = 0;
+        e.lean = 0;
+        e.crouch = 0;
+      }
+      ctx.save();
+      ctx.translate(cx, foot);
+      ctx.scale(scale, scale);
+      drawEnemy(ctx, e);
+      ctx.restore();
+      return e.name;
+    }
+    var left = paint("boneking", kingX);
+    var right = paint("skulllord", lordX);
+    ctx.fillStyle = "#f0e0c0";
+    ctx.font = "bold 26px sans-serif";
+    ctx.textAlign = "center";
+    ctx.fillText(left + "  ·  FLOOR 3", kingX, 46);
+    ctx.fillText(right + "  ·  FLOOR 16", lordX, 46);
+    ctx.font = "16px sans-serif";
+    ctx.fillStyle = "#b7a98f";
+    ctx.fillText("same scale", cw * 0.5, 46);
+    return { left: left, right: right, w: cw, h: ch, scale: Math.round(scale * 1000) / 1000, foot: Math.round(foot) };
+  }
+
   function draw() {
     var g = ctx;
     var cw = canvas.width, ch = canvas.height;
     /* BB-V7.27 — splash/menu park the canvas; skip the 32×18 cube pass. */
     if (!needGameCanvas()) return;
+    if (S.bossSheet) { paintBossSheet(); return; }
     g.fillStyle = DARK;
     g.fillRect(0, 0, cw, ch);
     var cam = cameraFit();
@@ -11324,53 +11399,14 @@ function endRunToMenu() {
         lordZoom: S.lordZoom
       };
     },
-    /* Flat side-by-side: Bone King (floor 3) left, Skull Lord right. */
+    /* Flat side-by-side. One shared scale, same ground line, so the
+       height ratio is the in-game one (art radius × vis), not a fit-to-frame. */
     bossCompare: function () {
       if (!player) this.gotoSkullLair("COMPARE");
       S.pause = true;
       S.mode = "play";
-      var cw = canvas.width, ch = canvas.height;
-      ctx.setTransform(1, 0, 0, 1, 0, 0);
-      ctx.fillStyle = "#14110e";
-      ctx.fillRect(0, 0, cw, ch);
-      function paint(type, cx, cy, scale) {
-        var e = spawnEnemy(type, 0, 0, 1, true);
-        e.x = 0;
-        e.y = 0;
-        e.alive = true;
-        e.face = -1;
-        e.flash = 0;
-        if (e.boss === "lord") {
-          ensureSkullLord(e);
-          e.atk = null;
-          e.bladeAng = skullRestAng(-1);
-          e.bladeLift = 0;
-          e.lean = 0;
-          e.crouch = 0;
-          e.capeFlare = 0.2;
-        } else {
-          ensureBoneKing(e);
-          e.atk = null;
-          e.staffAng = -0.35;
-          e.staffLift = 0;
-          e.lean = 0;
-          e.crouch = 0;
-        }
-        ctx.save();
-        ctx.translate(cx, cy);
-        ctx.scale(scale, scale);
-        drawEnemy(ctx, e);
-        ctx.restore();
-        return e.name;
-      }
-      var left = paint("boneking", cw * 0.28, ch * 0.62, 2.4);
-      var right = paint("skulllord", cw * 0.72, ch * 0.64, 2.4);
-      ctx.fillStyle = "#f0e0c0";
-      ctx.font = "bold 28px sans-serif";
-      ctx.textAlign = "center";
-      ctx.fillText(left + "  ·  FLOOR 3", cw * 0.28, 48);
-      ctx.fillText(right + "  ·  FLOOR 16", cw * 0.72, 48);
-      return { left: left, right: right, w: cw, h: ch };
+      S.bossSheet = true;
+      return paintBossSheet();
     },
     /* Freeze the concept pose: giant sword horizontal, nameplate SKULL LORD. */
     holdLord: function () {
