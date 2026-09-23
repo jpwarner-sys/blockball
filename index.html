@@ -6534,8 +6534,11 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      cutting edges, and a viewer-facing skull on the tip.
      BB-V7.58 — the tip skull turns so its fangs point at the pommel.
      No lower jaw. Two vampire fangs, and the cranium stretches into
-     the concept sheet's dual hook. */
-  var BUILD = "v7.58";
+     the concept sheet's dual hook.
+     BB-V7.59 — tip skull follows the concept outline: stepped crown,
+     eye channel, forked hook tapering to a point. Vampire fangs are
+     an added pair aimed at the pommel. */
+  var BUILD = "v7.59";
   var FEEL_DEF = { spd: 250, accel: 2600, brake: 3600, throwSpd: 620, aimMode: "drag", aimDead: 2, aimHold: 64 };
   var FEEL = (function () {
     var f = {};
@@ -8632,48 +8635,43 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
         g.fillRect(-u * 0.04, ry + u * 0.04, u * 0.08, u * 0.05);
       }
     }
-    /* Tip skull, rolled so the teeth aim at the pommel.
-       After rotate(-PI/2): local -Y is the outer tip (left), local +Y
-       runs toward the grip, local +X is up. No lower jaw. The cranium
-       stretches into two long hooks that sweep back along the blade,
-       and the upper teeth are two fangs on that same line. */
-    var skullFar = bladeFar - u * 0.48;
-    var hookY = skullFar + u * 0.28;
-    /* upper hook: thick at the brow, then a long sweep back, then a curl */
-    cube(g, u * 0.38, hookY, u * 0.26, u * 0.70, u * 0.10, BONE);
-    cube(g, u * 0.52, hookY + u * 0.52, u * 0.20, u * 0.55, u * 0.08, BONE);
-    cube(g, u * 0.66, hookY + u * 0.92, u * 0.14, u * 0.28, u * 0.06, shade(BONE, 0.92));
-    /* lower hook, the matching sweep */
-    cube(g, -u * 0.64, hookY, u * 0.26, u * 0.70, u * 0.10, BONE);
-    cube(g, -u * 0.74, hookY + u * 0.52, u * 0.20, u * 0.55, u * 0.08, BONE);
-    cube(g, -u * 0.82, hookY + u * 0.92, u * 0.14, u * 0.28, u * 0.06, shade(BONE, 0.92));
-    /* cranium. Narrow cap at the outer tip, wide middle between the hooks. */
-    cube(g, -u * 0.20, skullFar - u * 0.22, u * 0.40, u * 0.28, u * 0.10, BONE);
-    cube(g, -u * 0.46, skullFar, u * 0.92, u * 0.64, u * 0.16, BONE);
-    g.fillStyle = "#1a120e";
-    g.fillRect(u * 0.02, skullFar + u * 0.08, u * 0.18, u * 0.16);
-    g.fillRect(u * 0.02, skullFar + u * 0.30, u * 0.18, u * 0.16);
-    g.fillStyle = "#e01818";
-    g.fillRect(u * 0.06, skullFar + u * 0.11, u * 0.10, u * 0.10);
-    g.fillRect(u * 0.06, skullFar + u * 0.33, u * 0.10, u * 0.10);
-    /* mouth on the pommel side of the cranium. Fangs grow out of it toward the grip. */
-    g.fillRect(-u * 0.08, skullFar + u * 0.42, u * 0.30, u * 0.18);
-    g.fillStyle = "#f4efe4";
+    /* Concept tip, traced from the sheet. Reference image +x runs toward
+       the pommel and +y runs down. After rotate(-PI/2), local +Y is the
+       pommel and local +X is up. The fork and the taper are the reference
+       shape. The two fangs are a modification: upper teeth aimed at the
+       pommel, and there is no lower jaw. */
+    var su = u * 0.0132;
+    var ax = 757, ay = 376;
+    function lx(ix, iy) { return -(iy - ay) * su; }
+    function ly(ix, iy) { return bladeFar + (ix - ax) * su; }
+    function bonePoly(pts, col) {
+      g.beginPath();
+      g.moveTo(lx(pts[0][0], pts[0][1]), ly(pts[0][0], pts[0][1]));
+      for (var pi = 1; pi < pts.length; pi++) {
+        g.lineTo(lx(pts[pi][0], pts[pi][1]), ly(pts[pi][0], pts[pi][1]));
+      }
+      g.closePath();
+      g.fillStyle = col;
+      g.fill();
+    }
+    bonePoly([
+      [705,332],[725,332],[725,358],[742,366],[757,376],
+      [757,456],[728,464],[718,476],[708,488],[698,488],
+      [688,476],[678,464],[668,450],[668,372],
+      [681,360],[692,348],[705,334]
+    ], BONE);
     g.strokeStyle = "#1a120c";
     g.lineWidth = Math.max(2, u * 0.04);
-    g.beginPath();
-    g.moveTo(u * 0.02, skullFar + u * 0.46);
-    g.lineTo(u * 0.16, skullFar + u * 0.46);
-    g.lineTo(u * 0.08, skullFar + u * 1.28);
-    g.closePath();
-    g.fill();
     g.stroke();
-    g.beginPath();
-    g.moveTo(-u * 0.12, skullFar + u * 0.46);
-    g.lineTo(u * 0.02, skullFar + u * 0.46);
-    g.lineTo(-u * 0.08, skullFar + u * 1.22);
-    g.closePath();
-    g.fill();
+    bonePoly([[706,426],[722,426],[718,456],[702,456]], "#120e0c");
+    bonePoly([[694,364],[724,364],[726,396],[692,396]], "#120e0c");
+    bonePoly([[700,374],[710,374],[710,386],[700,386]], "#e01818");
+    bonePoly([[712,374],[722,374],[722,386],[712,386]], "#e01818");
+    g.strokeStyle = "#1a120c";
+    g.lineWidth = Math.max(2, u * 0.03);
+    bonePoly([[746,364],[757,372],[838,366]], "#f4efe4");
+    g.stroke();
+    bonePoly([[746,376],[757,386],[828,392]], "#f4efe4");
     g.stroke();
     if (swinging) {
       g.globalAlpha = 0.85;
