@@ -6521,7 +6521,8 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      horizontal slab, skull crossguard, not a knight-length upright blade.
      BB-V7.53 — Skull Lord reads apart from Bone King: bigger, vivid purple
      cape, tall wind-up key, outlined giant sword. Cleave and lunge keep
-     that slab horizontal instead of hoisting it like the crypt scepter. */
+     that slab horizontal instead of hoisting it like the crypt scepter.
+     The nave camera starts in close enough that the sword reads from the door. */
   var BUILD = "v7.53";
   var FEEL_DEF = { spd: 250, accel: 2600, brake: 3600, throwSpd: 620, aimMode: "drag", aimDead: 2, aimHold: 64 };
   var FEEL = (function () {
@@ -6754,16 +6755,18 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     return null;
   }
 
-  /* 1 across the hall, up to 1.42 when you step into cleave range. */
+  /* From the west door he is still in frame and already bigger than a floor boss.
+     Cleave range fills the view with the greatsword. The old 1→1.42 ramp left
+     a small crowned skeleton, the same read as Bone King. */
   function skullZoomGoal() {
     var lord = skullLordFocus();
     if (!lord || !player) return 1;
     var dist = Math.hypot(player.x - lord.x, player.y - lord.y);
-    var t = (500 - dist) / (500 - 120);
+    var t = (1700 - dist) / (1700 - 200);
     if (t < 0) t = 0;
     if (t > 1) t = 1;
     t = t * t * (3 - 2 * t);
-    return 1 + 0.42 * t;
+    return 1.22 + 0.9 * t;
   }
 
   function cameraTarget() {
@@ -6815,7 +6818,8 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       scale = Math.max(fit, wantMin, scale * (1 - CAM_IDLE_OUT * idle));
     }
     /* BB-V7.51 — approach zoom. Wide nave at range; ease toward the lord
-       when you close so crown, key, and blade read. Smoothed on lordZ. */
+       when you close so crown, key, and blade read. Smoothed on lordZ.
+       BB-V7.53 — floor is 1.55 so the finale is never a speck in the cathedral. */
     var px = (player && S.mode === "play") ? player.x : ww * 0.5;
     var py = (player && S.mode === "play") ? player.y : hh * 0.5;
     var lz = (S.camFollow && S.camFollow.lordZ) || 1;
@@ -6823,9 +6827,9 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       scale *= lz;
       var lordF = skullLordFocus();
       if (lordF) {
-        var pull = Math.min(1, (lz - 1) / 0.42);
-        px = px + (lordF.x - px) * 0.4 * pull;
-        py = py + (lordF.y - py) * 0.4 * pull;
+        var pull = Math.min(1, 0.58 + (lz - 1) * 0.2);
+        px = px + (lordF.x - px) * pull;
+        py = py + (lordF.y - py) * pull;
       }
     }
     S.lordZoom = lz;
@@ -8507,7 +8511,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     g.fillRect(-u * 0.38, -u * 0.76, u * 0.14, u * 0.14);
     g.fillRect(u * 0.24, -u * 0.76, u * 0.14, u * 0.14);
     cube(g, -u * 0.46, -u * 0.24, u * 0.92, u * 0.16, u * 0.12, shade(BONE, 0.88));
-    var bladeLen = u * 3.35;
+    var bladeLen = u * 4.15;
     var bladeW = u * 0.92;
     var BLADE = "#e4e8ee";
     g.strokeStyle = "#140e0a";
