@@ -1064,7 +1064,7 @@
      contact boxes are authored from the silhouette (torso), not r*N. */
   var MOB_VIS = 0.56;
   var KNIGHT_VIS = 0.86; /* minis: between HS 1.7 hero and the floor lord */
-  var LORD_VIS = 0.72;   /* Skull Lord: ~+35% taller than a knight on screen */
+  var LORD_VIS = 0.98;   /* Skull Lord: clearly bigger than Bone King on screen */
   var COURT_VIS = 0.84;  /* splash guards: knight-scale, lord colors */
   var KING_VIS = 0.80;   /* Bone King: between knight and Skull Lord */
   var SLAG_VIS = 0.80;   /* Slag King: same band as Bone King */
@@ -5173,8 +5173,9 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      BB-V7.21 — lunge telegraph: longer wind + early aim lock so the dashed
      lane freezes with enough time to walk-dodge (was tracking until 78%);
      attack pick mixes cleave walk-ins and caps lunge streaks. */
-  var SKULL_CLEAVE_BACK = 1.32;
-  var SKULL_CLEAVE_FWD = 1.18;
+  /* Flat greatsword cut. A 75° hoist stood the slab up like Bone King's scepter. */
+  var SKULL_CLEAVE_BACK = 0.42;
+  var SKULL_CLEAVE_FWD = 0.38;
 
   function skullAimAng(e) {
     return Math.atan2(e.aimY || 0, e.aimX || 1);
@@ -6050,9 +6051,9 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
         if (t < wind) {
           var lw = t / wind;
           var coil = easeOutCubic(Math.min(1, lw / 0.82));
-          e.bladeLift = coil * 0.55;
-          /* raise the slab vertical, then it will snap into the stab lane */
-          e.bladeAng = angLerp(skullRestAng(e.face), aimAng + Math.PI / 2 - e.face * 0.15, coil);
+          e.bladeLift = coil * 0.35;
+          /* keep the greatsword in the stab lane — a vertical coil reads as the crypt scepter */
+          e.bladeAng = angLerp(skullRestAng(e.face), aimAng + Math.PI / 2, coil * 0.35);
           e.lean = -e.face * coil * 0.95;
           e.crouch = coil * 0.52;
           e.shieldFwd = coil * 1.05;
@@ -6517,8 +6518,11 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      BB-V7.51 — Skull Lord court: crown guard at 75%, blade guard at 50%,
      skeletons at 25%. Camera eases in as you close on the lord.
      BB-V7.52 — Skull Lord greatsword matches the concept sheet: giant
-     horizontal slab, skull crossguard, not a knight-length upright blade. */
-  var BUILD = "v7.52";
+     horizontal slab, skull crossguard, not a knight-length upright blade.
+     BB-V7.53 — Skull Lord reads apart from Bone King: bigger, vivid purple
+     cape, tall wind-up key, outlined giant sword. Cleave and lunge keep
+     that slab horizontal instead of hoisting it like the crypt scepter. */
+  var BUILD = "v7.53";
   var FEEL_DEF = { spd: 250, accel: 2600, brake: 3600, throwSpd: 620, aimMode: "drag", aimDead: 2, aimHold: 64 };
   var FEEL = (function () {
     var f = {};
@@ -8239,7 +8243,8 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
   function drawSkullLord(g, e) {
     ensureSkullLord(e);
     var BONE = "#f0e8dc", BONE_D = "#a89880", STEEL = "#8a9098", GOLD = "#e0b44a";
-    var PURPLE = "#5a2848", PURPLE_D = "#2a1428", LINING = "#8a2840", EMBER = "#ff6a28";
+    /* Vivid purple, not Bone King's burgundy cloak. */
+    var PURPLE = "#7a32c8", PURPLE_D = "#4a1888", LINING = "#e25898", EMBER = "#ff6a28";
     /* art unit sized so he reads ~1.35x Bone Knight height at LORD_VIS */
     var u = artR(e) * 1.48;
     e.artH = u * 3.35;
@@ -8475,11 +8480,11 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     cube(g, x - u * 0.54, yt - u * 0.52, u * 0.20, u * 0.36, u * 0.08, GOLD);
     cube(g, x - u * 0.12, yt - u * 0.64, u * 0.24, u * 0.48, u * 0.10, GOLD);
     cube(g, x + u * 0.34, yt - u * 0.52, u * 0.20, u * 0.36, u * 0.08, GOLD);
-    /* wind-up key rising from crown center */
-    cube(g, x - u * 0.07, yt - u * 0.98, u * 0.14, u * 0.42, u * 0.07, GOLD);
-    cube(g, x - u * 0.24, yt - u * 1.10, u * 0.48, u * 0.18, u * 0.08, shade(GOLD, 1.18));
-    cube(g, x - u * 0.28, yt - u * 1.06, u * 0.10, u * 0.10, u * 0.05, shade(GOLD, 0.85));
-    cube(g, x + u * 0.18, yt - u * 1.06, u * 0.10, u * 0.10, u * 0.05, shade(GOLD, 0.85));
+    /* wind-up key — the spike Bone King does not have */
+    cube(g, x - u * 0.09, yt - u * 1.28, u * 0.18, u * 0.70, u * 0.09, GOLD);
+    cube(g, x - u * 0.36, yt - u * 1.48, u * 0.72, u * 0.24, u * 0.10, shade(GOLD, 1.2));
+    cube(g, x - u * 0.42, yt - u * 1.42, u * 0.14, u * 0.14, u * 0.06, shade(GOLD, 0.8));
+    cube(g, x + u * 0.28, yt - u * 1.42, u * 0.14, u * 0.14, u * 0.06, shade(GOLD, 0.8));
 
     /* ===== GIANT SWORD — concept sheet: horizontal slab, skull crossguard.
        Drawn in front of the body. Local -Y is the tip; skullRestAng lays it
@@ -8502,15 +8507,18 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     g.fillRect(-u * 0.38, -u * 0.76, u * 0.14, u * 0.14);
     g.fillRect(u * 0.24, -u * 0.76, u * 0.14, u * 0.14);
     cube(g, -u * 0.46, -u * 0.24, u * 0.92, u * 0.16, u * 0.12, shade(BONE, 0.88));
-    var bladeLen = u * 3.05;
-    var bladeW = u * 0.72;
-    var BLADE = "#d5dae2";
-    cube(g, -bladeW * 0.5, -u * 1.02 - bladeLen, bladeW, bladeLen, u * 0.2, BLADE);
-    g.fillStyle = "#eef2f6";
-    g.fillRect(-u * 0.07, -u * 0.95 - bladeLen, u * 0.14, bladeLen * 0.92);
-    g.fillStyle = "#4e545c";
+    var bladeLen = u * 3.35;
+    var bladeW = u * 0.92;
+    var BLADE = "#e4e8ee";
+    g.strokeStyle = "#140e0a";
+    g.lineWidth = Math.max(7, u * 0.18);
+    g.strokeRect(-bladeW * 0.5 - 2, -u * 1.02 - bladeLen - 2, bladeW + 4, bladeLen + 4);
+    cube(g, -bladeW * 0.5, -u * 1.02 - bladeLen, bladeW, bladeLen, u * 0.22, BLADE);
+    g.fillStyle = "#ffffff";
+    g.fillRect(-u * 0.08, -u * 0.95 - bladeLen, u * 0.16, bladeLen * 0.92);
+    g.fillStyle = "#3a4048";
     for (var notch = 0; notch < 5; notch++) {
-      g.fillRect(-bladeW * 0.32, -u * 1.25 - notch * u * 0.52, bladeW * 0.64, u * 0.12);
+      g.fillRect(-bladeW * 0.34, -u * 1.35 - notch * u * 0.55, bladeW * 0.68, u * 0.16);
     }
     g.fillStyle = shade(STEEL, 1.2);
     g.beginPath();
@@ -9109,7 +9117,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     ensureKnight(e);
     var blade = e.type === "courtblade";
     var BONE = "#f0e8dc", BONE_D = "#a89880", STEEL = blade ? "#d0d4da" : "#8a9098";
-    var GOLD = "#e0b44a", PURPLE = "#5a2848", PURPLE_D = "#2a1428", LINING = "#8a2840";
+    var GOLD = "#e0b44a", PURPLE = "#7a32c8", PURPLE_D = "#4a1888", LINING = "#e25898";
     var EMBER = "#ff6a28";
     var u = artR(e) * 1.35;
     e.artH = u * 3.05;
@@ -11311,6 +11319,54 @@ function endRunToMenu() {
         hp: e.hp, maxHp: e.maxHp, cd: Math.round((e.cd || 0) * 100) / 100,
         lordZoom: S.lordZoom
       };
+    },
+    /* Flat side-by-side: Bone King (floor 3) left, Skull Lord right. */
+    bossCompare: function () {
+      if (!player) this.gotoSkullLair("COMPARE");
+      S.pause = true;
+      S.mode = "play";
+      var cw = canvas.width, ch = canvas.height;
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.fillStyle = "#14110e";
+      ctx.fillRect(0, 0, cw, ch);
+      function paint(type, cx, cy, scale) {
+        var e = spawnEnemy(type, 0, 0, 1, true);
+        e.x = 0;
+        e.y = 0;
+        e.alive = true;
+        e.face = -1;
+        e.flash = 0;
+        if (e.boss === "lord") {
+          ensureSkullLord(e);
+          e.atk = null;
+          e.bladeAng = skullRestAng(-1);
+          e.bladeLift = 0;
+          e.lean = 0;
+          e.crouch = 0;
+          e.capeFlare = 0.2;
+        } else {
+          ensureBoneKing(e);
+          e.atk = null;
+          e.staffAng = -0.35;
+          e.staffLift = 0;
+          e.lean = 0;
+          e.crouch = 0;
+        }
+        ctx.save();
+        ctx.translate(cx, cy);
+        ctx.scale(scale, scale);
+        drawEnemy(ctx, e);
+        ctx.restore();
+        return e.name;
+      }
+      var left = paint("boneking", cw * 0.28, ch * 0.62, 2.4);
+      var right = paint("skulllord", cw * 0.72, ch * 0.64, 2.4);
+      ctx.fillStyle = "#f0e0c0";
+      ctx.font = "bold 28px sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillText(left + "  ·  FLOOR 3", cw * 0.28, 48);
+      ctx.fillText(right + "  ·  FLOOR 16", cw * 0.72, 48);
+      return { left: left, right: right, w: cw, h: ch };
     },
     /* Freeze the concept pose: giant sword horizontal, nameplate SKULL LORD. */
     holdLord: function () {
