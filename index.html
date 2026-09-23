@@ -6526,8 +6526,10 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      that slab horizontal instead of hoisting it like the crypt scepter.
      The nave camera starts in close enough that the sword reads from the door.
      BB-V7.54 — Skull Lord is notably taller. His crown is a wide jewelled
-     band with a wind-up key; Bone King wears a low tarnished circlet under a cowl. */
-  var BUILD = "v7.54";
+     band with a wind-up key; Bone King wears a low tarnished circlet under a cowl.
+     BB-V7.55 — greatsword grip is in the fist, point outward, and the blade
+     is a bit shorter so it doesn't swallow him. */
+  var BUILD = "v7.55";
   var FEEL_DEF = { spd: 250, accel: 2600, brake: 3600, throwSpd: 620, aimMode: "drag", aimDead: 2, aimHold: 64 };
   var FEEL = (function () {
     var f = {};
@@ -6931,7 +6933,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     var cw = canvas.width, ch = canvas.height;
     var lordU = 56 * 1.48, kingU = 42 * 1.42;
     var lordUp = lordU * 4.85 * LORD_VIS;
-    var lordLeft = lordU * 5.95 * LORD_VIS;
+    var lordLeft = lordU * 4.7 * LORD_VIS;
     var lordRight = lordU * 1.45 * LORD_VIS;
     var kingUp = kingU * 3.5 * KING_VIS;
     var kingHalf = kingU * 1.7 * KING_VIS;
@@ -8569,51 +8571,63 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     cube(g, x - u * 0.58, yt - u * 2.20, u * 0.16, u * 0.16, u * 0.07, shade(GOLD, 0.8));
     cube(g, x + u * 0.42, yt - u * 2.20, u * 0.16, u * 0.16, u * 0.07, shade(GOLD, 0.8));
 
-    /* ===== GIANT SWORD — concept sheet: horizontal slab, skull crossguard.
-       Drawn in front of the body. Local -Y is the tip; skullRestAng lays it
-       flat in the facing direction. Length matches the cleave reach. ===== */
+    /* ===== GIANT SWORD — grip at the fist, point outward.
+       Local -Y is the tip. rotate(-PI/2) sends that tip left, which is
+       the direction he faces. The wrapped grip sits on the origin, in the
+       hand; the skull crossguard is just outside the fist; the point is
+       the far end. ===== */
     var bang = (e.bladeAng != null ? e.bladeAng : skullRestAng(face));
     var lift = (e.bladeLift || 0) * u;
-    var hx = x + face * u * 0.28;
+    var hx = x + face * u * 0.05;
     var hy = yt + u * 1.22 - lift * 0.28;
     var swinging = e.atk && e.atkT >= e.atkWind && e.atkT < e.atkWind + e.atkActive;
     g.save();
     g.translate(hx, hy);
     g.rotate(bang);
-    cube(g, -u * 0.14, -u * 0.02, u * 0.28, u * 0.36, u * 0.12, BONE_D);
-    cube(g, -u * 0.11, -u * 0.22, u * 0.22, u * 0.28, u * 0.10, "#8a5a28");
-    cube(g, -u * 0.70, -u * 1.05, u * 1.40, u * 0.86, u * 0.30, BONE);
-    g.fillStyle = "#120d09";
-    g.fillRect(-u * 0.48, -u * 0.86, u * 0.32, u * 0.30);
-    g.fillRect(u * 0.14, -u * 0.86, u * 0.32, u * 0.30);
-    g.fillStyle = EMBER;
-    g.fillRect(-u * 0.38, -u * 0.76, u * 0.14, u * 0.14);
-    g.fillRect(u * 0.24, -u * 0.76, u * 0.14, u * 0.14);
-    cube(g, -u * 0.46, -u * 0.24, u * 0.92, u * 0.16, u * 0.12, shade(BONE, 0.88));
-    var bladeLen = u * 4.15;
-    var bladeW = u * 0.92;
-    var BLADE = "#e4e8ee";
-    g.strokeStyle = "#140e0a";
-    g.lineWidth = Math.max(7, u * 0.18);
-    g.strokeRect(-bladeW * 0.5 - 2, -u * 1.02 - bladeLen - 2, bladeW + 4, bladeLen + 4);
-    cube(g, -bladeW * 0.5, -u * 1.02 - bladeLen, bladeW, bladeLen, u * 0.22, BLADE);
-    g.fillStyle = "#ffffff";
-    g.fillRect(-u * 0.08, -u * 0.95 - bladeLen, u * 0.16, bladeLen * 0.92);
-    g.fillStyle = "#3a4048";
-    for (var notch = 0; notch < 5; notch++) {
-      g.fillRect(-bladeW * 0.34, -u * 1.35 - notch * u * 0.55, bladeW * 0.68, u * 0.16);
+    /* wrapped grip — the part in the fist, including a pommel into the palm */
+    cube(g, -u * 0.13, -u * 0.05, u * 0.26, u * 0.55, u * 0.12, "#6a3e22");
+    cube(g, -u * 0.10, u * 0.42, u * 0.20, u * 0.16, u * 0.10, GOLD);
+    g.fillStyle = "#c4a060";
+    for (var wrap = 0; wrap < 3; wrap++) {
+      g.fillRect(-u * 0.13, u * 0.02 + wrap * u * 0.14, u * 0.26, u * 0.04);
     }
-    g.fillStyle = shade(STEEL, 1.2);
+    /* skull crossguard, just outside the grip */
+    cube(g, -u * 0.58, -u * 0.78, u * 1.16, u * 0.70, u * 0.24, BONE);
+    g.fillStyle = "#120d09";
+    g.fillRect(-u * 0.40, -u * 0.64, u * 0.26, u * 0.24);
+    g.fillRect(u * 0.12, -u * 0.64, u * 0.26, u * 0.24);
+    g.fillStyle = EMBER;
+    g.fillRect(-u * 0.32, -u * 0.56, u * 0.12, u * 0.12);
+    g.fillRect(u * 0.20, -u * 0.56, u * 0.12, u * 0.12);
+    cube(g, -u * 0.38, -u * 0.16, u * 0.76, u * 0.12, u * 0.10, shade(BONE, 0.88));
+    var bladeLen = u * 2.85;
+    var bladeW = u * 0.62;
+    var BLADE = "#e4e8ee";
+    var bladeFar = -u * 0.82 - bladeLen;
+    g.strokeStyle = "#140e0a";
+    g.lineWidth = Math.max(5, u * 0.12);
+    g.strokeRect(-bladeW * 0.5 - 2, bladeFar - 2, bladeW + 4, bladeLen + 4);
+    cube(g, -bladeW * 0.5, bladeFar, bladeW, bladeLen, u * 0.16, BLADE);
+    g.fillStyle = "#ffffff";
+    g.fillRect(-u * 0.06, bladeFar + u * 0.08, u * 0.12, bladeLen * 0.88);
+    g.fillStyle = "#3a4048";
+    for (var notch = 0; notch < 4; notch++) {
+      g.fillRect(-bladeW * 0.28, bladeFar + u * 0.35 + notch * u * 0.55, bladeW * 0.56, u * 0.10);
+    }
+    /* long point so the outer end cannot read as a handle */
+    g.fillStyle = BLADE;
     g.beginPath();
-    g.moveTo(-bladeW * 0.18, -u * 1.02 - bladeLen);
-    g.lineTo(0, -u * 1.38 - bladeLen);
-    g.lineTo(bladeW * 0.18, -u * 1.02 - bladeLen);
+    g.moveTo(-bladeW * 0.5, bladeFar);
+    g.lineTo(0, bladeFar - u * 0.95);
+    g.lineTo(bladeW * 0.5, bladeFar);
     g.closePath();
     g.fill();
+    g.strokeStyle = "#140e0a";
+    g.stroke();
     if (swinging) {
       g.globalAlpha = 0.85;
       g.fillStyle = "#fff2c0";
-      g.fillRect(-bladeW * 0.22, -u * 1.22 - bladeLen, bladeW * 0.44, u * 0.16);
+      g.fillRect(-bladeW * 0.22, bladeFar - u * 0.2, bladeW * 0.44, u * 0.16);
       g.globalAlpha = 1;
     }
     g.restore();
