@@ -5179,6 +5179,15 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
   function skullAimAng(e) {
     return Math.atan2(e.aimY || 0, e.aimX || 1);
   }
+  /* Concept sheet: the greatsword rests horizontal, tip in the direction he faces.
+     Graphic 0 is blade-up, so tip world angle is bladeAng - PI/2. */
+  function skullRestAng(face) {
+    return (face < 0 ? -1 : 1) * Math.PI / 2;
+  }
+  function angLerp(a, b, t) {
+    var d = Math.atan2(Math.sin(b - a), Math.cos(b - a));
+    return a + d * t;
+  }
   /* canvas rotate 0 = blade graphic pointing up; tip world angle = -PI/2 + bang */
   function skullBladeBang(aimAng, sweep) {
     return aimAng + sweep + Math.PI / 2;
@@ -5208,7 +5217,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     e.dustT = 0;
     e.face = 1;
     e.lean = 0;
-    e.bladeAng = -0.55;
+    e.bladeAng = Math.PI / 2;
     e.bladeLift = 0;
     e.crouch = 0;
     e.shieldFwd = 0;
@@ -5921,7 +5930,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       e.atkWind = 1.20;
       e.atkActive = 0.38;
       e.atkRecover = 0.62;
-      e.bladeAng = e.face * -0.35;
+      e.bladeAng = skullRestAng(e.face);
     }
     e.atkTotal = e.atkWind + e.atkActive + e.atkRecover;
   }
@@ -6028,7 +6037,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
           var r = (t - wind - active) / recover;
           var hold = 1 - easeOutCubic(r);
           e.bladeLift = 0.12 * hold;
-          e.bladeAng = skullBladeBang(aimAng, e.face * SKULL_CLEAVE_FWD) * hold + (e.face * -0.45) * (1 - hold);
+          e.bladeAng = angLerp(skullBladeBang(aimAng, e.face * SKULL_CLEAVE_FWD), skullRestAng(e.face), 1 - hold);
           e.lean *= 0.86;
           e.crouch *= 0.88;
           e.shieldFwd *= 0.9;
@@ -6043,7 +6052,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
           var coil = easeOutCubic(Math.min(1, lw / 0.82));
           e.bladeLift = coil * 0.55;
           /* raise the slab vertical, then it will snap into the stab lane */
-          e.bladeAng = (e.face * -0.45) * (1 - coil) + coil * (aimAng + Math.PI / 2 - e.face * 0.15);
+          e.bladeAng = angLerp(skullRestAng(e.face), aimAng + Math.PI / 2 - e.face * 0.15, coil);
           e.lean = -e.face * coil * 0.95;
           e.crouch = coil * 0.52;
           e.shieldFwd = coil * 1.05;
@@ -6096,7 +6105,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
           var plant = easeOutCubic(Math.min(1, lr / 0.28));
           var rest = easeOutCubic(lr);
           e.bladeLift = 0.9 * (1 - rest);
-          e.bladeAng = (aimAng + Math.PI / 2) * (1 - rest) + (e.face * -0.45) * rest;
+          e.bladeAng = angLerp(aimAng + Math.PI / 2, skullRestAng(e.face), rest);
           e.lean = e.face * 0.9 * (1 - rest);
           e.crouch = 0.1 + plant * 0.22 * (1 - rest);
           e.shieldFwd *= 0.88;
@@ -6121,7 +6130,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
         /* longer post-lunge rest so the next beat is walk/cleave, not spam */
         e.cd = (finished === "lunge" ? 1.55 : 1.05) + rnd() * 0.4;
         e.bladeLift = 0;
-        e.bladeAng = e.face * -0.45;
+        e.bladeAng = skullRestAng(e.face);
         e.lean = 0;
         e.crouch = 0;
         e.shieldFwd = 0;
@@ -6139,7 +6148,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     }
     moveToward(e, dx / dist * chase, dy / dist * chase, e.spd, dt);
     e.face = dx < 0 ? -1 : 1;
-    e.bladeAng = e.face * -0.45;
+    e.bladeAng = skullRestAng(e.face);
     e.lean = Math.sin(e.phase * 2.1) * 0.06;
     e.stridePhase = (e.stridePhase || 0) + dt * (dist > 50 ? 9 : 3.5);
     e.stride = Math.sin(e.stridePhase) * 0.14;
@@ -6506,8 +6515,10 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      relics grant one upgrade rank on pickup, between a dry floor and a shop
      spree at the door.
      BB-V7.51 — Skull Lord court: crown guard at 75%, blade guard at 50%,
-     skeletons at 25%. Camera eases in as you close on the lord. */
-  var BUILD = "v7.51";
+     skeletons at 25%. Camera eases in as you close on the lord.
+     BB-V7.52 — Skull Lord greatsword matches the concept sheet: giant
+     horizontal slab, skull crossguard, not a knight-length upright blade. */
+  var BUILD = "v7.52";
   var FEEL_DEF = { spd: 250, accel: 2600, brake: 3600, throwSpd: 620, aimMode: "drag", aimDead: 2, aimHold: 64 };
   var FEEL = (function () {
     var f = {};
@@ -8424,45 +8435,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       g.fillRect(shx - u * 0.12 + st * u * 0.10, shy + u * 0.52, u * 0.05, u * 0.12);
     }
 
-    /* ===== SKULL-PLATE GREATSWORD — thick slab, not knight shortsword ===== */
-    var bang = (e.bladeAng != null ? e.bladeAng : face * -0.2);
-    var lift = (e.bladeLift || 0) * u;
-    var hx = x + face * u * 0.88;
-    var hy = yt + u * 1.05 - lift * 0.4;
-    g.save();
-    g.translate(hx, hy);
-    g.rotate(bang);
-    g.translate(-hx, -hy);
-    /* forearm */
-    cube(g, hx - u * 0.16, hy - u * 0.02, u * 0.32, u * 0.40, u * 0.14, BONE_D);
-    /* massive skull crossguard / hilt plate */
-    cube(g, hx - u * 0.48, hy - u * 0.36, u * 0.96, u * 0.48, u * 0.22, BONE);
-    g.fillStyle = "#0d0907";
-    g.fillRect(hx - u * 0.32, hy - u * 0.22, u * 0.22, u * 0.20);
-    g.fillRect(hx + u * 0.10, hy - u * 0.22, u * 0.22, u * 0.20);
-    g.fillStyle = EMBER;
-    g.fillRect(hx - u * 0.26, hy - u * 0.16, u * 0.10, u * 0.08);
-    g.fillRect(hx + u * 0.16, hy - u * 0.16, u * 0.10, u * 0.08);
-    /* jaw under skull plate */
-    cube(g, hx - u * 0.30, hy + u * 0.08, u * 0.60, u * 0.16, u * 0.10, shade(BONE, 0.85));
-    /* thick slab blade — nearly as wide as the skull plate */
-    cube(g, hx - u * 0.22, hy - u * 1.95, u * 0.44, u * 1.70, u * 0.14, STEEL);
-    g.fillStyle = shade(STEEL, 1.15);
-    g.fillRect(hx - u * 0.08, hy - u * 1.90, u * 0.10, u * 1.55);
-    /* three ember runes down the blade */
-    g.fillStyle = EMBER;
-    g.globalAlpha = 0.65 + 0.35 * Math.sin(S.t * 5.5);
-    for (var rune = 0; rune < 3; rune++) {
-      g.fillRect(hx - u * 0.12, hy - u * (1.70 - rune * 0.42), u * 0.24, u * 0.14);
-    }
-    g.globalAlpha = 1;
-    if (e.atk && e.atkT >= e.atkWind && e.atkT < e.atkWind + e.atkActive) {
-      g.fillStyle = "#fff2c0";
-      g.globalAlpha = 0.75;
-      g.fillRect(hx - u * 0.18, hy - u * 2.05, u * 0.36, u * 0.14);
-      g.globalAlpha = 1;
-    }
-    g.restore();
+    /* Greatsword is painted after the crown so the giant blade sits in front. */
 
     /* ===== SKULL HEAD — big exposed skull, not a helm ===== */
     cube(g, x - u * 0.46, yt + u * 0.02, u * 0.92, u * 0.66, u * 0.28, body);
@@ -8507,6 +8480,52 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     cube(g, x - u * 0.24, yt - u * 1.10, u * 0.48, u * 0.18, u * 0.08, shade(GOLD, 1.18));
     cube(g, x - u * 0.28, yt - u * 1.06, u * 0.10, u * 0.10, u * 0.05, shade(GOLD, 0.85));
     cube(g, x + u * 0.18, yt - u * 1.06, u * 0.10, u * 0.10, u * 0.05, shade(GOLD, 0.85));
+
+    /* ===== GIANT SWORD — concept sheet: horizontal slab, skull crossguard.
+       Drawn in front of the body. Local -Y is the tip; skullRestAng lays it
+       flat in the facing direction. Length matches the cleave reach. ===== */
+    var bang = (e.bladeAng != null ? e.bladeAng : skullRestAng(face));
+    var lift = (e.bladeLift || 0) * u;
+    var hx = x + face * u * 0.28;
+    var hy = yt + u * 1.22 - lift * 0.28;
+    var swinging = e.atk && e.atkT >= e.atkWind && e.atkT < e.atkWind + e.atkActive;
+    g.save();
+    g.translate(hx, hy);
+    g.rotate(bang);
+    cube(g, -u * 0.14, -u * 0.02, u * 0.28, u * 0.36, u * 0.12, BONE_D);
+    cube(g, -u * 0.11, -u * 0.22, u * 0.22, u * 0.28, u * 0.10, "#8a5a28");
+    cube(g, -u * 0.70, -u * 1.05, u * 1.40, u * 0.86, u * 0.30, BONE);
+    g.fillStyle = "#120d09";
+    g.fillRect(-u * 0.48, -u * 0.86, u * 0.32, u * 0.30);
+    g.fillRect(u * 0.14, -u * 0.86, u * 0.32, u * 0.30);
+    g.fillStyle = EMBER;
+    g.fillRect(-u * 0.38, -u * 0.76, u * 0.14, u * 0.14);
+    g.fillRect(u * 0.24, -u * 0.76, u * 0.14, u * 0.14);
+    cube(g, -u * 0.46, -u * 0.24, u * 0.92, u * 0.16, u * 0.12, shade(BONE, 0.88));
+    var bladeLen = u * 3.05;
+    var bladeW = u * 0.72;
+    var BLADE = "#d5dae2";
+    cube(g, -bladeW * 0.5, -u * 1.02 - bladeLen, bladeW, bladeLen, u * 0.2, BLADE);
+    g.fillStyle = "#eef2f6";
+    g.fillRect(-u * 0.07, -u * 0.95 - bladeLen, u * 0.14, bladeLen * 0.92);
+    g.fillStyle = "#4e545c";
+    for (var notch = 0; notch < 5; notch++) {
+      g.fillRect(-bladeW * 0.32, -u * 1.25 - notch * u * 0.52, bladeW * 0.64, u * 0.12);
+    }
+    g.fillStyle = shade(STEEL, 1.2);
+    g.beginPath();
+    g.moveTo(-bladeW * 0.18, -u * 1.02 - bladeLen);
+    g.lineTo(0, -u * 1.38 - bladeLen);
+    g.lineTo(bladeW * 0.18, -u * 1.02 - bladeLen);
+    g.closePath();
+    g.fill();
+    if (swinging) {
+      g.globalAlpha = 0.85;
+      g.fillStyle = "#fff2c0";
+      g.fillRect(-bladeW * 0.22, -u * 1.22 - bladeLen, bladeW * 0.44, u * 0.16);
+      g.globalAlpha = 1;
+    }
+    g.restore();
 
     g.restore(); /* lean */
 
@@ -11292,6 +11311,25 @@ function endRunToMenu() {
         hp: e.hp, maxHp: e.maxHp, cd: Math.round((e.cd || 0) * 100) / 100,
         lordZoom: S.lordZoom
       };
+    },
+    /* Freeze the concept pose: giant sword horizontal, nameplate SKULL LORD. */
+    holdLord: function () {
+      if (!room) return null;
+      var e = null, i;
+      for (i = 0; i < room.enemies.length; i++) if (room.enemies[i].boss === "lord") e = room.enemies[i];
+      if (!e) return null;
+      ensureSkullLord(e);
+      e.atk = null;
+      e.cd = 99;
+      e.face = player && player.x < e.x ? -1 : 1;
+      e.bladeAng = skullRestAng(e.face);
+      e.bladeLift = 0;
+      e.lean = 0;
+      e.crouch = 0;
+      e.capeFlare = 0.15;
+      S.pause = true;
+      draw();
+      return { name: e.name, face: e.face, blade: Math.round(e.bladeAng * 100) / 100 };
     },
     boneKingState: function () {
       if (!room) return null;
