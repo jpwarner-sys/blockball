@@ -6554,8 +6554,9 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      BB-V7.66 — the shield is a tall steel rectangle. A shallow bow
      is the curve you see from above; the face stays rectangular.
      The kite is a small emblem on that face.
-     BB-V7.67 — plate and kite stay locked together, drawn at 80%. */
-  var BUILD = "v7.67";
+     BB-V7.67 — plate and kite stay locked together, drawn at 80%.
+     BB-V7.68 — the plate's bow is inverted. The kite stays upright. */
+  var BUILD = "v7.68";
   var FEEL_DEF = { spd: 250, accel: 2600, brake: 3600, throwSpd: 620, aimMode: "drag", aimDead: 2, aimHold: 64 };
   var FEEL = (function () {
     var f = {};
@@ -8585,8 +8586,8 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
 
     /* ===== TOWER SHIELD — tall steel rectangle on the off-hand.
        From the front the face is flat. From above, the plate bows:
-       every column is the same height, and the middle sits higher.
-       The kite is locked on that face. The whole shield draws at 80%. */
+       every column is the same height, and the middle sits lower.
+       The kite stays upright on that face. The whole shield draws at 80%. */
     var shPush = (e.shieldFwd || 0);
     var shx = x - face * u * (1.16 + shPush * 0.55);
     var shTop = yt + u * (0.32 - shPush * 0.10);
@@ -8604,6 +8605,11 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     g.save();
     g.translate(shx, shieldMidY);
     g.scale(0.80, 0.80);
+    g.translate(-shx, -shieldMidY);
+    /* Flip the plate only. The kite is drawn after this restore. */
+    g.save();
+    g.translate(shx, shieldMidY);
+    g.scale(1, -1);
     g.translate(-shx, -shieldMidY);
     var plateN = 16;
     function plateLift(i) {
@@ -8648,7 +8654,8 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       g.fillRect(rx, topY, riv, riv);
       g.fillRect(rx, topY + towerH - u * 0.28, riv, riv);
     });
-    var destY = towerTop - bow + towerH * 0.50;
+    g.restore();
+    var destY = towerTop + towerH * 0.50;
     g.save();
     g.translate(shx, destY);
     g.scale(emblem, emblem);
