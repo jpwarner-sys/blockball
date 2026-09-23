@@ -6528,8 +6528,9 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      BB-V7.54 — Skull Lord is notably taller. His crown is a wide jewelled
      band with a wind-up key; Bone King wears a low tarnished circlet under a cowl.
      BB-V7.55 — greatsword grip is in the fist, point outward, and the blade
-     is a bit shorter so it doesn't swallow him. */
-  var BUILD = "v7.55";
+     is a bit shorter so it doesn't swallow him.
+     BB-V7.56 — the skull is the blade tip. The handle is a plain grip. */
+  var BUILD = "v7.56";
   var FEEL_DEF = { spd: 250, accel: 2600, brake: 3600, throwSpd: 620, aimMode: "drag", aimDead: 2, aimHold: 64 };
   var FEEL = (function () {
     var f = {};
@@ -8571,11 +8572,9 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     cube(g, x - u * 0.58, yt - u * 2.20, u * 0.16, u * 0.16, u * 0.07, shade(GOLD, 0.8));
     cube(g, x + u * 0.42, yt - u * 2.20, u * 0.16, u * 0.16, u * 0.07, shade(GOLD, 0.8));
 
-    /* ===== GIANT SWORD — grip at the fist, point outward.
-       Local -Y is the tip. rotate(-PI/2) sends that tip left, which is
-       the direction he faces. The wrapped grip sits on the origin, in the
-       hand; the skull crossguard is just outside the fist; the point is
-       the far end. ===== */
+    /* ===== GIANT SWORD — grip at the fist, skull at the tip.
+       Local -Y is the tip. rotate(-PI/2) sends that tip left, the way he
+       faces. The handle is a plain wrapped grip. The skull is the far end. ===== */
     var bang = (e.bladeAng != null ? e.bladeAng : skullRestAng(face));
     var lift = (e.bladeLift || 0) * u;
     var hx = x + face * u * 0.05;
@@ -8584,22 +8583,16 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     g.save();
     g.translate(hx, hy);
     g.rotate(bang);
-    /* wrapped grip — the part in the fist, including a pommel into the palm */
+    /* wrapped grip — plain handle, no skull */
     cube(g, -u * 0.13, -u * 0.05, u * 0.26, u * 0.55, u * 0.12, "#6a3e22");
     cube(g, -u * 0.10, u * 0.42, u * 0.20, u * 0.16, u * 0.10, GOLD);
     g.fillStyle = "#c4a060";
     for (var wrap = 0; wrap < 3; wrap++) {
       g.fillRect(-u * 0.13, u * 0.02 + wrap * u * 0.14, u * 0.26, u * 0.04);
     }
-    /* skull crossguard, just outside the grip */
-    cube(g, -u * 0.58, -u * 0.78, u * 1.16, u * 0.70, u * 0.24, BONE);
-    g.fillStyle = "#120d09";
-    g.fillRect(-u * 0.40, -u * 0.64, u * 0.26, u * 0.24);
-    g.fillRect(u * 0.12, -u * 0.64, u * 0.26, u * 0.24);
-    g.fillStyle = EMBER;
-    g.fillRect(-u * 0.32, -u * 0.56, u * 0.12, u * 0.12);
-    g.fillRect(u * 0.20, -u * 0.56, u * 0.12, u * 0.12);
-    cube(g, -u * 0.38, -u * 0.16, u * 0.76, u * 0.12, u * 0.10, shade(BONE, 0.88));
+    /* simple crossguard */
+    cube(g, -u * 0.52, -u * 0.70, u * 1.04, u * 0.14, u * 0.12, "#8a9098");
+    cube(g, -u * 0.46, -u * 0.76, u * 0.92, u * 0.08, u * 0.08, GOLD);
     var bladeLen = u * 2.85;
     var bladeW = u * 0.62;
     var BLADE = "#e4e8ee";
@@ -8614,16 +8607,21 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     for (var notch = 0; notch < 4; notch++) {
       g.fillRect(-bladeW * 0.28, bladeFar + u * 0.35 + notch * u * 0.55, bladeW * 0.56, u * 0.10);
     }
-    /* long point so the outer end cannot read as a handle */
-    g.fillStyle = BLADE;
-    g.beginPath();
-    g.moveTo(-bladeW * 0.5, bladeFar);
-    g.lineTo(0, bladeFar - u * 0.95);
-    g.lineTo(bladeW * 0.5, bladeFar);
-    g.closePath();
-    g.fill();
-    g.strokeStyle = "#140e0a";
-    g.stroke();
+    /* skull is the tip, not the hilt */
+    var skullTop = bladeFar - u * 0.72;
+    cube(g, -u * 0.46, skullTop, u * 0.92, u * 0.78, u * 0.22, BONE);
+    cube(g, -u * 0.34, skullTop + u * 0.70, u * 0.68, u * 0.18, u * 0.12, shade(BONE, 0.9));
+    g.fillStyle = "#120d09";
+    g.fillRect(-u * 0.32, skullTop + u * 0.16, u * 0.24, u * 0.22);
+    g.fillRect(u * 0.08, skullTop + u * 0.16, u * 0.24, u * 0.22);
+    g.fillStyle = EMBER;
+    g.fillRect(-u * 0.24, skullTop + u * 0.22, u * 0.10, u * 0.10);
+    g.fillRect(u * 0.14, skullTop + u * 0.22, u * 0.10, u * 0.10);
+    g.fillStyle = "#120d09";
+    g.fillRect(-u * 0.06, skullTop + u * 0.40, u * 0.12, u * 0.12);
+    for (var fang = 0; fang < 4; fang++) {
+      g.fillRect(-u * 0.26 + fang * u * 0.14, skullTop + u * 0.72, u * 0.06, u * 0.12);
+    }
     if (swinging) {
       g.globalAlpha = 0.85;
       g.fillStyle = "#fff2c0";
