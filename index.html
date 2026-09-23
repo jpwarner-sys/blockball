@@ -6549,8 +6549,9 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      blocks overlap into one solid shape. The dark line sits only
      on the outer edge, so the close-up keeps the locked silhouette.
      BB-V7.64 — the off-hand carries the concept kite: bone face,
-     gold rim, three spikes, red eyes, teeth along the point. */
-  var BUILD = "v7.64";
+     gold rim, three spikes, red eyes, teeth along the point.
+     BB-V7.65 — that kite sits, a little smaller, on a metal tower shield. */
+  var BUILD = "v7.65";
   var FEEL_DEF = { spd: 250, accel: 2600, brake: 3600, throwSpd: 620, aimMode: "drag", aimDead: 2, aimHold: 64 };
   var FEEL = (function () {
     var f = {};
@@ -6955,7 +6956,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     var lordU = 56 * 1.48, kingU = 42 * 1.42;
     var lordUp = lordU * 4.85 * LORD_VIS;
     var lordLeft = lordU * 5.5 * LORD_VIS;
-    var lordRight = lordU * 2.05 * LORD_VIS;
+    var lordRight = lordU * 2.14 * LORD_VIS;
     var kingUp = kingU * 3.5 * KING_VIS;
     var kingHalf = kingU * 1.7 * KING_VIS;
     var foot = ch * 0.80;
@@ -8578,13 +8579,39 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     cube(g, x - u * 0.58, yt - u * 2.20, u * 0.16, u * 0.16, u * 0.07, shade(GOLD, 0.8));
     cube(g, x + u * 0.42, yt - u * 2.20, u * 0.16, u * 0.16, u * 0.07, shade(GOLD, 0.8));
 
-    /* ===== KITE SHIELD — concept sheet. Bone kite, gold rim, three
-       spikes, skull face, teeth on the point. Off-hand, opposite the sword. */
+    /* ===== TOWER SHIELD — steel slab on the off-hand. The kite skull
+       is the face graphic, drawn a little smaller so the metal shows. */
     var shPush = (e.shieldFwd || 0);
-    var shx = x - face * u * (1.28 + shPush * 0.55);
-    var shTop = yt + u * (0.30 - shPush * 0.10);
+    var shx = x - face * u * (1.44 + shPush * 0.55);
+    var shTop = yt + u * (0.32 - shPush * 0.10);
     var shH = u * 1.72;
     var shW = u * 0.60;
+    var gTop = shTop - u * 0.46;
+    var gBot = shTop + shH;
+    var gMidY = (gTop + gBot) * 0.5;
+    var emblem = 0.74;
+    var towerW = u * 1.26;
+    var towerH = (gBot - gTop) * emblem + u * 0.42;
+    var towerTop = gMidY - towerH * 0.5;
+    g.fillStyle = "#14181c";
+    g.fillRect(shx - towerW * 0.5 - u * 0.04, towerTop - u * 0.025, towerW + u * 0.08, towerH + u * 0.05);
+    cube(g, shx - towerW * 0.5, towerTop, towerW, towerH, u * 0.13, STEEL);
+    var brim = Math.max(3, u * 0.06);
+    g.fillStyle = "#c5ccd4";
+    g.fillRect(shx - towerW * 0.5, towerTop, brim, towerH);
+    g.fillRect(shx + towerW * 0.5 - brim, towerTop, brim, towerH);
+    g.fillStyle = "#f4f7fb";
+    g.fillRect(shx - towerW * 0.5 + 1, towerTop + u * 0.06, Math.max(2, brim * 0.28), towerH - u * 0.12);
+    var riv = Math.max(3, u * 0.045);
+    g.fillStyle = "#e7edf2";
+    g.fillRect(shx - towerW * 0.5 + u * 0.11, towerTop + u * 0.09, riv, riv);
+    g.fillRect(shx + towerW * 0.5 - u * 0.11 - riv, towerTop + u * 0.09, riv, riv);
+    g.fillRect(shx - towerW * 0.5 + u * 0.11, towerTop + towerH - u * 0.09 - riv, riv, riv);
+    g.fillRect(shx + towerW * 0.5 - u * 0.11 - riv, towerTop + towerH - u * 0.09 - riv, riv, riv);
+    g.save();
+    g.translate(shx, gMidY);
+    g.scale(emblem, emblem);
+    g.translate(-shx, -gMidY);
     function kiteHalf(t) {
       if (t < 0.58) return shW * (1 - t * 0.14);
       var k = (t - 0.58) / 0.42;
@@ -8636,6 +8663,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       g.fillStyle = BONE;
       g.fillRect(tx + u * 0.025, toothY, Math.max(1, slot - u * 0.05), th - u * 0.015);
     }
+    g.restore();
 
     /* ===== GIANT SWORD — grip at the fist, skull at the tip.
        Local -Y is the tip. rotate(-PI/2) sends that tip left, the way he
