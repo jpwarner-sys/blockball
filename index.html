@@ -1065,6 +1065,7 @@
   var MOB_VIS = 0.56;
   var KNIGHT_VIS = 0.86; /* minis: between HS 1.7 hero and the floor lord */
   var LORD_VIS = 0.72;   /* Skull Lord: ~+35% taller than a knight on screen */
+  var COURT_VIS = 0.84;  /* splash guards: knight-scale, lord colors */
   var KING_VIS = 0.80;   /* Bone King: between knight and Skull Lord */
   var SLAG_VIS = 0.80;   /* Slag King: same band as Bone King */
   var ASH_VIS = 0.68;    /* Ash Titan: biggest floor-boss footprint */
@@ -1074,6 +1075,7 @@
     if (!e || !e.boss) return MOB_VIS;
     if (e.boss === "mini") return KNIGHT_VIS;
     if (e.boss === "lord") return LORD_VIS;
+    if (e.boss === "court") return COURT_VIS;
     if (e.boss === "bone") return KING_VIS;
     if (e.boss === "slag") return SLAG_VIS;
     if (e.boss === "ash") return ASH_VIS;
@@ -2322,7 +2324,10 @@
       minibone: { hp: 90, r: 32, spd: 35, kind: "boss", col: "#c8b898", name: "BONE KNIGHT", boss: "mini" },
       miniforge: { hp: 110, r: 32, spd: 29, kind: "boss", col: "#d07030", name: "SLAG KNIGHT", boss: "mini" },
       miniash: { hp: 140, r: 35, spd: 32, kind: "boss", col: "#908070", name: "ASH KNIGHT", boss: "mini" },
-      minithorn: { hp: 160, r: 35, spd: 29, kind: "boss", col: "#407848", name: "THORN KNIGHT", boss: "mini" }
+      minithorn: { hp: 160, r: 35, spd: 29, kind: "boss", col: "#407848", name: "THORN KNIGHT", boss: "mini" },
+      /* BB-V7.51 — the two crowned figures flanking the Skull Lord on the splash. */
+      courtshield: { hp: 100, r: 34, spd: 33, kind: "boss", col: "#e8e0d0", name: "CROWN GUARD", boss: "court" },
+      courtblade: { hp: 118, r: 36, spd: 31, kind: "boss", col: "#e8e0d0", name: "BLADE GUARD", boss: "court" }
     };
     return T[type] || T.slime;
   }
@@ -2365,9 +2370,10 @@
     var vis = enemyVis(e);
     var ar = artR(e);
     var u, body, hurt, lift;
-    if (e.boss === "mini") {
-      /* Bone Knight family: cuirass is solid; pauldrons are fair ball meat;
-         cloak strip is not. u matches drawKnight. */
+    if (e.boss === "mini" || e.boss === "court") {
+      /* Bone Knight family and the Skull Lord's court: cuirass is solid;
+         pauldrons are fair ball meat; cloak strip is not. u matches drawKnight
+         / drawSkullCourt. */
       u = ar * 1.35 * vis;
       body = u * 0.52;
       hurt = u * 0.82;
@@ -3329,7 +3335,8 @@
       centerTileset: spec.centerTileset || null,
       wallH: applySpecWallH(spec)
     };
-    S.lordZoom = null;
+    S.lordZoom = 1;
+    if (S.camFollow) S.camFollow.lordZ = 1;
     if (roomWantsHoop(spec)) {
       room.hoop = makeBossHoop(spec);
       var keptCup = findHoopTrophy(S.floor + ":" + idx);
@@ -3559,7 +3566,10 @@
        is a separate, much rarer roll that grants an upgrade rank immediately. */
     sfx(trick ? "trick" : "kill");
     burst(en.x, en.y, en.col, trick ? 22 : 10);
-    maybeDropFrag(en.x, en.y, en.boss ? LOOT.bossFrag * diff().frag : fragTrashChance());
+    var fragP = fragTrashChance();
+    if (en.boss === "court") fragP = LOOT.bossFrag * 0.5 * diff().frag;
+    else if (en.boss) fragP = LOOT.bossFrag * diff().frag;
+    maybeDropFrag(en.x, en.y, fragP);
     maybeDropRelic(en.x + irnd(-18, 18), en.y + irnd(-14, 14), relicChanceFor(en));
     if (rnd() < 0.32 * diff().killLoot || en.boss) dropLoot(en.x, en.y, !!en.boss);
     maybeDropHeart(en.x, en.y, en);
@@ -3772,7 +3782,8 @@
     if (room && room.enemies) {
       for (var ti = 0; ti < room.enemies.length; ti++) {
         var tr = room.enemies[ti];
-        if (tr === en || !tr.alive || tr.boss) continue;
+        /* Court guards are the lord's adds — they fall with him. */
+        if (tr === en || !tr.alive || (tr.boss && tr.boss !== "court")) continue;
         tr.alive = false;
         tr.deadT = 0.55;
         burst(tr.x, tr.y, tr.col, 8);
@@ -3829,7 +3840,7 @@
   function relicChanceFor(en) {
     var m = diff().relic;
     if (!en) return LOOT.chestRelic * m;
-    if (en.boss === "mini") return LOOT.knightRelic * m;
+    if (en.boss === "mini" || en.boss === "court") return LOOT.knightRelic * m;
     if (en.boss) return LOOT.bossRelic * m;
     return LOOT.trashRelic * m;
   }
@@ -4628,7 +4639,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       /* Skull Lord / knight authored melee owns damage during active frames —
          body bump would stack and muddy the animation read.
          (lord = Skull Lord; bone is Bone King again and has no melee clock.) */
-      var authoredAtk = (e.boss === "lord" || e.boss === "mini" ||
+      var authoredAtk = (e.boss === "lord" || e.boss === "mini" || e.boss === "court" ||
         e.boss === "slag" || e.boss === "thorn") && e.atk &&
         e.atkT >= e.atkWind && e.atkT < e.atkWind + e.atkActive &&
         (e.boss === "lord" || e.atk === "reap" || e.atk === "charge" ||
@@ -4805,6 +4816,15 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     var t = e.type;
     var roll = rnd();
     /* Distance nudges: close → melee/slam; far → throw/volleys. */
+    /* Court guards stay in the lord's melee language: sword wall or curved reap. */
+    if (t === "courtshield") {
+      if (dist < 130) return roll < 0.72 ? "spire" : "throw";
+      return roll < 0.55 ? "spire" : "knives";
+    }
+    if (t === "courtblade") {
+      if (dist < 140) return roll < 0.7 ? "reap" : "blink";
+      return roll < 0.5 ? "reap" : "knives";
+    }
     if (t === "minibone") {
       if (dist < 95 && roll < 0.45) return "spire";
       if (roll < 0.36) return "throw";
@@ -5807,15 +5827,14 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     }
   }
 
-  function spawnSkullAdds(boss, n) {
-    if (!room || !room.grid) return;
-    var roster = ["skel", "slime", "bat", "skel"];
+  function spawnSkullAdds(boss, types) {
+    if (!room || !room.grid) return 0;
     var open = reachableTiles(room.grid, {
       tx: Math.floor(boss.x / TILE),
       ty: Math.floor(boss.y / TILE)
     }, 2);
-    var spawned = 0, i, t, type, en, ang, tries;
-    for (i = 0; i < n && open.length; i++) {
+    var spawned = 0, i, t, type, en, ang, tries, n = types.length;
+    for (i = 0; i < n; i++) {
       t = null;
       for (tries = 0; tries < 12 && open.length; tries++) {
         t = open.pop();
@@ -5831,27 +5850,35 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
         };
         if (room.grid[t.ty]) room.grid[t.ty][t.tx] = 0;
       }
-      type = roster[i % roster.length];
+      type = types[i];
       en = spawnEnemy(type, (t.tx + 0.5) * TILE, (t.ty + 0.5) * TILE, S.floor, false);
       room.enemies.push(en);
       burst(en.x, en.y, en.col, 10);
       spawned++;
     }
     if (spawned) {
-      toast("THE GRAVE STIRS");
       sfx("boss");
       S.shake = Math.max(S.shake, 0.28);
     }
+    return spawned;
   }
 
+  /* BB-V7.51 — the splash is the fight. 75% calls the sword-and-shield crown
+     guard, 50% the curved blade, 25% the grave. Slimes no longer walk out of
+     a throne painted with two crowned skeletons. */
   function skullLordWaves(e) {
     var marks = [0.75, 0.5, 0.25];
-    var counts = [3, 4, 5];
+    var packs = [
+      ["courtshield", "skel", "skel"],
+      ["courtblade", "skel", "skel"],
+      ["skel", "skel", "skel", "skel", "skel"]
+    ];
+    var lines = ["THE CROWN GUARD", "THE BLADE GUARD", "THE GRAVE STIRS"];
     var ratio = e.hp / e.maxHp;
     for (var i = 0; i < 3; i++) {
       if (!e.waveFlags[i] && ratio <= marks[i]) {
         e.waveFlags[i] = true;
-        spawnSkullAdds(e, counts[i]);
+        if (spawnSkullAdds(e, packs[i])) toast(lines[i]);
       }
     }
   }
@@ -6477,8 +6504,10 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      shell, BRIAR reflects. The cube kid is unchanged underneath.
      BB-V7.50 — fragments are an uncommon drop, not a kill payout. Very rare
      relics grant one upgrade rank on pickup, between a dry floor and a shop
-     spree at the door. */
-  var BUILD = "v7.50";
+     spree at the door.
+     BB-V7.51 — Skull Lord court: crown guard at 75%, blade guard at 50%,
+     skeletons at 25%. Camera eases in as you close on the lord. */
+  var BUILD = "v7.51";
   var FEEL_DEF = { spd: 250, accel: 2600, brake: 3600, throwSpd: 620, aimMode: "drag", aimDead: 2, aimHold: 64 };
   var FEEL = (function () {
     var f = {};
@@ -6699,6 +6728,29 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     return !!(inp && inp.m > 0.12);
   }
 
+  /* BB-V7.51 — living Skull Lord in his nave, or null. */
+  function skullLordFocus() {
+    if (!room || !room.enemies || !room.spec || room.spec.piece !== "skullLair") return null;
+    var i, e;
+    for (i = 0; i < room.enemies.length; i++) {
+      e = room.enemies[i];
+      if (e.alive && e.boss === "lord") return e;
+    }
+    return null;
+  }
+
+  /* 1 across the hall, up to 1.42 when you step into cleave range. */
+  function skullZoomGoal() {
+    var lord = skullLordFocus();
+    if (!lord || !player) return 1;
+    var dist = Math.hypot(player.x - lord.x, player.y - lord.y);
+    var t = (500 - dist) / (500 - 120);
+    if (t < 0) t = 0;
+    if (t > 1) t = 1;
+    t = t * t * (3 - 2 * t);
+    return 1 + 0.42 * t;
+  }
+
   function cameraTarget() {
     var cw = canvas.width, ch = canvas.height;
     var cssW = Math.max(1, window.innerWidth);
@@ -6740,17 +6792,29 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       softWant = wantFrame + (wantMin - wantFrame) * softT;
       scale = Math.max(fit, softWant);
     }
-    /* Post-boss hoop flourish (track ball → swish punch) lives in cameraFit/cine,
-       not a continuous skullLair scale mul — softWant already frames the throne. */
-    S.lordZoom = null;
+    /* Post-boss hoop flourish (track ball → swish punch) lives in cameraFit/cine.
+       Approach zoom is a separate eased mul (lordZ) on top of this frame. */
     var idle = (S.camFollow && S.mode === "play" && !(S.cine && S.cine.active)) ? (S.camFollow.idle || 0) : 0;
     if (idle > 0.001) {
       /* Stand still → look wider, never past whole-room fit or TILE_CSS_MIN. */
       scale = Math.max(fit, wantMin, scale * (1 - CAM_IDLE_OUT * idle));
     }
-    var viewW = cw / scale, viewH = ch / scale;
+    /* BB-V7.51 — approach zoom. Wide nave at range; ease toward the lord
+       when you close so crown, key, and blade read. Smoothed on lordZ. */
     var px = (player && S.mode === "play") ? player.x : ww * 0.5;
     var py = (player && S.mode === "play") ? player.y : hh * 0.5;
+    var lz = (S.camFollow && S.camFollow.lordZ) || 1;
+    if (lz > 1.001) {
+      scale *= lz;
+      var lordF = skullLordFocus();
+      if (lordF) {
+        var pull = Math.min(1, (lz - 1) / 0.42);
+        px = px + (lordF.x - px) * 0.4 * pull;
+        py = py + (lordF.y - py) * 0.4 * pull;
+      }
+    }
+    S.lordZoom = lz;
+    var viewW = cw / scale, viewH = ch / scale;
     var camX = viewW >= ww ? (ww - viewW) * 0.5 : Math.max(0, Math.min(ww - viewW, px - viewW * 0.5));
     /* Frame includes the lifted north-wall top (negative Y), or height reads as a thin edge.
        BB-V7.40 — clamp continuously; the old camY < wallPad snap flipped between
@@ -6795,6 +6859,10 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     var follow = S.camFollow || (S.camFollow = { x: 0, y: 0, on: false, idle: 0, idleT: 0 });
     if (follow.idle == null) follow.idle = 0;
     if (follow.idleT == null) follow.idleT = 0;
+    if (follow.lordZ == null) follow.lordZ = 1;
+    var zg = skullZoomGoal();
+    follow.lordZ += (zg - follow.lordZ) * (1 - Math.exp(-3.2 * dt));
+    if (Math.abs(follow.lordZ - zg) < 0.002) follow.lordZ = zg;
     if (playerCamMoving()) {
       follow.idleT = 0;
       follow.idle += (0 - follow.idle) * (1 - Math.exp(-CAM_IDLE_OUT_RATE * dt));
@@ -7928,7 +7996,11 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     miniash:   { body: "#9a8c7c", trim: "#4a443c", accent: "#a8dce4", eye: "#9fe8f0",
                  helm: "hood",   arms: "spike",    weap: "scythe", cloak: "#2c3038" },
     minithorn: { body: "#4e8c58", trim: "#24381f", accent: "#c0e070", eye: "#d8ff80",
-                 helm: "antler", arms: "bramble",  weap: "lance",  cloak: "#243a20" }
+                 helm: "antler", arms: "bramble",  weap: "lance",  cloak: "#243a20" },
+    courtshield: { body: "#f0e8dc", trim: "#8a9098", accent: "#e0b44a", eye: "#ff6a28",
+                   helm: "crest", arms: "pauldron", weap: "sword", cloak: "#5a2848" },
+    courtblade: { body: "#f0e8dc", trim: "#c8ccd0", accent: "#ff6a28", eye: "#ff6a28",
+                  helm: "crest", arms: "spike", weap: "scythe", cloak: "#5a2848" }
   };
 
   function drawKnightWeapon(g, k, wx, yt, u, face, lift, swing, pose) {
@@ -9011,6 +9083,119 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     g.restore();
   }
 
+  /* BB-V7.51 — splash court: same bone / purple / gold language as the lord,
+     knight-sized, no wind-up key. Shield guard carries sword + skull shield;
+     blade guard carries the curved slab. Pose clock is the knight kit. */
+  function drawSkullCourt(g, e) {
+    ensureKnight(e);
+    var blade = e.type === "courtblade";
+    var BONE = "#f0e8dc", BONE_D = "#a89880", STEEL = blade ? "#d0d4da" : "#8a9098";
+    var GOLD = "#e0b44a", PURPLE = "#5a2848", PURPLE_D = "#2a1428", LINING = "#8a2840";
+    var EMBER = "#ff6a28";
+    var u = artR(e) * 1.35;
+    e.artH = u * 3.05;
+    var x = e.x;
+    if (e.bobPhase == null) e.bobPhase = Math.random() * 6.3;
+    var face = (e.aimX != null && e.atk) ? (e.aimX < 0 ? -1 : 1)
+             : (player && player.x < e.x ? -1 : 1);
+    var liftPose = (e.bladeLift != null && e.bladeLift > 0) ? e.bladeLift : 0;
+    var bob = Math.sin(S.t * 1.8 + e.bobPhase) * u * 0.04 - liftPose * u * 0.06;
+    var crouch = (e.crouch || 0) * u;
+    var lean = (e.lean || 0) * u;
+    var yt = e.y - u * 2.15 + bob + crouch;
+    var body = e.flash > 0 ? "#ffffff" : BONE;
+    var swing = e.swing || 0;
+
+    g.save(); g.globalAlpha = 0.42; g.fillStyle = "#0a0806";
+    g.beginPath();
+    g.ellipse(x, e.y + u * 0.28, u * 0.95, u * 0.26, 0, 0, 6.3);
+    g.fill(); g.restore();
+
+    g.save();
+    g.translate(lean, 0);
+
+    var sway = Math.sin(S.t * 1.4 + e.bobPhase) * u * 0.06;
+    cube(g, x - u * 0.72 + sway, yt + u * 0.48, u * 0.38, u * 1.35, u * 0.08, LINING);
+    cube(g, x + u * 0.34 + sway, yt + u * 0.50, u * 0.38, u * 1.28, u * 0.08, LINING);
+    cube(g, x - u * 0.55 + sway * 0.6, yt + u * 0.40, u * 1.10, u * 1.48, u * 0.10, PURPLE);
+    cube(g, x - u * 0.28 + sway * 0.4, yt + u * 0.36, u * 0.56, u * 1.55, u * 0.08, PURPLE_D);
+
+    cube(g, x - u * 0.36, yt + u * 1.62, u * 0.28, u * 0.32, u * 0.14, BONE_D);
+    cube(g, x + u * 0.08, yt + u * 1.62, u * 0.28, u * 0.32, u * 0.14, BONE_D);
+
+    cube(g, x - u * 0.40, yt + u * 0.72, u * 0.80, u * 0.86, u * 0.24, body);
+    g.fillStyle = "#1a100c";
+    g.fillRect(x - u * 0.18, yt + u * 0.86, u * 0.36, u * 0.55);
+    g.fillStyle = shade(body, 0.85);
+    for (var ri = 0; ri < 4; ri++) {
+      g.fillRect(x - u * 0.32, yt + u * (0.86 + ri * 0.14), u * 0.64, u * 0.06);
+    }
+    g.fillStyle = EMBER;
+    g.globalAlpha = 0.75 + 0.25 * Math.sin(S.t * 4 + e.bobPhase);
+    g.fillRect(x - u * 0.08, yt + u * 1.02, u * 0.16, u * 0.14);
+    g.globalAlpha = 1;
+
+    cube(g, x - u * 0.78, yt + u * 0.58, u * 0.36, u * 0.30, u * 0.16, PURPLE);
+    cube(g, x + u * 0.42, yt + u * 0.58, u * 0.36, u * 0.30, u * 0.16, PURPLE);
+    cube(g, x - u * 0.74, yt + u * 0.32, u * 0.10, u * 0.28, u * 0.06, BONE);
+    cube(g, x + u * 0.64, yt + u * 0.32, u * 0.10, u * 0.28, u * 0.06, BONE);
+
+    if (!blade) {
+      var shx = x - face * u * 0.95;
+      var shy = yt + u * 0.78;
+      cube(g, shx - u * 0.28, shy, u * 0.56, u * 0.70, u * 0.12, STEEL);
+      cube(g, shx - u * 0.16, shy + u * 0.14, u * 0.32, u * 0.28, u * 0.05, BONE);
+      g.fillStyle = "#120d09";
+      g.fillRect(shx - u * 0.10, shy + u * 0.20, u * 0.08, u * 0.08);
+      g.fillRect(shx + u * 0.02, shy + u * 0.20, u * 0.08, u * 0.08);
+    }
+
+    var hx = x + face * u * 0.72;
+    var hy = yt + u * 0.95 - liftPose * u * 0.35;
+    g.save();
+    g.translate(hx, hy);
+    if (blade) g.rotate(face * (-0.5 + swing * 1.3 + liftPose * 0.4));
+    if (blade) {
+      cube(g, -u * 0.10, -u * 0.15, u * 0.20, u * 0.42, u * 0.10, BONE_D);
+      cube(g, -u * 0.16, -u * 1.55, u * 0.18, u * 1.45, u * 0.08, STEEL);
+      cube(g, face * u * 0.02, -u * 1.35, u * 0.42, u * 0.22, u * 0.08, STEEL);
+      cube(g, face * u * 0.28, -u * 1.22, u * 0.22, u * 0.36, u * 0.07, shade(STEEL, 1.1));
+      g.fillStyle = EMBER;
+      g.globalAlpha = 0.7;
+      g.fillRect(-u * 0.06, -u * 1.15, u * 0.10, u * 0.55);
+      g.globalAlpha = 1;
+    } else {
+      cube(g, -u * 0.08, -u * 0.05, u * 0.16, u * 0.36, u * 0.08, BONE_D);
+      cube(g, -u * 0.22, -u * 0.18, u * 0.44, u * 0.12, u * 0.06, GOLD);
+      cube(g, -u * 0.07, -u * 1.25, u * 0.14, u * 1.10, u * 0.07, STEEL);
+      g.fillStyle = shade(STEEL, 1.15);
+      g.fillRect(-u * 0.02, -u * 1.18, u * 0.05, u * 0.95);
+    }
+    g.restore();
+
+    cube(g, x - u * 0.36, yt + u * 0.06, u * 0.72, u * 0.52, u * 0.22, body);
+    cube(g, x - u * 0.26, yt + u * 0.52, u * 0.52, u * 0.16, u * 0.12, shade(body, 0.9));
+    g.fillStyle = "#0a0604";
+    g.fillRect(x - u * 0.26, yt + u * 0.18, u * 0.20, u * 0.20);
+    g.fillRect(x + u * 0.06, yt + u * 0.18, u * 0.20, u * 0.20);
+    g.fillStyle = EMBER;
+    var glow = 0.65 + 0.35 * Math.sin(S.t * 3 + e.bobPhase);
+    if (e.atk) glow = 1;
+    g.globalAlpha = glow;
+    g.fillRect(x - u * 0.20 + face * u * 0.02, yt + u * 0.24, u * 0.10, u * 0.09);
+    g.fillRect(x + u * 0.10 + face * u * 0.02, yt + u * 0.24, u * 0.10, u * 0.09);
+    g.globalAlpha = 1;
+
+    cube(g, x - u * 0.42, yt - u * 0.16, u * 0.84, u * 0.24, u * 0.12, GOLD);
+    cube(g, x - u * 0.40, yt - u * 0.40, u * 0.14, u * 0.28, u * 0.06, GOLD);
+    cube(g, x - u * 0.08, yt - u * 0.50, u * 0.16, u * 0.38, u * 0.07, GOLD);
+    cube(g, x + u * 0.26, yt - u * 0.40, u * 0.14, u * 0.28, u * 0.06, GOLD);
+    g.fillStyle = EMBER;
+    g.fillRect(x - u * 0.05, yt - u * 0.10, u * 0.10, u * 0.10);
+
+    g.restore();
+  }
+
   function drawEnemy(g, e) {
     if (!e.alive && e.deadT <= 0) return;
     var a = !e.alive ? Math.max(0, e.deadT) : 1;
@@ -9025,6 +9210,8 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       drawAshTitan(g, e);
     } else if (e.boss === "lord") {
       drawSkullLord(g, e);
+    } else if (e.boss === "court") {
+      drawSkullCourt(g, e);
     } else if (e.boss === "bone") {
       drawBoneKing(g, e);
     } else if (e.boss === "slag") {
@@ -11085,7 +11272,12 @@ function endRunToMenu() {
       ensureSkullLord(e);
       e.hp = Math.floor(e.maxHp * ratio);
       skullLordWaves(e);
-      return { hp: e.hp, maxHp: e.maxHp, flags: e.waveFlags.slice(), alive: room.enemies.filter(function (o) { return o.alive; }).length };
+      return {
+        hp: e.hp, maxHp: e.maxHp, flags: e.waveFlags.slice(),
+        alive: room.enemies.filter(function (o) { return o.alive; }).length,
+        court: room.enemies.filter(function (o) { return o.alive && o.boss === "court"; }).map(function (o) { return o.type; }),
+        trash: room.enemies.filter(function (o) { return o.alive && !o.boss; }).length
+      };
     },
     skullState: function () {
       if (!room) return null;
@@ -11097,7 +11289,8 @@ function endRunToMenu() {
         wind: e.atkWind, active: e.atkActive, recover: e.atkRecover,
         dashLen: Math.round(e.dashLen || 0), dashCommit: !!e.dashCommit,
         x: Math.round(e.x), y: Math.round(e.y), spd: e.spd,
-        hp: e.hp, maxHp: e.maxHp, cd: Math.round((e.cd || 0) * 100) / 100
+        hp: e.hp, maxHp: e.maxHp, cd: Math.round((e.cd || 0) * 100) / 100,
+        lordZoom: S.lordZoom
       };
     },
     boneKingState: function () {
@@ -11242,6 +11435,12 @@ function endRunToMenu() {
       if (h === "thorn") return this.gotoThornQueen();
       if (h === "bone") return this.gotoBoneKing();
       if (h === "lord") return this.gotoSkullLair();
+      if (h === "court") {
+        var courtInfo = this.gotoSkullLair("SKULL-COURT");
+        this.triggerWave(0.75);
+        this.triggerWave(0.5);
+        return courtInfo;
+      }
       if (h === "swish") {
         var info = this.gotoKnight("SWISH-DEMO", 1);
         this.armHoop();
