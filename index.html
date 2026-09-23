@@ -6550,8 +6550,11 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      on the outer edge, so the close-up keeps the locked silhouette.
      BB-V7.64 — the off-hand carries the concept kite: bone face,
      gold rim, three spikes, red eyes, teeth along the point.
-     BB-V7.65 — that kite sits, a little smaller, on a metal tower shield. */
-  var BUILD = "v7.65";
+     BB-V7.65 — that kite sits, a little smaller, on a metal tower shield.
+     BB-V7.66 — the shield is a tall steel rectangle. A shallow bow
+     is the curve you see from above; the face stays rectangular.
+     The kite is a small emblem on that face. */
+  var BUILD = "v7.66";
   var FEEL_DEF = { spd: 250, accel: 2600, brake: 3600, throwSpd: 620, aimMode: "drag", aimDead: 2, aimHold: 64 };
   var FEEL = (function () {
     var f = {};
@@ -8579,37 +8582,69 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     cube(g, x - u * 0.58, yt - u * 2.20, u * 0.16, u * 0.16, u * 0.07, shade(GOLD, 0.8));
     cube(g, x + u * 0.42, yt - u * 2.20, u * 0.16, u * 0.16, u * 0.07, shade(GOLD, 0.8));
 
-    /* ===== TOWER SHIELD — steel slab on the off-hand. The kite skull
-       is the face graphic, drawn a little smaller so the metal shows. */
+    /* ===== TOWER SHIELD — tall steel rectangle on the off-hand.
+       From the front the face is flat. From above, the plate bows:
+       every column is the same height, and the middle sits higher.
+       The kite is a small emblem on that face. */
     var shPush = (e.shieldFwd || 0);
-    var shx = x - face * u * (1.44 + shPush * 0.55);
+    var shx = x - face * u * (1.16 + shPush * 0.55);
     var shTop = yt + u * (0.32 - shPush * 0.10);
     var shH = u * 1.72;
     var shW = u * 0.60;
     var gTop = shTop - u * 0.46;
     var gBot = shTop + shH;
     var gMidY = (gTop + gBot) * 0.5;
-    var emblem = 0.74;
-    var towerW = u * 1.26;
-    var towerH = (gBot - gTop) * emblem + u * 0.42;
-    var towerTop = gMidY - towerH * 0.5;
-    g.fillStyle = "#14181c";
-    g.fillRect(shx - towerW * 0.5 - u * 0.04, towerTop - u * 0.025, towerW + u * 0.08, towerH + u * 0.05);
-    cube(g, shx - towerW * 0.5, towerTop, towerW, towerH, u * 0.13, STEEL);
-    var brim = Math.max(3, u * 0.06);
-    g.fillStyle = "#c5ccd4";
-    g.fillRect(shx - towerW * 0.5, towerTop, brim, towerH);
-    g.fillRect(shx + towerW * 0.5 - brim, towerTop, brim, towerH);
-    g.fillStyle = "#f4f7fb";
-    g.fillRect(shx - towerW * 0.5 + 1, towerTop + u * 0.06, Math.max(2, brim * 0.28), towerH - u * 0.12);
-    var riv = Math.max(3, u * 0.045);
+    var emblem = 0.38;
+    var towerW = u * 0.96;
+    var towerH = u * 2.46;
+    var bow = u * 0.11;
+    var towerTop = yt + u * (0.16 - shPush * 0.10);
+    var plateN = 16;
+    function plateLift(i) {
+      var nx = ((i + 0.5) / plateN) * 2 - 1;
+      return bow * (1 - nx * nx);
+    }
+    function drawPlate(grow, colAt) {
+      var span = towerW + grow * 2;
+      var cw = span / plateN;
+      var left = shx - span * 0.5;
+      var h = towerH + grow * 2;
+      for (var i = 0; i < plateN; i++) {
+        var nx = ((i + 0.5) / plateN) * 2 - 1;
+        g.fillStyle = colAt(nx, i);
+        g.fillRect(left + i * cw, towerTop - plateLift(i) - grow, cw + 1, h);
+      }
+    }
+    drawPlate(u * 0.04, function () { return "#14181c"; });
+    drawPlate(0, function (nx) {
+      return shade(STEEL, 0.74 + 0.48 * (1 - nx * nx));
+    });
+    /* straight hot edge — the front face, not the bow */
+    (function () {
+      var span = towerW;
+      var cw = span / plateN;
+      var left = shx - span * 0.5;
+      var hot = Math.max(2, u * 0.028);
+      g.fillStyle = "#f4f7fb";
+      g.fillRect(left + 1, towerTop - plateLift(0) + u * 0.05, hot, towerH - u * 0.10);
+      g.fillStyle = "#c5ccd4";
+      for (var i = 0; i < plateN; i++) {
+        g.fillRect(left + i * cw, towerTop - plateLift(i), cw + 1, Math.max(2, u * 0.04));
+      }
+    })();
+    var riv = Math.max(3, u * 0.04);
     g.fillStyle = "#e7edf2";
-    g.fillRect(shx - towerW * 0.5 + u * 0.11, towerTop + u * 0.09, riv, riv);
-    g.fillRect(shx + towerW * 0.5 - u * 0.11 - riv, towerTop + u * 0.09, riv, riv);
-    g.fillRect(shx - towerW * 0.5 + u * 0.11, towerTop + towerH - u * 0.09 - riv, riv, riv);
-    g.fillRect(shx + towerW * 0.5 - u * 0.11 - riv, towerTop + towerH - u * 0.09 - riv, riv, riv);
+    [1, plateN - 2].forEach(function (i) {
+      var span = towerW;
+      var cw = span / plateN;
+      var rx = shx - span * 0.5 + i * cw;
+      var topY = towerTop - plateLift(i) + u * 0.10;
+      g.fillRect(rx, topY, riv, riv);
+      g.fillRect(rx, topY + towerH - u * 0.28, riv, riv);
+    });
+    var destY = towerTop - bow + towerH * 0.50;
     g.save();
-    g.translate(shx, gMidY);
+    g.translate(shx, destY);
     g.scale(emblem, emblem);
     g.translate(-shx, -gMidY);
     function kiteHalf(t) {
