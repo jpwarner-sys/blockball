@@ -6544,8 +6544,11 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      BB-V7.61 — skull look stays locked. The fangs are the seat:
      they are centered on the blade so the tip meets the steel.
      BB-V7.62 — the locked skull tip is smaller. The fangs still
-     sit on the center of the blade. */
-  var BUILD = "v7.62";
+     sit on the center of the blade.
+     BB-V7.63 — same skull, drawn so it still reads small. The
+     blocks overlap into one solid shape. The dark line sits only
+     on the outer edge, so the close-up keeps the locked silhouette. */
+  var BUILD = "v7.63";
   var FEEL_DEF = { spd: 250, accel: 2600, brake: 3600, throwSpd: 620, aimMode: "drag", aimDead: 2, aimHold: 64 };
   var FEEL = (function () {
     var f = {};
@@ -8651,13 +8654,14 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     /* Fangs occupy rows 5–7 and 9–11. Their midpoint is the seat on the blade. */
     var gMid = 394;
     var su = cell / gcs;
-    function tipCell(c, r, col) {
+    function tipCell(c, r, col, grow) {
       var ix = gx0 + c * gcs;
       var iy = gy0 + r * gcs;
-      var xTop = -(iy - gMid) * su;
-      var xBot = -(iy + gcs - gMid) * su;
-      var yLeft = bladeFar + (ix - gRight) * su;
-      var yRight = bladeFar + (ix + gcs - gRight) * su;
+      var pad = grow || 0;
+      var xTop = -(iy - gMid) * su + pad;
+      var xBot = -(iy + gcs - gMid) * su - pad;
+      var yLeft = bladeFar + (ix - gRight) * su - pad;
+      var yRight = bladeFar + (ix + gcs - gRight) * su + pad;
       g.fillStyle = col;
       g.fillRect(xBot, yLeft, xTop - xBot, yRight - yLeft);
     }
@@ -8683,17 +8687,6 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       [4,18],[5,18],[6,18],[7,18],
       [5,19],[6,19],[7,19]
     ];
-    for (var sc = 0; sc < skullCells.length; sc++) tipCell(skullCells[sc][0], skullCells[sc][1], BONE);
-    /* eye channel */
-    tipCell(6, 5, "#1a120e");
-    tipCell(6, 6, "#1a120e");
-    tipCell(7, 6, "#1a120e");
-    tipCell(6, 7, "#1a120e");
-    tipCell(7, 7, "#1a120e");
-    g.fillStyle = "#e01818";
-    tipCell(6, 6, "#e01818");
-    tipCell(7, 6, "#e01818");
-    /* fangs: added, aimed at the pommel, no lower jaw */
     var fangCells = [
       [12,5],[13,5],[14,5],[15,5],
       [12,6],[13,6],[14,6],[15,6],[16,6],[17,6],[18,6],
@@ -8702,7 +8695,45 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       [12,10],[13,10],[14,10],[15,10],[16,10],[17,10],[18,10],
       [12,11],[13,11],[14,11],[15,11]
     ];
-    for (var fc = 0; fc < fangCells.length; fc++) tipCell(fangCells[fc][0], fangCells[fc][1], "#f4efe4");
+    /* Overlap the blocks so hairline seams do not turn into a grid
+       when the sword is small. The dark stroke sits outside the cells,
+       and only where a neighbor is missing, so the locked shape stays. */
+    var knit = Math.max(1.15, su * 1.15);
+    for (var sc = 0; sc < skullCells.length; sc++) tipCell(skullCells[sc][0], skullCells[sc][1], BONE, knit);
+    for (var fc = 0; fc < fangCells.length; fc++) tipCell(fangCells[fc][0], fangCells[fc][1], "#f4efe4", knit);
+    var occupied = {};
+    for (var oi = 0; oi < skullCells.length; oi++) occupied[skullCells[oi][0] + "," + skullCells[oi][1]] = 1;
+    for (var oj = 0; oj < fangCells.length; oj++) occupied[fangCells[oj][0] + "," + fangCells[oj][1]] = 1;
+    var rim = Math.max(2.4, su * 2.6);
+    var seam = Math.max(0.9, su * 0.9);
+    g.fillStyle = "#120e0c";
+    function tipEdge(c, r) {
+      var ix = gx0 + c * gcs;
+      var iy = gy0 + r * gcs;
+      var xTop = -(iy - gMid) * su;
+      var xBot = -(iy + gcs - gMid) * su;
+      var yLeft = bladeFar + (ix - gRight) * su;
+      var yRight = bladeFar + (ix + gcs - gRight) * su;
+      var cw = xTop - xBot;
+      var chh = yRight - yLeft;
+      if (!occupied[(c - 1) + "," + r]) g.fillRect(xBot - seam, yLeft - rim, cw + seam * 2, rim);
+      if (!occupied[(c + 1) + "," + r]) g.fillRect(xBot - seam, yRight, cw + seam * 2, rim);
+      if (!occupied[c + "," + (r - 1)]) g.fillRect(xTop, yLeft - seam, rim, chh + seam * 2);
+      if (!occupied[c + "," + (r + 1)]) g.fillRect(xBot - rim, yLeft - seam, rim, chh + seam * 2);
+      if (!occupied[(c - 1) + "," + r] && !occupied[c + "," + (r - 1)]) g.fillRect(xTop, yLeft - rim, rim, rim);
+      if (!occupied[(c + 1) + "," + r] && !occupied[c + "," + (r - 1)]) g.fillRect(xTop, yRight, rim, rim);
+      if (!occupied[(c - 1) + "," + r] && !occupied[c + "," + (r + 1)]) g.fillRect(xBot - rim, yLeft - rim, rim, rim);
+      if (!occupied[(c + 1) + "," + r] && !occupied[c + "," + (r + 1)]) g.fillRect(xBot - rim, yRight, rim, rim);
+    }
+    for (var ek in occupied) {
+      var parts = ek.split(",");
+      tipEdge(+parts[0], +parts[1]);
+    }
+    tipCell(6, 5, "#120e0c", 0);
+    tipCell(6, 6, "#e01818", 0);
+    tipCell(7, 6, "#e01818", 0);
+    tipCell(6, 7, "#120e0c", 0);
+    tipCell(7, 7, "#120e0c", 0);
     if (swinging) {
       g.globalAlpha = 0.85;
       g.fillStyle = "#fff2c0";
