@@ -999,7 +999,8 @@
     transition: transform 0.06s ease-out, filter 0.12s ease-out, box-shadow 0.12s ease-out;
   }
   input.bb, textarea.bb { background: #14110e; box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.5); text-shadow: none; }
-  button.bb:hover { filter: brightness(1.1); }
+  @media (hover: hover) and (pointer: fine) { button.bb:hover { filter: brightness(1.1); } }
+  button.bb svg, button.bb span { pointer-events: none; }
   button.bb:active { transform: translateY(2px); box-shadow: inset 0 1px 0 rgba(255, 228, 184, 0.08), inset 0 2px 6px rgba(0, 0, 0, 0.35), 0 0 0 #120d09; }
   button.bb.pri {
     background: linear-gradient(180deg, #e6782c 0%, #c85a14 60%, #b24c0e 100%);
@@ -7016,7 +7017,10 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      decays on the dead (bosses died solid white); boss-wipe trash fades
      instead of vanishing; rising foes can't be hit; draw-side motes only
      spawn while the sim runs; low-FX needs 3s of real slow frames and
-     resets each run. */
+     resets each run. Panel buttons (and the splash) fire when the finger
+     lifts on them: the touchmove preventDefault that keeps the field still
+     also kills iOS's click when a thumb drifts mid-tap, which is what made
+     PLAY / TAP TO START dead in landscape on the Home Screen app. */
   var BUILD = "v7.70";
   var FEEL_DEF = { spd: 250, accel: 2600, brake: 3600, throwSpd: 620, aimMode: "drag", aimDead: 2, aimHold: 64 };
   var FEEL = (function () {
@@ -12318,6 +12322,50 @@ function endRunToMenu() {
   }
 
   document.addEventListener("touchmove", function (e) { e.preventDefault(); }, { passive: false });
+
+  /* BB-V7.70 — panel taps fire on lift, not on click. The touchmove
+     preventDefault above (it keeps the field from scrolling in play) also
+     stops iOS from synthesising a click when a thumb drifts even a few
+     pixels mid-tap — the same trap BB-V7.38 fixed on the pause ghost.
+     Holding the phone sideways, a thumb drifts; upright, a fingertip
+     mostly doesn't, so PLAY / TAP TO START went dead in landscape only.
+     A touch that goes down and comes up on the same panel button (or a
+     tappable panel like the splash) now clicks it once, and the browser's
+     own click for that tap, if it still arrives, is swallowed so nothing
+     fires twice. Mouse clicks are left alone. */
+  (function panelTaps() {
+    var down = null, downId = null, swallowUntil = 0;
+    function tapTarget(el) {
+      if (!el || !el.closest) return null;
+      var panel = el.closest(".panel.show");
+      if (!panel) return null;
+      var b = el.closest("button, h2.fold");
+      if (b && panel.contains(b)) return b;
+      return panel.onclick ? panel : null;
+    }
+    document.addEventListener("pointerdown", function (ev) {
+      if (ev.pointerType === "mouse") { down = null; return; }
+      down = tapTarget(ev.target);
+      downId = ev.pointerId;
+    }, true);
+    document.addEventListener("pointerup", function (ev) {
+      var t = down;
+      down = null;
+      if (!t || ev.pointerId !== downId || ev.pointerType === "mouse") return;
+      if (!document.body.contains(t) || t.disabled) return;
+      var r = t.getBoundingClientRect(), slop = 18;
+      if (ev.clientX < r.left - slop || ev.clientX > r.right + slop ||
+          ev.clientY < r.top - slop || ev.clientY > r.bottom + slop) return;
+      swallowUntil = Date.now() + 650;
+      t.click();
+    }, true);
+    document.addEventListener("pointercancel", function () { down = null; }, true);
+    document.addEventListener("click", function (ev) {
+      if (!ev.isTrusted || !swallowUntil) return;
+      if (Date.now() < swallowUntil) { ev.preventDefault(); ev.stopPropagation(); }
+      swallowUntil = 0;
+    }, true);
+  })();
   window.addEventListener("resize", resize);
   window.addEventListener("orientationchange", function () { setTimeout(resize, 80); });
 
