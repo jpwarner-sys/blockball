@@ -965,6 +965,48 @@
     font-size: 13px; pointer-events: auto;
   }
   #copybox { width: 100%; min-height: 72px; }
+  /* BB-V7.69 — menus get the same voxel lighting as the dungeon: warm
+     radial backdrop over a faint brick course, cards with a lit top edge,
+     buttons that read as blocks (lit lip, dark foot) and press down. Visual
+     properties only; layout, sizes and borders are untouched. */
+  .panel:not(.splash) {
+    background:
+      radial-gradient(ellipse at 50% 38%, rgba(208, 96, 24, 0.10), rgba(20, 17, 14, 0) 60%),
+      repeating-linear-gradient(0deg, rgba(0, 0, 0, 0.16) 0 1px, transparent 1px 22px),
+      repeating-linear-gradient(90deg, rgba(0, 0, 0, 0.1) 0 1px, transparent 1px 44px),
+      #14110ee6;
+  }
+  .card {
+    background: linear-gradient(180deg, #2a2219 0%, #211a14 55%, #1c1611 100%);
+    box-shadow: 0 0 0 4px #14110e, 0 14px 40px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 226, 180, 0.09);
+  }
+  .card.splashCard { background: transparent; box-shadow: none; }
+  .card h1 { text-shadow: 0 3px 0 #120d09, 0 0 22px rgba(240, 140, 40, 0.18); color: #f4ead6; }
+  button.bb, .bb {
+    background: linear-gradient(180deg, #45392b 0%, #372c20 100%);
+    box-shadow: inset 0 1px 0 rgba(255, 228, 184, 0.14), inset 0 -3px 0 rgba(0, 0, 0, 0.22), 0 2px 0 #120d09;
+    text-shadow: 0 1px 0 #120d09;
+    transition: transform 0.06s ease-out, filter 0.12s ease-out, box-shadow 0.12s ease-out;
+  }
+  input.bb, textarea.bb { background: #14110e; box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.5); text-shadow: none; }
+  button.bb:hover { filter: brightness(1.1); }
+  button.bb:active { transform: translateY(2px); box-shadow: inset 0 1px 0 rgba(255, 228, 184, 0.08), inset 0 2px 6px rgba(0, 0, 0, 0.35), 0 0 0 #120d09; }
+  button.bb.pri {
+    background: linear-gradient(180deg, #e6782c 0%, #c85a14 60%, #b24c0e 100%);
+    box-shadow: inset 0 1px 0 rgba(255, 220, 170, 0.55), inset 0 -3px 0 rgba(90, 30, 0, 0.35), 0 2px 0 #120d09, 0 0 18px rgba(224, 112, 40, 0.18);
+    text-shadow: 0 1px 0 rgba(255, 220, 170, 0.35);
+  }
+  button.bb.good { background: linear-gradient(180deg, #3a6a44, #2a5032); }
+  button.bb.warn { background: linear-gradient(180deg, #6a3228, #4e241c); }
+  button.bb.on { box-shadow: 0 0 0 1px #f0a050, 0 0 12px rgba(240, 160, 80, 0.32), inset 0 1px 0 rgba(255, 228, 184, 0.18), 0 2px 0 #120d09; }
+  #menuCard h2.fold, #pauseCard h2.fold { background: linear-gradient(180deg, #45392b, #372c20); box-shadow: inset 0 1px 0 rgba(255, 228, 184, 0.12), 0 2px 0 #120d09; }
+  #menuCard h2 { color: #d4c4a8; }
+  #btnPlay { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: clamp(4px, 1cqi, 10px); font-size: clamp(16px, 3.4cqi, 26px); letter-spacing: 0.12em; }
+  #btnPlay .playBall { width: clamp(26px, 7cqi, 60px); height: auto; filter: drop-shadow(0 3px 0 rgba(90, 30, 0, 0.45)); animation: playBob 1.5s ease-in-out infinite; }
+  @keyframes playBob { 0%, 100% { transform: translateY(0); } 45% { transform: translateY(-5px); } 55% { transform: translateY(-5px) scaleY(1); } 80% { transform: translateY(1px) scale(1.06, 0.92); } }
+  /* The difficulty blurb sat half under SOUND on a 390px-tall phone. */
+  @media (max-height: 430px) { #menuCard .menuBlurb { display: none; } }
+  @media (prefers-reduced-motion: reduce) { #btnPlay .playBall, .splashGo { animation: none; } .toast { animation: none; } }
 </style>
 </head>
 <body>
@@ -3374,7 +3416,7 @@
     player.inv = 0.6;
     resetBallHome();
     /* BB-V7.69 — rooms fade up from black instead of hard-cutting in. */
-    S.fade = { t: 0.32, dur: 0.32 };
+    S.fade = { t0: S.t, dur: 0.32 };
     dustPuff(player.x, player.y + 4, 6);
     S.camFollow = { x: 0, y: 0, on: false, idle: 0, idleT: 0 };
     S.placeMode = false;
@@ -3511,6 +3553,7 @@
     }
     player.hp -= spill;
     player.inv = 0.9;
+    player.hurtT = 0.26;
     S.shake = 0.25;
     sfx("hurt");
     floatTxt(player.x, player.y - 24, "-" + spill, "#ff8060");
@@ -4473,6 +4516,9 @@
     ball.trail = [];
     ball.propSplit = false;
     ball.lift = 0; ball.squash = 0; ball.dribble = 0;
+    /* BB-V7.69 — the release has a body: arm whips through, torso leans in */
+    player.throwT = 0.24; player.throwAng = ang;
+    dustPuff(player.x - Math.cos(ang) * 8, player.y + 6, 3);
     sfx("throw");
     if (!S.seenAimHelp) { S.seenAimHelp = true; store.aimHelp = true; saveStore(); }
   }
@@ -4538,7 +4584,13 @@
       var d = Math.hypot(dx, dy) || 1;
       ball.vx = dx / d * 520; ball.vy = dy / d * 520;
       ball.x += ball.vx * dt; ball.y += ball.vy * dt;
-      if (d < 30) { ball.live = false; ball.ret = false; }
+      if (d < 30) {
+        ball.live = false; ball.ret = false;
+        /* a catch you can feel: small squash, a snap of sparks at the hand */
+        player.catchT = 0.16;
+        sparks(player.x + player.facing * 22, player.y - 14, "#f0d8a0", 3);
+        sfx("dribble");
+      }
       return;
     }
     if (hasAff("Homing")) {
@@ -4552,6 +4604,7 @@
       }
     }
     var prevX = ball.x, prevY = ball.y;
+    if (ball.squashT > 0) ball.squashT -= dt;
     ball.x += ball.vx * dt; ball.y += ball.vy * dt;
     ball.life -= dt;
     checkHoopSwish(prevX, prevY);
@@ -6525,6 +6578,15 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       it.life -= dt; it.vy += 80 * dt; it.y += it.vy * dt;
       if (it.y > floorY) { it.y = floorY; it.vy *= -0.3; }
       var grab = it.kind === "relic" ? 42 : 28;
+      /* BB-V7.69 — close loot drifts to you, so a pickup is a swoop, not a pixel hunt */
+      var ld = Math.hypot(it.x - player.x, it.y - player.y);
+      if (!it.taken && !S.downed && ld < (it.kind === "relic" ? 90 : 72) && it.life < (it.max || it.life) - 0.35) {
+        var pull = Math.min(1, dt * (5 + (72 - Math.min(72, ld)) * 0.12));
+        it.x += (player.x - it.x) * pull;
+        it.y += (player.y - 6 - it.y) * pull;
+        it.restY = it.y; it.vy = 0;
+      }
+      if (it.max == null) it.max = it.life;
       if (!it.taken && Math.hypot(it.x - player.x, it.y - player.y) < grab) takeLoot(it);
       if (it.life <= 0 || it.taken) S.loot.splice(i, 1);
     }
@@ -6610,7 +6672,6 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       f.y += f.vy * dt; f.vy *= Math.pow(0.08, dt); f.life -= dt;
       if (f.life <= 0) S.floats.splice(j, 1);
     }
-    if (S.fade && S.fade.t > 0) S.fade.t -= dt;
     for (var k = S.pops.length - 1; k >= 0; k--) {
       S.pops[k].t -= dt;
       if (S.pops[k].t <= 0) S.pops.splice(k, 1);
@@ -6901,8 +6962,21 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      is the curve you see from above; the face stays rectangular.
      The kite is a small emblem on that face.
      BB-V7.67 — plate and kite stay locked together, drawn at 80%.
-     BB-V7.68 — the plate's bow is inverted. The kite stays upright. */
-  var BUILD = "v7.68";
+     BB-V7.68 — the plate's bow is inverted. The kite stays upright.
+     BB-V7.69 — balance from a headless playtest bot (all 16 floors, EASY
+     to HARD): props were the frag faucet (~4× the v7.50 economy, more on
+     HARD) and now roll lean; no hit kills from full health; foes rise out
+     of a summoning ring before acting; chasers path round pillars and
+     packs push apart; ranged foes draw before each shot and chargers mark
+     their lane, then daze on stone or a placed cube; deep floors step trash
+     pace up a little. Look: stone-slab floors, coursed brick, contact
+     shadows, flickering torches with light pools, biome vignette; all
+     sixteen trash types get their own voxel sprite and motion; hit flash,
+     squash, knockback, hit-stop, debris with height, multi-hit callouts,
+     outlined damage numbers; voxel chest, crystal shards, pixel hearts,
+     loot magnet; hero throw / hurt / catch poses; menus get lit block
+     buttons. */
+  var BUILD = "v7.69";
   var FEEL_DEF = { spd: 250, accel: 2600, brake: 3600, throwSpd: 620, aimMode: "drag", aimDead: 2, aimHold: 64 };
   var FEEL = (function () {
     var f = {};
@@ -7006,7 +7080,16 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
 
   function updatePlayer(dt) {
     if (player.inv > 0) player.inv -= dt;
+    if (player.throwT > 0) player.throwT -= dt;
+    if (player.hurtT > 0) player.hurtT -= dt;
+    if (player.catchT > 0) player.catchT -= dt;
+    var w0 = player.walk;
     walkPlayer(dt);
+    /* BB-V7.69 — footfalls kick up a little grit */
+    if (Math.floor(w0 / Math.PI) !== Math.floor(player.walk / Math.PI) &&
+        Math.hypot(player.vx, player.vy) > 120) {
+      dustPuff(player.x + (Math.random() - 0.5) * 12, player.y + 6, 1, "#7a6a54");
+    }
     /* second pass: anything that moved him after the walk (a knock-back, a boss
        ring) is caught before the frame is drawn, so he is never rendered in stone */
     if (!(room && room.cleared)) unstick(player.r * 0.6);
@@ -7391,11 +7474,13 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     g.scale(scale, scale);
     drawWorld(g);
     g.restore();
-    if (S.mode === "play") drawVignette(g, cw, ch);
-    if (S.fade && S.fade.t > 0) {
-      g.fillStyle = "rgba(10,8,6," + Math.min(1, S.fade.t / S.fade.dur).toFixed(3) + ")";
+    if (S.mode === "play" && !S.fxLite) drawVignette(g, cw, ch);
+    /* clocked on S.t (which runs while paused) so a pause at load can't hold black */
+    var fadeK = S.fade ? 1 - (S.t - S.fade.t0) / S.fade.dur : 0;
+    if (fadeK > 0) {
+      g.fillStyle = "rgba(10,8,6," + Math.min(1, fadeK).toFixed(3) + ")";
       g.fillRect(0, 0, cw, ch);
-    }
+    } else if (S.fade) S.fade = null;
     if (S.mode === "play" && !S.pause && !S.portrait && !S.downed) drawSticks(g);
     if (S.mode === "play" && !S.seenAimHelp) {
       g.fillStyle = "rgba(20,17,14,0.0)";
@@ -7872,6 +7957,14 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     };
     return d;
   }
+  /* Flat [x,y,w,h,…] buckets flushed with fillRect: axis-aligned boxes take
+     the canvas fast path, where a Path2D of thousands of rects goes through
+     the general anti-aliased rasterizer. */
+  function fillRects(g, col, a) {
+    if (!a || !a.length) return;
+    g.fillStyle = col;
+    for (var i = 0; i < a.length; i += 4) g.fillRect(a[i], a[i + 1], a[i + 2], a[i + 3]);
+  }
   function drawFloor(g, deco, look, vis, cols, rows) {
     var x, y, px, py;
     if (!deco) {
@@ -7885,8 +7978,8 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     var grid = room.grid, T = deco.tiles, t, k, pal, pi, i, hx, hy;
     var base = [], n;
     for (n = 0; n < 16; n++) base.push(null);
-    var seam = new Path2D(), bevel = new Path2D(), crack = new Path2D(), grit = new Path2D(), decal = new Path2D(), decal2 = new Path2D();
-    var ao1 = new Path2D(), ao2 = new Path2D(), ao3 = new Path2D();
+    var seam = [], bevel = [], crack = new Path2D(), grit = [], decal = new Path2D(), decal2 = new Path2D();
+    var ao1 = [], ao2 = [], ao3 = [];
     var dec = look.decal;
     for (y = vis.y0; y <= vis.y1; y++) {
       for (x = vis.x0; x <= vis.x1; x++) {
@@ -7895,14 +7988,11 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
         pi = (x + y) & 1;
         var inC = deco.fsC && x >= deco.cx0 && x < deco.cx1 && y >= deco.cy0 && y < deco.cy1;
         k = (inC ? 8 : 0) + pi * 4 + t.j;
-        if (!base[k]) base[k] = new Path2D();
-        base[k].rect(px, py, TILE, TILE);
+        if (!base[k]) base[k] = [];
+        base[k].push(px, py, TILE, TILE);
         if (grid[y][x]) continue;
-        seam.rect(px, py, TILE, 1);
-        seam.rect(px, py, 1, TILE);
-        if (t.split === 1) seam.rect(px + 15, py + 1, 1, TILE - 1);
-        else if (t.split === 2) seam.rect(px + 1, py + 15, TILE - 1, 1);
-        bevel.rect(px + 1, py + 1, TILE - 2, 1);
+        if (t.split === 1) seam.push(px + 15, py + 1, 1, TILE - 1);
+        else if (t.split === 2) seam.push(px + 1, py + 15, TILE - 1, 1);
         if (t.crack) {
           /* three crack shapes, mirrored by hash: a run, a fork, a star chip */
           var cf = t.b > 0.5 ? 1 : -1, cx = px + 15, cy = py + 15;
@@ -7921,7 +8011,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
           for (i = 0; i < t.peb; i++) {
             hx = px + 4 + ((t.a * 97 + i * 37) % 22);
             hy = py + 5 + ((t.b * 61 + i * 23) % 20);
-            grit.rect(hx, hy, 2, 2);
+            grit.push(hx, hy, 2, 2);
           }
         }
         if (dec === "gold" && (x & 3) === 2 && (y & 3) === 2) {
@@ -7951,20 +8041,25 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
           }
         }
         /* contact shadows from walls north / west / east of the slab */
-        if (y > 0 && grid[y - 1][x]) { ao1.rect(px, py, TILE, 3); ao2.rect(px, py + 3, TILE, 3); ao3.rect(px, py + 6, TILE, 5); }
-        if (x > 0 && grid[y][x - 1]) { ao1.rect(px, py, 3, TILE); ao3.rect(px + 3, py, 4, TILE); }
-        if (x < cols - 1 && grid[y][x + 1]) { ao1.rect(px + TILE - 3, py, 3, TILE); ao3.rect(px + TILE - 7, py, 4, TILE); }
+        if (y > 0 && grid[y - 1][x]) { ao1.push(px, py, TILE, 3); ao2.push(px, py + 3, TILE, 3); ao3.push(px, py + 6, TILE, 5); }
+        if (x > 0 && grid[y][x - 1]) { ao1.push(px, py, 3, TILE); ao3.push(px + 3, py, 4, TILE); }
+        if (x < cols - 1 && grid[y][x + 1]) { ao1.push(px + TILE - 3, py, 3, TILE); ao3.push(px + TILE - 7, py, 4, TILE); }
       }
     }
+    /* grout + bevel run as one line per row / column: walls cover their own
+       tiles, so the long lines only ever show on open floor */
+    var gx0 = vis.x0 * TILE, gw = (vis.x1 - vis.x0 + 1) * TILE;
+    var gy0 = vis.y0 * TILE, gh = (vis.y1 - vis.y0 + 1) * TILE;
+    for (y = vis.y0; y <= vis.y1; y++) { seam.push(gx0, y * TILE, gw, 1); bevel.push(gx0, y * TILE + 1, gw, 1); }
+    for (x = vis.x0; x <= vis.x1; x++) seam.push(x * TILE, gy0, 1, gh);
     for (k = 0; k < 16; k++) {
       if (!base[k]) continue;
       pal = k >= 8 ? deco.fsC : deco.fs;
-      g.fillStyle = pal[(k >> 2) & 1][k & 3];
-      g.fill(base[k]);
+      fillRects(g, pal[(k >> 2) & 1][k & 3], base[k]);
     }
-    g.fillStyle = look.grout; g.fill(seam);
-    g.fillStyle = look.bevel; g.fill(bevel);
-    g.fillStyle = look.grit; g.fill(grit);
+    fillRects(g, look.grout, seam);
+    fillRects(g, look.bevel, bevel);
+    fillRects(g, look.grit, grit);
     g.strokeStyle = look.crack; g.lineWidth = 1.2; g.stroke(crack);
     if (dec === "ember") {
       g.save();
@@ -7988,9 +8083,9 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       if (dec === "bone") { g.globalAlpha = 0.5; g.fillStyle = "#14100c"; g.fill(decal2); }
       g.restore();
     }
-    g.fillStyle = "rgba(0,0,0,0.34)"; g.fill(ao1);
-    g.fillStyle = "rgba(0,0,0,0.2)"; g.fill(ao2);
-    g.fillStyle = "rgba(0,0,0,0.1)"; g.fill(ao3);
+    fillRects(g, "rgba(0,0,0,0.34)", ao1);
+    fillRects(g, "rgba(0,0,0,0.2)", ao2);
+    fillRects(g, "rgba(0,0,0,0.1)", ao3);
   }
   /* One row of wall cubes, batched per colour. Same footprint and occlusion
      as the old cube() pass: cap at foot - wh, face below it to the tile's
@@ -8007,9 +8102,9 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       return;
     }
     var W = deco.wall;
-    var front = new Path2D(), frontAlt = new Path2D(), mortar = new Path2D(), foot = new Path2D(), capShade = new Path2D();
-    var tops = [new Path2D(), new Path2D(), new Path2D()], hi = new Path2D(), lip = new Path2D(), line = new Path2D();
-    var moss = look.decal === "moss" ? new Path2D() : null;
+    var front = [], frontAlt = [], mortar = [], foot = [], capShade = [];
+    var tops = [[], [], []], hi = [], lip = [], line = [];
+    var moss = look.decal === "moss" ? [] : null;
     var any = false;
     for (x = vis.x0; x <= vis.x1; x++) {
       if (!grid[y][x]) continue;
@@ -8019,42 +8114,69 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       px = x * TILE; top = y * TILE - wh; fTop = top + TILE; fBot = y * TILE + TILE;
       open = y === rows - 1 || !grid[y + 1][x];
       if (open) {
-        front.rect(px, fTop, TILE, wh);
+        front.push(px, fTop, TILE, wh);
         ch = wh > TILE + 1 ? 10 : 7;
         for (c = 0, yy = fTop; yy < fBot - 1; c++, yy += ch) {
-          mortar.rect(px, yy, TILE, 1);
+          mortar.push(px, yy, TILE, 1);
           off = ((c + x) & 1) ? 8 : 0;
           for (jx = off; jx < TILE; jx += 15) {
-            mortar.rect(px + jx, yy, 1, Math.min(ch, fBot - yy));
-            if (((c * 7 + x * 3 + jx) % 5) === 0) frontAlt.rect(px + jx + 1, yy + 1, Math.min(14, TILE - jx - 1), Math.min(ch, fBot - yy) - 1);
+            mortar.push(px + jx, yy, 1, Math.min(ch, fBot - yy));
+            if (((c * 7 + x * 3 + jx) % 5) === 0) frontAlt.push(px + jx + 1, yy + 1, Math.min(14, TILE - jx - 1), Math.min(ch, fBot - yy) - 1);
           }
         }
-        foot.rect(px, fBot - 3, TILE, 3);
-        capShade.rect(px, fTop, TILE, 2);
+        foot.push(px, fBot - 3, TILE, 3);
+        capShade.push(px, fTop, TILE, 2);
         if (moss && t.decal) {
-          moss.rect(px + 4 + t.a * 16, fTop, 3, 5 + t.b * 8);
-          moss.rect(px + 9 + t.b * 14, fTop, 2, 3 + t.a * 5);
+          moss.push(px + 4 + t.a * 16, fTop, 3, 5 + t.b * 8);
+          moss.push(px + 9 + t.b * 14, fTop, 2, 3 + t.a * 5);
         }
       }
-      tops[t.w].rect(px, top, TILE, TILE);
-      hi.rect(px, top, TILE, 2);
-      hi.rect(px, top + 2, 1.5, TILE - 4);
-      lip.rect(px, top + TILE - 2, TILE, 2);
-      lip.rect(px + TILE - 1.5, top + 2, 1.5, TILE - 4);
-      line.rect(px + 0.5, top + 0.5, TILE - 1, TILE - 1);
+      tops[t.w].push(px, top, TILE, TILE);
+      hi.push(px, top, TILE, 2);
+      hi.push(px, top + 2, 1.5, TILE - 4);
+      lip.push(px, top + TILE - 2, TILE, 2);
+      lip.push(px + TILE - 1.5, top + 2, 1.5, TILE - 4);
+      line.push(px + 0.5, top + 0.5);
     }
     if (!any) return;
-    g.fillStyle = W.front; g.fill(front);
-    g.fillStyle = W.frontAlt; g.fill(frontAlt);
-    g.fillStyle = W.mortar; g.fill(mortar);
-    g.fillStyle = "rgba(0,0,0,0.3)"; g.fill(foot);
-    g.fillStyle = "rgba(0,0,0,0.22)"; g.fill(capShade);
-    if (moss) { g.fillStyle = "#2e5a2a"; g.fill(moss); }
-    for (c = 0; c < 3; c++) { g.fillStyle = W.top[c]; g.fill(tops[c]); }
-    g.fillStyle = W.hi; g.fill(hi);
-    g.fillStyle = W.lip; g.fill(lip);
-    g.strokeStyle = W.line; g.lineWidth = 1; g.stroke(line);
+    fillRects(g, W.front, front);
+    fillRects(g, W.frontAlt, frontAlt);
+    fillRects(g, W.mortar, mortar);
+    fillRects(g, "rgba(0,0,0,0.3)", foot);
+    fillRects(g, "rgba(0,0,0,0.22)", capShade);
+    if (moss) fillRects(g, "#2e5a2a", moss);
+    for (c = 0; c < 3; c++) fillRects(g, W.top[c], tops[c]);
+    fillRects(g, W.hi, hi);
+    fillRects(g, W.lip, lip);
+    g.strokeStyle = W.line; g.lineWidth = 1;
+    for (c = 0; c < line.length; c += 2) g.strokeRect(line[c], line[c + 1], TILE - 1, TILE - 1);
   }
+  /* Glows are drawn from tiny cached sprites (a 64px radial falloff per
+     colour, a quarter-res vignette) stretched with drawImage, instead of
+     evaluating a gradient over every covered pixel every frame. */
+  var GLOW_CACHE = {};
+  function glowSprite(rgb, mid) {
+    var key = rgb + "|" + (mid || 0.3);
+    var c = GLOW_CACHE[key];
+    if (c) return c;
+    c = document.createElement("canvas");
+    c.width = c.height = 64;
+    var gg = c.getContext("2d");
+    var grd = gg.createRadialGradient(32, 32, 1, 32, 32, 32);
+    grd.addColorStop(0, "rgba(" + rgb + ",1)");
+    grd.addColorStop(mid || 0.3, "rgba(" + rgb + ",0.36)");
+    grd.addColorStop(1, "rgba(" + rgb + ",0)");
+    gg.fillStyle = grd;
+    gg.fillRect(0, 0, 64, 64);
+    GLOW_CACHE[key] = c;
+    return c;
+  }
+  function glowAt(g, rgb, x, y, rx, ry, a) {
+    if (a <= 0.003) return;
+    g.globalAlpha = a;
+    g.drawImage(glowSprite(rgb), x - rx, y - ry, rx * 2, ry * 2);
+  }
+  var VIG = { c: null, key: "" };
   function torchFlick(tc) {
     return 0.86 + 0.08 * Math.sin(S.t * 11 + tc.seed) + 0.06 * Math.sin(S.t * 23.7 + tc.seed * 2.3);
   }
@@ -8097,53 +8219,34 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       tc = deco.torches[i];
       if (tc.tx < vis.x0 - 4 || tc.tx > vis.x1 + 4) continue;
       f = torchFlick(tc);
-      R = TILE * 3.4 * f;
-      cy = ty + TILE * 0.5;
-      grd = g.createRadialGradient(tc.x, ty - 8, 2, tc.x, cy, R);
-      grd.addColorStop(0, "rgba(" + look.torch + "," + (0.5 * f).toFixed(3) + ")");
-      grd.addColorStop(0.25, "rgba(" + look.torch + "," + (0.18 * f).toFixed(3) + ")");
-      grd.addColorStop(1, "rgba(" + look.torch + ",0)");
-      g.fillStyle = grd;
-      g.fillRect(tc.x - R, cy - R, R * 2, R * 2);
+      R = TILE * 3.2 * f;
+      glowAt(g, look.torch, tc.x, ty + TILE * 0.3, R, R, 0.62 * f);
       /* the pool it throws on the flagstones below the wall */
-      g.save();
-      g.translate(tc.x, TILE * 1.6);
-      g.scale(1, 0.5);
       R = TILE * 2.6 * f;
-      grd = g.createRadialGradient(0, 0, 2, 0, 0, R);
-      grd.addColorStop(0, "rgba(" + look.torch + "," + (0.2 * f).toFixed(3) + ")");
-      grd.addColorStop(1, "rgba(" + look.torch + ",0)");
-      g.fillStyle = grd;
-      g.fillRect(-R, -R, R * 2, R * 2);
-      g.restore();
+      glowAt(g, look.torch, tc.x, TILE * 1.6, R, R * 0.5, 0.3 * f);
     }
-    if (player && !S.downed) {
-      R = 120;
-      grd = g.createRadialGradient(player.x, player.y - 18, 4, player.x, player.y - 6, R);
-      grd.addColorStop(0, "rgba(255,210,150,0.10)");
-      grd.addColorStop(1, "rgba(255,210,150,0)");
-      g.fillStyle = grd;
-      g.fillRect(player.x - R, player.y - 6 - R, R * 2, R * 2);
-    }
-    if (ball && ball.live) {
-      R = 46;
-      grd = g.createRadialGradient(ball.x, ball.y, 2, ball.x, ball.y, R);
-      grd.addColorStop(0, "rgba(255,160,70,0.16)");
-      grd.addColorStop(1, "rgba(255,160,70,0)");
-      g.fillStyle = grd;
-      g.fillRect(ball.x - R, ball.y - R, R * 2, R * 2);
-    }
+    if (player && !S.downed) glowAt(g, "255,210,150", player.x, player.y - 12, 110, 110, 0.1);
+    if (ball && ball.live) glowAt(g, "255,160,70", ball.x, ball.y, 46, 46, 0.16);
     g.restore();
   }
   function drawVignette(g, cw, ch) {
     var bio = (room && room.tileset) || biomeOf(S.floor);
     var look = lookFor(bio);
-    var grd = g.createRadialGradient(cw * 0.5, ch * 0.47, Math.min(cw, ch) * 0.3, cw * 0.5, ch * 0.5, Math.hypot(cw, ch) * 0.58);
-    grd.addColorStop(0, "rgba(" + look.vig + ",0)");
-    grd.addColorStop(0.6, "rgba(" + look.vig + ",0.22)");
-    grd.addColorStop(1, "rgba(" + look.vig + ",0.7)");
-    g.fillStyle = grd;
-    g.fillRect(0, 0, cw, ch);
+    var vw = Math.max(16, Math.round(cw / 4)), vh = Math.max(16, Math.round(ch / 4));
+    var key = vw + "x" + vh + ":" + look.vig;
+    if (VIG.key !== key) {
+      if (!VIG.c) VIG.c = document.createElement("canvas");
+      VIG.c.width = vw; VIG.c.height = vh;
+      var vg = VIG.c.getContext("2d");
+      var grd = vg.createRadialGradient(vw * 0.5, vh * 0.47, Math.min(vw, vh) * 0.3, vw * 0.5, vh * 0.5, Math.hypot(vw, vh) * 0.58);
+      grd.addColorStop(0, "rgba(" + look.vig + ",0)");
+      grd.addColorStop(0.6, "rgba(" + look.vig + ",0.22)");
+      grd.addColorStop(1, "rgba(" + look.vig + ",0.7)");
+      vg.fillStyle = grd;
+      vg.fillRect(0, 0, vw, vh);
+      VIG.key = key;
+    }
+    g.drawImage(VIG.c, 0, 0, cw, ch);
   }
   /* Placed cover: a fresh-cut stone block that cracks as it takes hits and
      sinks as its timer runs out. */
@@ -8299,15 +8402,62 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     g.restore();
   }
 
+  /* BB-V7.69 — the chest was a flat yellow rectangle under title art that
+     puts a banded red chest at the centre of the scene. It is now a voxel
+     chest: planked body, gold bands and lock, a lid that flips back on open
+     with a burst of gold light that dims to an empty hold. */
   function drawChest(g, ch) {
-    g.fillStyle = ch.open ? "#3a3020" : "#c09030";
-    g.fillRect(ch.x - 12, ch.y - 10, 24, 18);
-    g.fillStyle = "#201810";
-    g.fillRect(ch.x - 12, ch.y - 2, 24, 3);
+    var x = ch.x, y = ch.y + 4;
+    var wood = "#9a4a22", woodDk = "#6a2c14", band = "#d0a840";
+    g.save();
+    g.globalAlpha = 0.34;
+    g.fillStyle = "#0a0806";
+    g.beginPath(); g.ellipse(x, y + 8, 16, 5, 0, 0, 6.3); g.fill();
+    g.globalAlpha = 1;
+    var age = ch.open ? S.t - (ch.openT || -9) : 0;
     if (!ch.open) {
-      g.fillStyle = "#f0d060";
-      g.fillRect(ch.x - 2, ch.y - 6, 4, 6);
+      var tw = Math.sin(S.t * 3 + x * 0.1);
+      cube(g, x - 14, y - 9, 28, 6, 11, wood);
+      cube(g, x - 15, y - 19, 30, 8, 7, shade(wood, 1.12));
+      g.fillStyle = woodDk;
+      g.fillRect(x - 14, y - 3 + 6, 28, 1);
+      g.fillStyle = band;
+      g.fillRect(x - 11, y - 19, 3, 26);
+      g.fillRect(x + 8, y - 19, 3, 26);
+      cube(g, x - 3.5, y - 9, 7, 3, 6, "#f0c850");
+      g.fillStyle = "#2a1808";
+      g.fillRect(x - 1, y - 4, 2, 3);
+      if (tw > 0.93) {
+        g.fillStyle = "#fff6c0";
+        g.fillRect(x + 4, y - 20, 2, 6); g.fillRect(x + 2, y - 18, 6, 2);
+      }
+    } else {
+      /* lid thrown back, inside face showing */
+      cube(g, x - 15, y - 23, 30, 4, 10, woodDk);
+      g.fillStyle = band;
+      g.fillRect(x - 11, y - 23, 3, 14);
+      g.fillRect(x + 8, y - 23, 3, 14);
+      cube(g, x - 14, y - 9, 28, 6, 11, wood);
+      g.fillStyle = "#1a0c06";
+      g.fillRect(x - 12, y - 8, 24, 4);
+      g.fillStyle = band;
+      g.fillRect(x - 11, y - 3, 3, 10);
+      g.fillRect(x + 8, y - 3, 3, 10);
+      if (age < 1.6) {
+        var gk = Math.max(0, 1 - age / 1.6);
+        g.globalCompositeOperation = "lighter";
+        var grd = g.createLinearGradient(x, y - 70, x, y - 6);
+        grd.addColorStop(0, "rgba(255,210,90,0)");
+        grd.addColorStop(1, "rgba(255,210,90," + (0.55 * gk).toFixed(3) + ")");
+        g.fillStyle = grd;
+        g.fillRect(x - 11, y - 70, 22, 64);
+        g.globalCompositeOperation = "source-over";
+      } else {
+        g.fillStyle = "rgba(255,200,90,0.12)";
+        g.fillRect(x - 10, y - 7, 20, 2);
+      }
     }
+    g.restore();
   }
 
   /* BB-V7.48 — voxel barrels / urns / crates / kegs. Chunkier than a floor
@@ -8618,6 +8768,17 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     /* Full WALL_Z: the cube top overhangs exactly that far onto the floor. */
     var groundBias = nearSouth ? -Math.round(TILE * WALL_Z) : 0;
 
+    /* BB-V7.69 — transient poses only; Joe's proportions and offsets stay.
+       throw: lean into the release and follow the arm through; hurt: a white
+       flash and a jolt away; catch: a small squash. */
+    var thk = player.throwT > 0 ? player.throwT / 0.24 : 0;
+    var huk = player.hurtT > 0 ? player.hurtT / 0.26 : 0;
+    var cak = player.catchT > 0 ? player.catchT / 0.16 : 0;
+    if (huk > 0.62) pal = { a: "#ffffff", b: "#ffffff", c: "#ffffff", skin: "#ffffff" };
+    var poseLean = thk > 0 ? Math.cos(player.throwAng || 0) * sc * 0.1 * Math.sin(thk * Math.PI) : 0;
+    if (huk > 0) poseLean += Math.sin(S.t * 60) * sc * 0.05 * huk;
+    var poseSy = 1 - 0.07 * cak - (thk > 0 ? 0.05 * Math.sin(thk * Math.PI) : 0);
+    var poseSx = 1 + 0.06 * cak + (thk > 0 ? 0.04 * Math.sin(thk * Math.PI) : 0);
     var bw = cos.body === "tall" ? 0.72 : cos.body === "round" ? 0.98 : cos.body === "swift" ? 0.7 : 0.84;
     var bh = cos.body === "tall" ? 0.86 : cos.body === "round" ? 0.56 : cos.body === "swift" ? 0.64 : 0.7;
 
@@ -8627,6 +8788,10 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
 
     g.fillStyle = "rgba(10,8,6,0.34)";
     g.beginPath(); g.ellipse(x, shadowY, sc * 0.42, sc * 0.13, 0, 0, 6.3); g.fill();
+    g.save();
+    g.translate(x, shadowY);
+    g.scale(poseSx, poseSy);
+    g.translate(-x + poseLean, -shadowY);
 
     cube(g, pxl + sc * 0.12, pyt + sc * 1.15 - (step > 0 ? lift : 0), sc * 0.28, sc * 0.28, sc * 0.18, pal.b);
     cube(g, pxl + sc * 0.58, pyt + sc * 1.15 - (step < 0 ? lift : 0), sc * 0.28, sc * 0.28, sc * 0.18, pal.b);
@@ -8634,9 +8799,10 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     cube(g, pxl + sc * (0.5 - bw / 2), pyt + sc * (1.25 - bh), sc * bw, sc * bh, sc * 0.22, pal.a);
 
     var armA = S.aim ? S.aim.ang : (f > 0 ? -0.15 : Math.PI + 0.15);
+    if (thk > 0) armA = (player.throwAng || 0) + (f > 0 ? 1 : -1) * 0.5 * thk;
     /* BB-V7.23 — while dribbling, the gauntlet taps toward the bounce instead of
        hanging in a static throw pose. */
-    if (!S.aim && ball && !ball.live && !S.downed) {
+    if (!S.aim && ball && !ball.live && !S.downed && thk <= 0) {
       var tap = Math.sin(ball.dribble || 0);
       var base = f > 0 ? 1.05 : Math.PI - 1.05;
       armA = base + tap * 0.55;
@@ -8653,6 +8819,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     g.fillRect(pxl + sc * 0.52 + ex, pyt + sc * 0.2, e, e);
 
     drawHat(g, x, pyt, cos.hat, pal, sc);
+    g.restore();
     drawField(g, sc);
     if (S.downed) g.restore();
     g.globalAlpha = 1;
@@ -8855,6 +9022,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     var cols = ballCols();
     var lift = (!b.live && b.lift) ? b.lift : 0;
     var squash = (!b.live && b.squash) ? b.squash : 0;
+    if (b.live && b.squashT > 0) squash = (b.squashT / 0.1) * 0.35;
     var spin = b.live ? Math.hypot(b.vx, b.vy) * 0.0006 : (lift > 6 ? 0.035 : 0.004);
     b.rot = (b.rot || 0) + spin;
     var shadowY = b.y + b.r * 0.78 + lift;
@@ -10336,13 +10504,499 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     g.restore();
   }
 
+  /* BB-V7.69 — sixteen trash types were one cube in sixteen colours, the
+     last placeholder art in a game whose knights and bosses are all built
+     sprites. Each now has its own voxel silhouette and motion, drawn inside
+     the old cube's footprint so fitSilhouette's hurtboxes still match paint:
+       crypt  — slime (hopping jelly), bat (flapping), skel (walking bones),
+                archer (hooded, draws the bow before each shot)
+       forge  — imp (horned hopper), cinder (living ember), grunt (brute),
+                spitter (lava toad, maw glows before it spits)
+       ashen  — wraith (tattered ghost), ashling (cracked ash), charger (boar
+                that plants and lowers its head, dazed after a wall), voider
+                (floating eye, iris flares before it fires)
+       thorn  — briar (walking bush), needle (cactus, puffs before a volley),
+                golem (mossy stone), witchling (on a broom)
+     Shared: spawn rise out of a summoning ring, hit flash + squash, a death
+     pop that hands off to the debris burst, and dazed stars. */
+  function easeOutBack(u) {
+    var c1 = 1.70158, c3 = c1 + 1;
+    return 1 + c3 * Math.pow(u - 1, 3) + c1 * Math.pow(u - 1, 2);
+  }
+  function mobWind(e) {
+    if (e.windT > 0 && e.windMax > 0) return 1 - e.windT / e.windMax;
+    return 0;
+  }
+  /* telegraphs live on the floor, under the body */
+  function drawMobTell(g, e) {
+    var u = mobWind(e), r = artR(e) * enemyVis(e);
+    if (e.kind === "charge" && e.windT > 0) {
+      var len = 190 * (1 + 0.012 * Math.max(0, S.floor - 1)), w = r * 1.5;
+      var ang = Math.atan2(e.laneY || 0, e.laneX || 1);
+      g.save();
+      g.translate(e.x, e.y + r * 0.4);
+      g.rotate(ang);
+      g.globalAlpha = 0.1 + 0.22 * u;
+      g.fillStyle = "#e05030";
+      g.fillRect(0, -w * 0.5, len * (0.35 + 0.65 * u), w);
+      g.globalAlpha = 0.35 + 0.45 * u;
+      g.strokeStyle = "#ff8a60";
+      g.lineWidth = 2;
+      g.setLineDash([7, 6]);
+      g.strokeRect(0, -w * 0.5, len, w);
+      g.setLineDash([]);
+      g.restore();
+    } else if (e.kind === "range" && e.windT > 0 && player) {
+      var dx = player.x - e.x, dy = player.y - e.y, d = Math.hypot(dx, dy) || 1;
+      var L = Math.min(d, 40 + 70 * u);
+      g.save();
+      g.globalAlpha = 0.25 + 0.5 * u;
+      g.strokeStyle = e.type === "voider" ? "#d0a0ff" : e.type === "spit" ? "#ffb040" : e.type === "spitter" ? "#d8ff80" : "#f0e0c0";
+      g.lineWidth = 1.5;
+      g.setLineDash([3, 5]);
+      g.beginPath();
+      g.moveTo(e.x + dx / d * 12, e.y - 8 + dy / d * 12);
+      g.lineTo(e.x + dx / d * L, e.y - 8 + dy / d * L);
+      g.stroke();
+      g.setLineDash([]);
+      g.restore();
+    }
+  }
+  function drawSpawnRing(g, e) {
+    if (!(e.spawnT > 0) || !e.spawnMax) return;
+    var u = 1 - e.spawnT / e.spawnMax, r = artR(e) * enemyVis(e) * (e.boss ? 1.6 : 1.1);
+    var col = e.col || "#c0a060";
+    g.save();
+    g.globalAlpha = Math.min(1, u * 3) * (1 - u * 0.4);
+    g.strokeStyle = col;
+    g.lineWidth = 2;
+    var rr = r * (0.4 + 0.6 * Math.min(1, u * 1.6));
+    if (ellipseOk(rr, rr * 0.42)) {
+      g.beginPath(); g.ellipse(e.x, e.y + r * 0.5, rr, rr * 0.42, 0, 0, 6.3); g.stroke();
+      g.globalAlpha *= 0.35;
+      g.fillStyle = col;
+      g.fill();
+    }
+    var k;
+    g.globalAlpha = 0.8 * (1 - u);
+    for (k = 0; k < 5; k++) {
+      var a = S.t * 3 + k * 1.2566 + e.x * 0.01;
+      var hy = ((S.t * 1.4 + k * 0.2) % 1) * r * 1.6;
+      g.fillStyle = shade(col, 1.4);
+      g.fillRect(e.x + Math.cos(a) * rr * 0.8 - 1.5, e.y + r * 0.5 + Math.sin(a) * rr * 0.34 - hy, 3, 3);
+    }
+    g.restore();
+  }
+  function drawDazeStars(g, x, y, r) {
+    var k, a;
+    for (k = 0; k < 3; k++) {
+      a = S.t * 5 + k * 2.094;
+      var sx = x + Math.cos(a) * r * 0.7, sy = y + Math.sin(a) * r * 0.25;
+      g.fillStyle = k === 0 ? "#fff6c0" : "#f0d040";
+      g.fillRect(sx - 2.5, sy - 1, 5, 2);
+      g.fillRect(sx - 1, sy - 2.5, 2, 5);
+    }
+  }
+  function drawMob(g, e, a) {
+    var r = artR(e), x = e.x, y = e.y, gy = y + r * 1.05;
+    if (e.bobPhase == null) e.bobPhase = Math.random() * 6.3;
+    var ph = e.bobPhase, t = S.t, f = e.facing || 1;
+    var col = e.col, u = mobWind(e);
+    var flash = e.flash > 0, sx = 1, sy = 1, alpha = a, dead = !e.alive;
+    if (dead) {
+      var el = (e.deadMax || 1.2) - e.deadT;
+      if (el > 0.26) return;
+      flash = flash || el < 0.07;
+      var dk = el / 0.26;
+      sx = 1 + 0.25 * dk; sy = Math.max(0.05, 1.1 - dk * 1.05);
+      alpha = a * (1 - dk * 0.7);
+    } else if (e.spawnT > 0 && e.spawnMax) {
+      var su = 1 - e.spawnT / e.spawnMax;
+      var rise = su < 0.35 ? 0 : easeOutBack((su - 0.35) / 0.65);
+      sy = Math.max(0.02, rise); sx = 1 + (1 - Math.min(1, rise)) * 0.35;
+      alpha = a * Math.min(1, su * 2.2);
+    } else if (e.hitT > 0) {
+      var hk = e.hitT / 0.2;
+      sx = 1 + 0.16 * hk; sy = 1 - 0.18 * hk;
+    }
+    if (alpha <= 0.01) return;
+    function P(c) { return flash ? "#ffffff" : c; }
+    var moving = !!e.moving && !dead && !(e.spawnT > 0);
+    var step = moving ? Math.sin(e.walkT || 0) : 0;
+    var bob = Math.sin(t * (e.wob || 4) + ph) * r * 0.06;
+    var fly = e.kind === "swoop" || e.type === "cinder" || e.type === "voider" || e.type === "witchling";
+    /* shadow stays on the floor, shrinks for fliers */
+    g.globalAlpha = alpha * (fly ? 0.22 : 0.32);
+    g.fillStyle = "#0a0806";
+    if (ellipseOk(r * 0.8, r * 0.26)) {
+      g.beginPath(); g.ellipse(x, gy - r * 0.05, r * (fly ? 0.55 : 0.82), r * (fly ? 0.18 : 0.26), 0, 0, 6.3); g.fill();
+    }
+    g.globalAlpha = alpha;
+    g.save();
+    g.translate(x, gy); g.scale(sx, sy); g.translate(-x, -gy);
+    if (e.daze > 0) g.translate(Math.sin(t * 9) * r * 0.06, 0);
+    var tp = e.type, dark = shade(col, 0.6), lite = shade(col, 1.3), i;
+    var eyeCol = "#111", lookX = player ? Math.max(-1, Math.min(1, (player.x - x) / 160)) * r * 0.06 : 0;
+    if (tp === "slime") {
+      var hop = moving ? Math.abs(Math.sin((e.walkT || 0) * 0.85)) : 0;
+      var squish = moving ? Math.max(0, 1 - hop * 3) : 0.5 + 0.5 * Math.sin(t * 3 + ph);
+      var w = r * 2 * (1 + 0.1 * squish - 0.08 * hop), h = r * 1.5 * (1 - 0.1 * squish + 0.12 * hop);
+      var lift = hop * r * 0.4;
+      var top = gy - h - lift;
+      cube(g, x - w / 2, top, w, h * 0.5, h * 0.5, P(col));
+      g.globalAlpha = alpha * 0.4;
+      cube(g, x - w * 0.22, top + h * 0.18, w * 0.44, h * 0.3, h * 0.36, P(dark), false);
+      g.globalAlpha = alpha;
+      g.fillStyle = P("#eaffd0");
+      g.fillRect(x - w * 0.38, top + h * 0.08, w * 0.14, h * 0.08);
+      g.fillRect(x - w * 0.2, top + h * 0.08, w * 0.06, h * 0.08);
+      g.fillStyle = eyeCol;
+      g.fillRect(x - w * 0.24 + lookX, top + h * 0.58, r * 0.2, r * 0.24);
+      g.fillRect(x + w * 0.08 + lookX, top + h * 0.58, r * 0.2, r * 0.24);
+      g.fillStyle = P(dark);
+      g.fillRect(x - w * 0.5, top + h - 1, r * 0.2, r * 0.18);
+      g.fillRect(x + w * 0.3, top + h - 1, r * 0.16, r * 0.26);
+    } else if (tp === "bat") {
+      var fy = gy - r * 1.35 + Math.sin(t * 6 + ph) * r * 0.16;
+      var flap = Math.sin(t * 19 + ph);
+      for (i = -1; i <= 1; i += 2) {
+        cube(g, x + i * r * 0.42 - (i < 0 ? r * 0.95 : 0), fy - r * 0.05 + flap * r * 0.3, r * 0.95, r * 0.3, r * 0.1, P(dark));
+        cube(g, x + i * r * 1.3 - r * 0.28, fy + r * 0.05 + flap * r * 0.6, r * 0.56, r * 0.26, r * 0.08, P(shade(col, 0.5)));
+      }
+      cube(g, x - r * 0.45, fy - r * 0.35, r * 0.9, r * 0.45, r * 0.45, P(col));
+      cube(g, x - r * 0.42, fy - r * 0.62, r * 0.2, r * 0.28, r * 0.06, P(col));
+      cube(g, x + r * 0.22, fy - r * 0.62, r * 0.2, r * 0.28, r * 0.06, P(col));
+      g.fillStyle = P("#ff5040");
+      g.fillRect(x - r * 0.26 + lookX, fy + r * 0.16, r * 0.16, r * 0.14);
+      g.fillRect(x + r * 0.1 + lookX, fy + r * 0.16, r * 0.16, r * 0.14);
+      g.fillStyle = P("#f0f0e0");
+      g.fillRect(x - r * 0.14, fy + r * 0.44, r * 0.08, r * 0.12);
+      g.fillRect(x + r * 0.06, fy + r * 0.44, r * 0.08, r * 0.12);
+    } else if (tp === "skel") {
+      var bone = P(col), bdk = P(shade(col, 0.62));
+      cube(g, x - r * 0.46, gy - r * 0.62 - Math.max(0, step) * r * 0.14, r * 0.24, r * 0.14, r * 0.48, bdk);
+      cube(g, x + r * 0.22, gy - r * 0.62 - Math.max(0, -step) * r * 0.14, r * 0.24, r * 0.14, r * 0.48, bdk);
+      cube(g, x - r * 0.5, gy - r * 0.8, r * 1.0, r * 0.16, r * 0.14, bone);
+      cube(g, x - r * 0.9, gy - r * 1.42 + step * r * 0.1, r * 0.2, r * 0.14, r * 0.62, bdk);
+      cube(g, x + r * 0.7, gy - r * 1.42 - step * r * 0.1, r * 0.2, r * 0.14, r * 0.62, bdk);
+      cube(g, x - r * 0.62, gy - r * 1.55, r * 1.24, r * 0.26, r * 0.55, bone);
+      g.fillStyle = P("#2a241c");
+      for (i = 0; i < 3; i++) g.fillRect(x - r * 0.5, gy - r * 1.2 + i * r * 0.14, r * 1.0, r * 0.06);
+      g.fillRect(x - r * 0.05, gy - r * 1.28, r * 0.1, r * 0.46);
+      var sk = gy - r * 2.2 + bob;
+      cube(g, x - r * 0.56, sk, r * 1.12, r * 0.42, r * 0.5, bone);
+      g.fillStyle = P("#16100c");
+      g.fillRect(x - r * 0.38 + lookX, sk + r * 0.5, r * 0.28, r * 0.22);
+      g.fillRect(x + r * 0.1 + lookX, sk + r * 0.5, r * 0.28, r * 0.22);
+      g.fillStyle = P("#ff5a30");
+      g.fillRect(x - r * 0.28 + lookX, sk + r * 0.56, r * 0.1, r * 0.1);
+      g.fillRect(x + r * 0.2 + lookX, sk + r * 0.56, r * 0.1, r * 0.1);
+      g.fillStyle = P("#16100c");
+      g.fillRect(x - r * 0.3, sk + r * 0.82, r * 0.6, r * 0.05);
+    } else if (tp === "archer") {
+      var cloak = P(shade(col, 0.55)), hood = P(shade(col, 0.8));
+      var lean = -f * u * r * 0.12 + (e.recoil > 0 ? f * r * 0.1 * (e.recoil / 0.22) : 0);
+      cube(g, x - r * 0.4 + lean * 0.3, gy - r * 0.5, r * 0.28, r * 0.12, r * 0.38, P(shade(col, 0.45)));
+      cube(g, x + r * 0.12 + lean * 0.3, gy - r * 0.5, r * 0.28, r * 0.12, r * 0.38, P(shade(col, 0.45)));
+      cube(g, x - r * 0.62 + lean, gy - r * 1.55, r * 1.24, r * 0.3, r * 1.02, cloak);
+      g.fillStyle = P(shade(col, 0.4));
+      g.fillRect(x - r * 0.62 + lean, gy - r * 0.95, r * 1.24, r * 0.1);
+      var hy2 = gy - r * 2.2 + bob;
+      cube(g, x - r * 0.56 + lean, hy2, r * 1.12, r * 0.44, r * 0.5, hood);
+      cube(g, x - r * 0.18 + lean - f * r * 0.1, hy2 - r * 0.2, r * 0.36, r * 0.22, r * 0.06, hood);
+      g.fillStyle = P("#120c08");
+      g.fillRect(x - r * 0.38 + lean, hy2 + r * 0.46, r * 0.76, r * 0.42);
+      g.fillStyle = P(u > 0 ? "#fff0a0" : "#f0c060");
+      g.fillRect(x - r * 0.24 + lean + lookX, hy2 + r * 0.56, r * 0.14, r * 0.12);
+      g.fillRect(x + r * 0.1 + lean + lookX, hy2 + r * 0.56, r * 0.14, r * 0.12);
+      /* bow on the facing side; the string comes back on the wind */
+      var bx = x + f * r * 0.78 + lean, by = gy - r * 1.3, br = r * 0.78, pull = u * r * 0.5;
+      g.strokeStyle = P("#8a5a2a");
+      g.lineWidth = r * 0.14;
+      g.beginPath();
+      if (f > 0) g.arc(bx - br * 0.55, by, br, -1.05, 1.05);
+      else g.arc(bx + br * 0.55, by, br, Math.PI - 1.05, Math.PI + 1.05);
+      g.stroke();
+      var tipX = bx - f * br * 0.55 + f * Math.cos(1.05) * br, tipY = Math.sin(1.05) * br;
+      g.strokeStyle = P("#e8e0d0");
+      g.lineWidth = 1;
+      g.beginPath();
+      g.moveTo(tipX, by - tipY); g.lineTo(tipX - f * pull, by); g.lineTo(tipX, by + tipY);
+      g.stroke();
+      if (u > 0.05) {
+        g.fillStyle = P("#d8d0c0");
+        g.fillRect(Math.min(tipX - f * pull, tipX - f * pull + f * r * 1.1), by - 1, r * 1.1, 2);
+        g.fillStyle = P("#c8d0d8");
+        g.fillRect(tipX - f * pull + f * r * 1.05 - 2, by - 2.5, 4, 5);
+      }
+    } else if (tp === "imp") {
+      var ih = moving ? Math.abs(Math.sin((e.walkT || 0) * 1.2)) * r * 0.22 : 0;
+      var wf = Math.sin(t * 10 + ph) * r * 0.12;
+      cube(g, x - r * 1.0, gy - r * 1.55 - ih + wf, r * 0.5, r * 0.22, r * 0.34, P(dark));
+      cube(g, x + r * 0.5, gy - r * 1.55 - ih + wf, r * 0.5, r * 0.22, r * 0.34, P(dark));
+      cube(g, x - f * r * 0.75 - r * 0.12, gy - r * 0.9 - ih, r * 0.24, r * 0.14, r * 0.14, P(dark));
+      cube(g, x - f * r * 0.95 - r * 0.1, gy - r * 1.1 - ih, r * 0.2, r * 0.14, r * 0.12, P(dark));
+      cube(g, x - r * 0.36, gy - r * 0.42 - ih * 0.5, r * 0.22, r * 0.12, r * 0.3, P(dark));
+      cube(g, x + r * 0.14, gy - r * 0.42 - ih * 0.5, r * 0.22, r * 0.12, r * 0.3, P(dark));
+      cube(g, x - r * 0.52, gy - r * 1.15 - ih, r * 1.04, r * 0.28, r * 0.58, P(col));
+      var ihd = gy - r * 1.9 - ih + bob;
+      cube(g, x - r * 0.6, ihd, r * 1.2, r * 0.4, r * 0.46, P(lite));
+      cube(g, x - r * 0.62, ihd - r * 0.3, r * 0.18, r * 0.32, r * 0.08, P("#e8dcc0"));
+      cube(g, x + r * 0.44, ihd - r * 0.3, r * 0.18, r * 0.32, r * 0.08, P("#e8dcc0"));
+      g.fillStyle = P("#ffd040");
+      g.fillRect(x - r * 0.36 + lookX, ihd + r * 0.46, r * 0.2, r * 0.14);
+      g.fillRect(x + r * 0.16 + lookX, ihd + r * 0.46, r * 0.2, r * 0.14);
+      g.fillStyle = P("#2a0c08");
+      g.fillRect(x - r * 0.26, ihd + r * 0.68, r * 0.52, r * 0.1);
+      g.fillStyle = P("#fff0e0");
+      g.fillRect(x - r * 0.2, ihd + r * 0.68, r * 0.08, r * 0.06);
+      g.fillRect(x + r * 0.12, ihd + r * 0.68, r * 0.08, r * 0.06);
+    } else if (tp === "cinder") {
+      var cy2 = gy - r * 1.35 + Math.sin(t * 4 + ph) * r * 0.16;
+      g.save();
+      g.globalCompositeOperation = "lighter";
+      g.globalAlpha = alpha * (0.22 + 0.06 * Math.sin(t * 9 + ph));
+      g.fillStyle = "#ff7020";
+      g.beginPath(); g.arc(x, cy2, r * 1.05, 0, 6.3); g.fill();
+      g.restore();
+      for (i = -1; i <= 1; i++) {
+        var fh = r * (0.45 + 0.25 * Math.sin(t * 13 + i * 2 + ph));
+        g.fillStyle = P(i === 0 ? "#ffd060" : "#ff7020");
+        g.fillRect(x + i * r * 0.32 - r * 0.14, cy2 - r * 0.55 - fh, r * 0.28, fh);
+      }
+      cube(g, x - r * 0.55, cy2 - r * 0.55, r * 1.1, r * 0.42, r * 0.58, P(col));
+      g.fillStyle = P("#ffe890");
+      g.fillRect(x - r * 0.32, cy2 - r * 0.04, r * 0.64, r * 0.3);
+      g.fillStyle = P("#3a1008");
+      g.fillRect(x - r * 0.28 + lookX, cy2 + r * 0.02, r * 0.16, r * 0.16);
+      g.fillRect(x + r * 0.12 + lookX, cy2 + r * 0.02, r * 0.16, r * 0.16);
+      if (!dead && Math.random() < 0.06 && !S.pause) embers(x, e.y + r * 0.4 * enemyVis(e), "#ffb040", 1);
+    } else if (tp === "grunt") {
+      var st = moving ? Math.abs(step) * r * 0.07 : 0;
+      cube(g, x - r * 0.62, gy - r * 0.52 - Math.max(0, step) * r * 0.1, r * 0.46, r * 0.16, r * 0.36, P(dark));
+      cube(g, x + r * 0.16, gy - r * 0.52 - Math.max(0, -step) * r * 0.1, r * 0.46, r * 0.16, r * 0.36, P(dark));
+      cube(g, x - r * 1.22, gy - r * 1.3 + step * r * 0.12 - st, r * 0.42, r * 0.22, r * 0.6, P(shade(col, 0.8)));
+      cube(g, x + r * 0.8, gy - r * 1.3 - step * r * 0.12 - st, r * 0.42, r * 0.22, r * 0.6, P(shade(col, 0.8)));
+      cube(g, x - r * 1.28, gy - r * 0.76 + step * r * 0.12 - st, r * 0.54, r * 0.28, r * 0.3, P(shade(col, 1.1)));
+      cube(g, x + r * 0.74, gy - r * 0.76 - step * r * 0.12 - st, r * 0.54, r * 0.28, r * 0.3, P(shade(col, 1.1)));
+      cube(g, x - r * 0.9, gy - r * 1.55 - st, r * 1.8, r * 0.38, r * 0.82, P(col));
+      g.fillStyle = P("#3a2414");
+      g.fillRect(x - r * 0.9, gy - r * 0.62 - st, r * 1.8, r * 0.12);
+      g.fillStyle = P("#c0a040");
+      g.fillRect(x - r * 0.12, gy - r * 0.64 - st, r * 0.24, r * 0.16);
+      cube(g, x - r * 1.05, gy - r * 1.72 - st, r * 0.5, r * 0.3, r * 0.22, P(dark));
+      cube(g, x + r * 0.55, gy - r * 1.72 - st, r * 0.5, r * 0.3, r * 0.22, P(dark));
+      var gh = gy - r * 2.02 - st + bob;
+      cube(g, x - r * 0.42, gh, r * 0.84, r * 0.3, r * 0.38, P(lite));
+      g.fillStyle = P("#ff4020");
+      g.fillRect(x - r * 0.28 + lookX, gh + r * 0.36, r * 0.16, r * 0.1);
+      g.fillRect(x + r * 0.12 + lookX, gh + r * 0.36, r * 0.16, r * 0.1);
+      g.fillStyle = P("#f0e8d0");
+      g.fillRect(x - r * 0.3, gh + r * 0.56, r * 0.08, r * 0.16);
+      g.fillRect(x + r * 0.22, gh + r * 0.56, r * 0.08, r * 0.16);
+    } else if (tp === "spit") {
+      var puff = 1 + u * 0.18;
+      var sw = r * 2.0 * puff, sht = r * 1.15;
+      cube(g, x - r * 0.9, gy - r * 0.3, r * 0.3, r * 0.14, r * 0.2, P(dark));
+      cube(g, x + r * 0.6, gy - r * 0.3, r * 0.3, r * 0.14, r * 0.2, P(dark));
+      cube(g, x - sw / 2, gy - sht, sw, r * 0.55, r * 0.55, P(col));
+      cube(g, x - r * 0.5, gy - sht - r * 0.14, r * 0.34, r * 0.18, r * 0.1, P(dark));
+      cube(g, x + r * 0.2, gy - sht - r * 0.08, r * 0.26, r * 0.14, r * 0.08, P(dark));
+      cube(g, x - r * 0.62, gy - sht - r * 0.32 + bob, r * 0.34, r * 0.3, r * 0.2, P(lite));
+      cube(g, x + r * 0.28, gy - sht - r * 0.32 + bob, r * 0.34, r * 0.3, r * 0.2, P(lite));
+      g.fillStyle = P("#1a0c04");
+      g.fillRect(x - r * 0.52 + lookX, gy - sht - r * 0.2 + bob, r * 0.14, r * 0.14);
+      g.fillRect(x + r * 0.38 + lookX, gy - sht - r * 0.2 + bob, r * 0.14, r * 0.14);
+      var mh = r * (0.1 + 0.26 * u);
+      g.fillStyle = P("#2a0804");
+      g.fillRect(x - r * 0.5, gy - sht + r * 0.72, r * 1.0, mh);
+      if (u > 0) {
+        g.fillStyle = P(u > 0.6 ? "#fff0a0" : "#ff8020");
+        g.fillRect(x - r * 0.36, gy - sht + r * 0.74, r * 0.72, mh * 0.7);
+      }
+    } else if (tp === "wraith") {
+      g.globalAlpha = alpha * 0.86;
+      var wy = gy - r * 0.55 + Math.sin(t * 3 + ph) * r * 0.14;
+      for (i = 0; i < 4; i++) {
+        var wv = Math.sin(t * 5 + i * 1.3 + ph) * r * 0.08;
+        g.fillStyle = P(shade(col, 0.55 - i * 0.04));
+        g.fillRect(x - r * 0.66 + i * r * 0.34 + wv, wy - r * 0.1, r * 0.26, r * (0.5 - (i & 1) * 0.16));
+      }
+      cube(g, x - r * 0.7, wy - r * 1.05, r * 1.4, r * 0.3, r * 0.7, P(shade(col, 0.75)));
+      var reach = player ? Math.max(-1, Math.min(1, (player.x - x) / 90)) : f;
+      cube(g, x + reach * r * 0.7 - r * 0.15, wy - r * 0.7, r * 0.3, r * 0.14, r * 0.14, P(lite));
+      var wh2 = wy - r * 1.75 + bob;
+      cube(g, x - r * 0.62, wh2, r * 1.24, r * 0.4, r * 0.55, P(col));
+      cube(g, x - r * 0.16, wh2 - r * 0.2, r * 0.32, r * 0.22, r * 0.06, P(col));
+      g.fillStyle = P("#0a0c18");
+      g.fillRect(x - r * 0.42, wh2 + r * 0.44, r * 0.84, r * 0.44);
+      g.fillStyle = P("#a0f0ff");
+      g.fillRect(x - r * 0.28 + lookX, wh2 + r * 0.56, r * 0.16, r * 0.1);
+      g.fillRect(x + r * 0.12 + lookX, wh2 + r * 0.56, r * 0.16, r * 0.1);
+      g.globalAlpha = alpha;
+    } else if (tp === "ashling") {
+      var glow = 0.55 + 0.45 * Math.sin(t * 4 + ph);
+      cube(g, x - r * 0.46, gy - r * 0.5 - Math.max(0, step) * r * 0.12, r * 0.3, r * 0.14, r * 0.36, P(dark));
+      cube(g, x + r * 0.16, gy - r * 0.5 - Math.max(0, -step) * r * 0.12, r * 0.3, r * 0.14, r * 0.36, P(dark));
+      cube(g, x - r * 0.66, gy - r * 1.35, r * 1.2, r * 0.3, r * 0.7, P(col));
+      cube(g, x - r * 0.3, gy - r * 1.5, r * 0.96, r * 0.24, r * 0.3, P(shade(col, 0.85)));
+      var ah = gy - r * 2.02 + bob;
+      cube(g, x - r * 0.46, ah, r * 0.92, r * 0.34, r * 0.4, P(lite));
+      g.globalAlpha = alpha * glow;
+      g.fillStyle = P("#ff8a30");
+      g.fillRect(x - r * 0.4, gy - r * 0.95, r * 0.3, r * 0.06);
+      g.fillRect(x - r * 0.14, gy - r * 0.95, r * 0.06, r * 0.3);
+      g.fillRect(x + r * 0.1, gy - r * 0.8, r * 0.3, r * 0.06);
+      g.fillRect(x + r * 0.2, gy - r * 1.2, r * 0.06, r * 0.26);
+      g.globalAlpha = alpha;
+      g.fillStyle = P("#ffb040");
+      g.fillRect(x - r * 0.3 + lookX, ah + r * 0.42, r * 0.18, r * 0.12);
+      g.fillRect(x + r * 0.1 + lookX, ah + r * 0.42, r * 0.18, r * 0.12);
+      if (!dead && Math.random() < 0.03 && !S.pause) embers(x, e.y, "#ff9a40", 1);
+    } else if (tp === "charger") {
+      var dashing = e.dashT > 0;
+      var shake = u > 0 ? Math.sin(t * 60) * r * 0.05 * u : 0;
+      var cf = dashing || u > 0 ? ((e.laneX || f) < 0 ? -1 : 1) : f;
+      var gait = dashing ? Math.sin(t * 30) : step;
+      var lean2 = dashing ? r * 0.12 : 0;
+      var hd = u * r * 0.22 + (e.daze > 0 ? Math.sin(t * 6) * r * 0.06 : 0);
+      g.translate(shake, 0);
+      for (i = 0; i < 4; i++) {
+        var lx = x + (i < 2 ? -r * 0.75 : r * 0.35) + (i & 1) * r * 0.26;
+        var lk = ((i & 1) ? gait : -gait);
+        cube(g, lx, gy - r * 0.48 - Math.max(0, lk) * r * 0.14, r * 0.22, r * 0.12, r * 0.36, P(dark));
+      }
+      cube(g, x - r * 1.0 + cf * lean2, gy - r * 1.28, r * 2.0, r * 0.46, r * 0.62, P(col));
+      g.fillStyle = P(shade(col, 0.45));
+      for (i = 0; i < 4; i++) g.fillRect(x - r * 0.8 + i * r * 0.36 + cf * lean2, gy - r * 1.4, r * 0.2, r * 0.18);
+      var hx2 = x + cf * r * 0.72 + cf * lean2, hy3 = gy - r * 1.18 + hd;
+      cube(g, hx2 - r * 0.42, hy3, r * 0.84, r * 0.38, r * 0.5, P(lite));
+      cube(g, hx2 + cf * r * 0.4 - r * 0.1, hy3 + r * 0.46, r * 0.2, r * 0.2, r * 0.1, P("#f0e4c8"));
+      cube(g, hx2 + cf * r * 0.3 - r * 0.08, hy3 - r * 0.16, r * 0.16, r * 0.24, r * 0.06, P("#f0e4c8"));
+      g.fillStyle = P(u > 0 || dashing ? "#ff3020" : "#1a0a06");
+      g.fillRect(hx2 + cf * r * 0.12 - r * 0.07, hy3 + r * 0.44, r * 0.14, r * 0.12);
+      if ((u > 0.2 || dashing) && !S.pause && Math.random() < 0.3) dustPuff(x - cf * r * 0.9 * enemyVis(e), e.y + r * enemyVis(e), 1);
+    } else if (tp === "voider") {
+      var vy = gy - r * 1.35 + Math.sin(t * 2.5 + ph) * r * 0.12;
+      var ring = r * (1.05 - 0.3 * u);
+      g.strokeStyle = P(u > 0 ? "#d0a0ff" : "#5a3a90");
+      g.lineWidth = 2;
+      if (ellipseOk(ring, ring * 0.36)) {
+        g.setLineDash([5, 4]);
+        g.lineDashOffset = -t * 30;
+        g.beginPath(); g.ellipse(x, vy + r * 0.2, ring, ring * 0.36, 0, 0, 6.3); g.stroke();
+        g.setLineDash([]);
+        g.lineDashOffset = 0;
+      }
+      cube(g, x - r * 0.68, vy - r * 0.62, r * 1.36, r * 0.5, r * 0.78, P(col));
+      g.fillStyle = P(shade(col, 1.5));
+      g.fillRect(x - r * 0.6, vy - r * 0.6, r * 0.3, r * 0.12);
+      var blink = Math.sin(t * 0.9 + ph) > 0.97 ? 0.2 : 1;
+      g.fillStyle = P("#f0e8ff");
+      g.fillRect(x - r * 0.42, vy - r * 0.02 + r * 0.24 * (1 - blink), r * 0.84, r * 0.48 * blink);
+      g.fillStyle = P(u > 0 ? "#ff40c0" : "#20102a");
+      var px2 = player ? Math.max(-1, Math.min(1, (player.x - x) / 120)) * r * 0.2 : 0;
+      g.fillRect(x - r * 0.14 + px2, vy + r * 0.06, r * 0.28, r * 0.3 * blink);
+    } else if (tp === "briar") {
+      var sway = Math.sin(t * 2 + ph) * r * 0.06;
+      cube(g, x - r * 0.4, gy - r * 0.34 - Math.max(0, step) * r * 0.12, r * 0.24, r * 0.12, r * 0.24, P("#5a3a20"));
+      cube(g, x + r * 0.16, gy - r * 0.34 - Math.max(0, -step) * r * 0.12, r * 0.24, r * 0.12, r * 0.24, P("#5a3a20"));
+      cube(g, x - r * 0.95 + sway, gy - r * 1.3, r * 1.1, r * 0.4, r * 0.7, P(dark));
+      cube(g, x - r * 0.15 + sway, gy - r * 1.45, r * 1.05, r * 0.42, r * 0.8, P(col));
+      cube(g, x - r * 0.62 + sway * 1.4, gy - r * 1.95, r * 1.12, r * 0.44, r * 0.6, P(lite));
+      g.fillStyle = P("#e8f090");
+      var th = [[-0.98, -1.1], [0.88, -1.2], [-0.5, -1.98], [0.5, -1.9], [-0.2, -0.7], [0.62, -0.62]];
+      for (i = 0; i < th.length; i++) g.fillRect(x + th[i][0] * r + sway, gy + th[i][1] * r, r * 0.1, r * 0.18);
+      g.fillStyle = P("#0e1a08");
+      g.fillRect(x - r * 0.36 + sway, gy - r * 1.02, r * 0.74, r * 0.24);
+      g.fillStyle = P("#f0e050");
+      g.fillRect(x - r * 0.26 + lookX + sway, gy - r * 0.98, r * 0.14, r * 0.12);
+      g.fillRect(x + r * 0.12 + lookX + sway, gy - r * 0.98, r * 0.14, r * 0.12);
+    } else if (tp === "spitter") {
+      var pf = 1 + u * 0.14;
+      var wd = moving ? step * r * 0.05 : 0;
+      cube(g, x - r * 0.42, gy - r * 0.26, r * 0.28, r * 0.12, r * 0.16, P("#5a4020"));
+      cube(g, x + r * 0.14, gy - r * 0.26, r * 0.28, r * 0.12, r * 0.16, P("#5a4020"));
+      cube(g, x - r * 1.0 + wd, gy - r * 1.5, r * 0.4, r * 0.18, r * 0.24, P(dark));
+      cube(g, x - r * 1.0 + wd, gy - r * 1.95, r * 0.2, r * 0.14, r * 0.46, P(dark));
+      cube(g, x + r * 0.6 + wd, gy - r * 1.25, r * 0.4, r * 0.18, r * 0.24, P(dark));
+      cube(g, x + r * 0.8 + wd, gy - r * 1.62, r * 0.2, r * 0.14, r * 0.4, P(dark));
+      cube(g, x - r * 0.42 * pf + wd, gy - r * 2.05, r * 0.84 * pf, r * 0.3, r * 1.75, P(col));
+      g.fillStyle = P("#f0f8c0");
+      for (i = 0; i < 6; i++) g.fillRect(x - r * 0.3 * pf + (i % 2) * r * 0.46 * pf + wd, gy - r * 1.55 + Math.floor(i / 2) * r * 0.36, r * 0.08, r * 0.08);
+      var fl = u > 0 ? 1 + u * 0.5 : 1;
+      cube(g, x - r * 0.22 * fl + wd, gy - r * 2.3, r * 0.44 * fl, r * 0.26, r * 0.14, P("#f070a0"));
+      g.fillStyle = P("#ffe060");
+      g.fillRect(x - r * 0.06 + wd, gy - r * 2.24, r * 0.12, r * 0.12);
+      g.fillStyle = P("#122008");
+      g.fillRect(x - r * 0.22 + lookX + wd, gy - r * 1.6, r * 0.12, r * 0.14);
+      g.fillRect(x + r * 0.1 + lookX + wd, gy - r * 1.6, r * 0.12, r * 0.14);
+    } else if (tp === "golem") {
+      var gs = moving ? Math.abs(step) * r * 0.05 : 0;
+      cube(g, x - r * 0.72, gy - r * 0.58 - Math.max(0, step) * r * 0.1, r * 0.54, r * 0.2, r * 0.38, P(dark));
+      cube(g, x + r * 0.18, gy - r * 0.58 - Math.max(0, -step) * r * 0.1, r * 0.54, r * 0.2, r * 0.38, P(dark));
+      cube(g, x - r * 1.25, gy - r * 1.45 + step * r * 0.08 - gs, r * 0.44, r * 0.26, r * 0.95, P(shade(col, 0.85)));
+      cube(g, x + r * 0.81, gy - r * 1.45 - step * r * 0.08 - gs, r * 0.44, r * 0.26, r * 0.95, P(shade(col, 0.85)));
+      cube(g, x - r * 0.92, gy - r * 1.62 - gs, r * 1.84, r * 0.46, r * 0.86, P(col));
+      g.fillStyle = P("#4a7a3a");
+      g.fillRect(x - r * 0.8, gy - r * 1.62 - gs, r * 0.6, r * 0.14);
+      g.fillRect(x + r * 0.3, gy - r * 1.62 - gs, r * 0.4, r * 0.1);
+      g.fillRect(x - r * 1.25, gy - r * 1.45 - gs, r * 0.44, r * 0.1);
+      var rg = 0.5 + 0.5 * Math.sin(t * 2.4 + ph);
+      g.globalAlpha = alpha * (0.5 + 0.5 * rg);
+      g.fillStyle = P("#70e0f0");
+      g.fillRect(x - r * 0.2, gy - r * 1.0 - gs, r * 0.4, r * 0.06);
+      g.fillRect(x - r * 0.03, gy - r * 1.14 - gs, r * 0.06, r * 0.34);
+      g.globalAlpha = alpha;
+      var gh2 = gy - r * 2.08 - gs + bob;
+      cube(g, x - r * 0.46, gh2, r * 0.92, r * 0.34, r * 0.42, P(lite));
+      g.fillStyle = P("#70e0f0");
+      g.fillRect(x - r * 0.32 + lookX, gh2 + r * 0.46, r * 0.22, r * 0.07);
+      g.fillRect(x + r * 0.1 + lookX, gh2 + r * 0.46, r * 0.22, r * 0.07);
+    } else if (tp === "witchling") {
+      var wy2 = gy - r * 1.0 + Math.sin(t * 3 + ph) * r * 0.12;
+      var robe = P("#3a2a50");
+      cube(g, x - r * 1.1, wy2 + r * 0.05, r * 2.1, r * 0.12, r * 0.1, P("#7a5230"));
+      cube(g, x - f * r * 1.05 - r * 0.22, wy2 - r * 0.02, r * 0.44, r * 0.2, r * 0.22, P("#d0b070"));
+      cube(g, x - r * 0.52, wy2 - r * 0.72, r * 1.04, r * 0.28, r * 0.68, robe);
+      var wh3 = wy2 - r * 1.25 + bob;
+      cube(g, x - r * 0.4, wh3, r * 0.8, r * 0.28, r * 0.38, P(col));
+      g.fillStyle = P("#ffe050");
+      g.fillRect(x - r * 0.26 + lookX, wh3 + r * 0.36, r * 0.14, r * 0.1);
+      g.fillRect(x + r * 0.1 + lookX, wh3 + r * 0.36, r * 0.14, r * 0.1);
+      cube(g, x + f * r * 0.04 - r * 0.06, wh3 + r * 0.44, r * 0.12, r * 0.12, r * 0.08, P(shade(col, 0.8)));
+      cube(g, x - r * 0.72, wh3 - r * 0.12, r * 1.44, r * 0.22, r * 0.08, P("#241a30"));
+      cube(g, x - r * 0.36, wh3 - r * 0.48, r * 0.72, r * 0.2, r * 0.24, P("#2e2240"));
+      cube(g, x - r * 0.2, wh3 - r * 0.78, r * 0.4, r * 0.16, r * 0.2, P("#2e2240"));
+      cube(g, x - r * 0.08 - f * r * 0.14, wh3 - r * 0.98, r * 0.2, r * 0.12, r * 0.14, P("#2e2240"));
+      g.fillStyle = P("#c0a040");
+      g.fillRect(x - r * 0.36, wh3 - r * 0.24, r * 0.72, r * 0.06);
+    } else {
+      cube(g, x - r, y - r * 1.0 + bob, r * 2, r * 1.85, r * 0.42, P(col));
+    }
+    g.restore();
+    if (e.daze > 0 && !dead) drawDazeStars(g, x, gy - r * 2.5, r);
+    g.globalAlpha = a;
+  }
+
   function drawEnemy(g, e) {
     if (!e.alive && e.deadT <= 0) return;
     var a = !e.alive ? Math.max(0, e.deadT) : 1;
+    drawSpawnRing(g, e);
+    if (!e.boss && e.alive) drawMobTell(g, e);
     g.globalAlpha = a;
     /* BB-V7.15 — trash / knight / lord each have their own vis. Hurtboxes are
        fit to the painted torso in fitSilhouette (not a shared r*N halo). */
     g.save();
+    if (e.boss && e.spawnT > 0 && e.spawnMax) {
+      /* knights and bosses rise out of their ring the same way trash does */
+      var su = 1 - e.spawnT / e.spawnMax;
+      var rise = su < 0.3 ? 0.02 : Math.max(0.02, easeOutBack((su - 0.3) / 0.7));
+      g.globalAlpha = a * Math.min(1, su * 2);
+      g.translate(e.x, e.y);
+      g.scale(1 + (1 - Math.min(1, rise)) * 0.3, rise);
+      g.translate(-e.x, -e.y);
+    }
     g.translate(e.x, e.y);
     g.scale(enemyVis(e), enemyVis(e));
     g.translate(-e.x, -e.y);
@@ -10363,45 +11017,31 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     } else {
       /* CHIEF BB-V6.2 — first-floor mobs rebuilt on Joe's own `drawEnemy`: one cube
          with a lit top and a dropped front face, its own idle bob so a room of them
-         breathes at different rates, and two hard dark eyes. The flat square with a
-         highlight strip was a worse picture of the same thing. */
-      var r = artR(e), x = e.x, y = e.y;
+         breathes at different rates, and two hard dark eyes.
+         BB-V7.69 — each type now has its own built sprite (drawMob). */
       if (e.wob == null) e.wob = 4 + (e.seedw = (e.seedw || Math.random() * 4));
-      var bob = Math.sin(S.t * e.wob + (e.bobPhase || (e.bobPhase = Math.random() * 6.3))) * r * 0.1;
-
-      g.globalAlpha = a * 0.32;
-      g.fillStyle = "#0a0806";
-      g.beginPath(); g.ellipse(x, y + r * 0.95, r * 0.8, r * 0.28, 0, 0, 6.3); g.fill();
-      g.globalAlpha = a;
-
-      var col = e.flash > 0 ? "#ffffff" : e.col;
-      if (e.kind === "swoop") {
-        cube(g, x - r * 0.95, y - r * 0.75 + bob, r * 1.9, r * 1.0, r * 0.28, col);
-        g.fillStyle = shade(col, 0.55);
-        g.fillRect(x - r * 1.25, y - r * 0.45 + bob, r * 0.32, r * 0.5);
-        g.fillRect(x + r * 0.93, y - r * 0.45 + bob, r * 0.32, r * 0.5);
-      } else {
-        cube(g, x - r, y - r * 1.0 + bob, r * 2, r * 1.85, r * 0.42, col);
-        if (e.kind === "range") {
-          g.fillStyle = shade(col, 0.5);
-          g.fillRect(x - r * 1.05, y + r * 0.2 + bob, r * 2.1, r * 0.22);
-        }
-      }
-      g.fillStyle = "#111";
-      var ez = Math.max(3, r * 0.22);
-      var eo = Math.max(-1, Math.min(1, (player.x - x) / 200)) * r * 0.1;
-      g.fillRect(x - r * 0.46 + eo, y - r * 0.5 + bob, ez, ez);
-      g.fillRect(x + r * 0.22 + eo, y - r * 0.5 + bob, ez, ez);
+      e.artH = artR(e) * 1.35;
+      drawMob(g, e, 1);
     }
     g.restore();
-    /* HP bar sits above the painted silhouette (artH), not the contact bodyR. */
+    /* HP bar sits above the painted silhouette (artH), not the contact bodyR.
+       BB-V7.69 — trash only shows one once hurt; a white chunk trails the
+       loss so a hit reads as a bite, and the fill steps green → gold → red. */
     var topOff = (e.artH || artR(e)) * enemyVis(e);
-    if (e.alive) {
+    if (e.alive && !(e.spawnT > 0) && (e.boss || e.hp < e.maxHp)) {
       var w = Math.max(20, artR(e) * 2 * enemyVis(e));
-      g.fillStyle = "#2a1810";
-      g.fillRect(e.x - w / 2, e.y - topOff - 10, w, 4);
-      g.fillStyle = e.hp / e.maxHp > 0.35 ? "#50c060" : "#d04030";
-      g.fillRect(e.x - w / 2, e.y - topOff - 10, w * Math.max(0, e.hp / e.maxHp), 4);
+      var ratio = Math.max(0, e.hp / e.maxHp);
+      if (e.hpShow == null || e.hpShow < e.hp) e.hpShow = e.hp;
+      e.hpShow += (e.hp - e.hpShow) * 0.08;
+      var bx = e.x - w / 2, by = e.y - topOff - 10;
+      g.fillStyle = "rgba(12,8,6,0.85)";
+      g.fillRect(bx - 1, by - 1, w + 2, 6);
+      g.fillStyle = "#f0e6d4";
+      g.fillRect(bx, by, w * Math.max(0, e.hpShow / e.maxHp), 4);
+      g.fillStyle = ratio > 0.5 ? "#5cc068" : ratio > 0.25 ? "#e0b040" : "#e04030";
+      g.fillRect(bx, by, w * ratio, 4);
+      g.fillStyle = "rgba(255,255,255,0.28)";
+      g.fillRect(bx, by, w * ratio, 1);
     }
     if (e.burn > 0 && e.alive) {
       g.fillStyle = "rgba(255,80,20,0.5)";
@@ -10416,19 +11056,41 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     }
   }
 
+  /* BB-V7.69 — loot reads as things: a faceted blue shard (the HUD's own
+     icon, not a yellow square), a shaded ball in its rarity colour, a pixel
+     heart that beats. Beams fade up from the floor and scale with rarity;
+     resting loot bobs and sheds a glint now and then. */
+  var HEART_PX = ["0110110", "1111111", "1111111", "0111110", "0011100", "0001000"];
   function drawLoot(g, it) {
     var beam = (it.kind === "relic" && it.color) ? it.color : (RARITY[it.rar] ? RARITY[it.rar].c : "#ccc");
-    g.fillStyle = beam;
-    g.globalAlpha = it.kind === "relic" ? (0.45 + 0.35 * Math.sin(S.t * 5)) : 0.25;
-    g.fillRect(it.x - (it.kind === "relic" ? 4 : 3), it.y - (it.kind === "relic" ? 56 : 40), it.kind === "relic" ? 8 : 6, it.kind === "relic" ? 56 : 40);
+    var tier = it.kind === "relic" ? 3 : it.rar === "legendary" ? 3 : it.rar === "epic" ? 2 : it.rar === "rare" ? 1 : 0;
+    if (it.kind === "heart") { beam = "#e05040"; tier = 0; }
+    if (it.kind === "frag") { beam = "#70c0e8"; tier = 0; }
+    var bh = 26 + tier * 16, bw = 4 + tier * 2;
+    var resting = it.restY != null && Math.abs(it.y - it.restY) < 0.5 && Math.abs(it.vy || 0) < 4;
+    var bob = resting ? Math.sin(S.t * 4 + it.x * 0.13) * 2 : 0;
+    var lx = it.x, ly = it.y - 4 + bob;
+    g.save();
+    g.globalAlpha = 0.3;
+    g.fillStyle = "#0a0806";
+    g.beginPath(); g.ellipse(it.x, it.y + 5, 7, 2.4, 0, 0, 6.3); g.fill();
+    var grd = g.createLinearGradient(it.x, it.y - bh, it.x, it.y + 4);
+    grd.addColorStop(0, "rgba(255,255,255,0)");
+    grd.addColorStop(1, beam);
+    g.globalAlpha = (it.kind === "relic" ? 0.5 + 0.3 * Math.sin(S.t * 5) : 0.2 + tier * 0.1);
+    g.fillStyle = grd;
+    g.fillRect(it.x - bw * 0.5, it.y - bh, bw, bh + 4);
+    g.restore();
     g.globalAlpha = 1;
     if (it.kind === "heart") {
-      g.fillStyle = "#e05040";
-      g.beginPath();
-      g.moveTo(it.x, it.y + 7);
-      g.bezierCurveTo(it.x - 11, it.y - 1, it.x - 6, it.y - 10, it.x, it.y - 4);
-      g.bezierCurveTo(it.x + 6, it.y - 10, it.x + 11, it.y - 1, it.x, it.y + 7);
-      g.fill();
+      var hp2 = 1 + Math.max(0, Math.sin(S.t * 7)) * 0.14, c2 = 2 * hp2, hr, hc;
+      for (hr = 0; hr < HEART_PX.length; hr++) {
+        for (hc = 0; hc < 7; hc++) {
+          if (HEART_PX[hr].charAt(hc) !== "1") continue;
+          g.fillStyle = hr < 2 && hc < 3 ? "#ff9a88" : hr > 3 ? "#b02a22" : "#e04638";
+          g.fillRect(lx - 3.5 * c2 + hc * c2, ly - 4 * c2 + hr * c2, c2 + 0.3, c2 + 0.3);
+        }
+      }
     } else if (it.kind === "relic") {
       var col = it.color || "#f0c030";
       var pulse = 1 + Math.sin(S.t * 6) * 0.12;
@@ -10454,8 +11116,22 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       g.fillText(it.name || "RELIC", 0, 22);
       g.restore();
     } else if (it.kind === "ball") {
-      g.fillStyle = (RARITY[it.rar] && RARITY[it.rar].c) || "#ccc";
-      g.beginPath(); g.arc(it.x, it.y, 8, 0, 6.3); g.fill();
+      var rc = (RARITY[it.rar] && RARITY[it.rar].c) || "#ccc";
+      if (tier >= 2) {
+        g.globalAlpha = 0.25 + 0.15 * Math.sin(S.t * 6);
+        g.strokeStyle = rc; g.lineWidth = 2;
+        g.beginPath(); g.arc(lx, ly, 12, 0, 6.3); g.stroke();
+        g.globalAlpha = 1;
+      }
+      var bg = g.createRadialGradient(lx - 3, ly - 3, 1, lx, ly, 8);
+      bg.addColorStop(0, shade(rc, 1.5));
+      bg.addColorStop(1, shade(rc, 0.7));
+      g.fillStyle = bg;
+      g.beginPath(); g.arc(lx, ly, 8, 0, 6.3); g.fill();
+      g.strokeStyle = shade(rc, 0.35); g.lineWidth = 1.2;
+      g.beginPath(); g.arc(lx, ly, 7.4, 0, 6.3);
+      g.moveTo(lx, ly - 7.4); g.lineTo(lx, ly + 7.4);
+      g.stroke();
     } else if (it.kind === "field") {
       var fd = FIELDS[it.field] || FIELDS.pulse;
       g.strokeStyle = fd.col;
@@ -10469,9 +11145,29 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
         drawHexSpikes(g, it.x, it.y, 9, 3.2, fd.col, 1);
       }
     } else {
-      g.fillStyle = "#f0d060";
-      g.fillRect(it.x - 5, it.y - 5, 10, 10);
-      if ((it.n || 1) > 1) g.fillRect(it.x - 1, it.y - 9, 8, 8);
+      var spin = Math.cos(S.t * 3 + it.x * 0.07);
+      var n2 = it.n || 1, fi;
+      for (fi = 0; fi < Math.min(2, n2); fi++) {
+        var fx = lx + fi * 7 - (n2 > 1 ? 3 : 0), fy2 = ly - fi * 3;
+        g.save();
+        g.translate(fx, fy2);
+        g.scale(0.35 + 0.65 * Math.abs(spin), 1);
+        g.fillStyle = "#70b0d0";
+        g.beginPath();
+        g.moveTo(0, -8); g.lineTo(5, -2); g.lineTo(3, 6); g.lineTo(-3, 6); g.lineTo(-5, -2); g.closePath();
+        g.fill();
+        g.fillStyle = spin > 0 ? "#b0e4f8" : "#4a88a8";
+        g.beginPath(); g.moveTo(0, -8); g.lineTo(-5, -2); g.lineTo(-3, 6); g.lineTo(0, 6); g.closePath(); g.fill();
+        g.strokeStyle = "#d0f0ff"; g.lineWidth = 1;
+        g.beginPath();
+        g.moveTo(0, -8); g.lineTo(5, -2); g.lineTo(3, 6); g.lineTo(-3, 6); g.lineTo(-5, -2); g.closePath();
+        g.stroke();
+        g.restore();
+      }
+      if (Math.sin(S.t * 2.3 + it.x) > 0.96) {
+        g.fillStyle = "#ffffff";
+        g.fillRect(lx + 3, ly - 9, 1.5, 5); g.fillRect(lx + 1.5, ly - 7.5, 5, 1.5);
+      }
     }
   }
 
@@ -10732,7 +11428,12 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       "<div class='menuBrand'>" +
       "<h2>RUN</h2>" +
       "<div class='row menuStack'>" +
-      "<button class='bb pri' id='btnPlay'>PLAY</button>" +
+      "<button class='bb pri' id='btnPlay'>" +
+        "<svg class='playBall' viewBox='0 0 24 24' aria-hidden='true'>" +
+        "<circle cx='12' cy='12' r='10.5' fill='#f08a38' stroke='#1a120c' stroke-width='1.6'/>" +
+        "<circle cx='9' cy='8.5' r='4.5' fill='#f8b068' opacity='0.55'/>" +
+        "<path d='M12 1.5v21M1.5 12h21M5.2 4.4c3.6 3.2 3.6 12 0 15.2M18.8 4.4c-3.6 3.2-3.6 12 0 15.2' fill='none' stroke='#1a120c' stroke-width='1.3'/>" +
+        "</svg><span>PLAY</span></button>" +
       "</div>" +
       "</div>" +
       "<div class='menuCol menuDiff'>" +
@@ -11523,6 +12224,10 @@ function endRunToMenu() {
       var ch = room.chests[i];
       if (!ch.open && Math.hypot(ch.x - player.x, ch.y - player.y) < 28) {
         ch.open = true;
+        ch.openT = S.t;
+        burst(ch.x, ch.y - 10, "#f0c850", 10);
+        sparks(ch.x, ch.y - 14, "#fff2c0", 6, -Math.PI / 2, 1.4);
+        floorRing(ch.x, ch.y + 8, "#f0c850", 6, 34, 0.35);
         /* BB-V7.20 — chests no longer double-drop rich gear mid-run.
            BB-V7.22 — second drop chance scales with difficulty.
            BB-V7.50 — no guaranteed fragment. A shard is uncommon; a relic is rare. */
@@ -11586,6 +12291,14 @@ function endRunToMenu() {
     if (document.hidden) return;
     try {
       if (!S.last) S.last = now;
+      /* BB-V7.69 — if the device can't hold ~33fps for three seconds of play,
+         drop the two full-screen passes (torch light and vignette) for the run. */
+      if (S.mode === "play" && !S.pause && !S.fxLite) {
+        var fms = now - S.last;
+        if (fms > 0 && fms < 250) S.fdEma = (S.fdEma || 16.7) * 0.95 + fms * 0.05;
+        if (S.fdEma > 30) { S.slowT = (S.slowT || 0) + fms / 1000; if (S.slowT > 3) S.fxLite = true; }
+        else S.slowT = 0;
+      }
       var d = Math.min(0.05, (now - S.last) / 1000);
       S.last = now;
       S.acc += d;
@@ -11671,6 +12384,23 @@ function endRunToMenu() {
         loot: S.loot.length, downed: !!S.downed,
         floorCard: shown("floorPanel"), splash: shown("splashPanel"), shop: shown("shopPanel")
       };
+    },
+    /* Harness: a chest (optionally open) and any loot kind next to the hero, for look checks. */
+    spawnChest: function (dx, dy, open) {
+      if (!room || !player) return null;
+      var ch = { x: player.x + (dx || 60), y: player.y + (dy || 0), open: !!open, r: 14, openT: open ? S.t : 0 };
+      room.chests.push(ch);
+      return { x: ch.x, y: ch.y, open: ch.open };
+    },
+    dropKind: function (kind, dx, dy, rar) {
+      if (!player) return null;
+      var x = player.x + (dx || 0), y = player.y + (dy || 0);
+      if (kind === "frag") dropFrag(x, y, rar === 2 ? 2 : 1);
+      else if (kind === "heart") dropHeart(x, y);
+      else if (kind === "relic") dropRelic(x, y);
+      else if (kind === "field") S.loot.push(makeFieldLoot(x, y, rar || "rare", null));
+      else S.loot.push({ kind: "ball", x: x, y: y, restY: y, r: 13, vy: -40, life: 12, rar: rar || "common", affix: [], taken: false });
+      return S.loot.length;
     },
     hurtTally: function (on) {
       if (on) S.hurtTally = {};
