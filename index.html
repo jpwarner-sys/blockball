@@ -3714,6 +3714,7 @@
     floorRing(en.x, en.y + 4, en.boss ? "#f0e0c0" : shade(en.col, 1.3), 6, en.boss ? 70 : 34, en.boss ? 0.5 : 0.32);
     if (en.boss === "bone") en.deadT = BONE_DIE;
     en.deadMax = en.deadT;
+    if (en.boss === "slag") slagOnKill(en); /* BB-V7.72 */
     /* BB-V7.69 — a kill freezes the frame for a beat so it lands. */
     S.hitStop = Math.max(S.hitStop || 0, en.boss ? 0.09 : (trick ? 0.06 : 0.035));
     var fragP = fragTrashChance();
@@ -4818,6 +4819,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       if (e.boss === "lord") lordAnim(e, dt);
       if (e.boss === "bone" && (e.alive || e.deadT > 0)) boneAnim(e, dt);
       if (e.boss === "mini") knightAnim(e, dt); /* BB-V7.72 — cosmetic knight clock */
+      if (e.boss === "slag") slagAnim(e, dt); /* BB-V7.72 */
       if (!e.alive) {
         e.deadT -= dt;
         /* BB-V7.72 — SK-20: an add the lord's fall killed breaks up when the
@@ -8595,6 +8597,930 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     if (dist < 120) return rnd() < 0.72 ? "slam" : "embers";
     if (dist < 200) return rnd() < 0.42 ? "slam" : "embers";
     return "embers";
+  }
+
+  /* BB-V7.72 — Slag King animation pass. One cosmetic clock (slagAnim, ticked on the fixed
+     sim DT from updateEnemies) and one pure pose (slagPose → SLAG_P) that drawSlagKing reads.
+     Draw-only: it writes e.slagAn (and, in slagOnKill, the draw-only deadT/deadMax). It never
+     touches the seeded gameplay RNG, sound, shake or hitStop; cosmetic randomness is Math.random.
+     Poses read the sim's own clocks (atkT, tell, kitRing, atkHit, spawnT, deadT) plus e.slagAn.
+     SLAG_ANIM = false is the kill switch: the v7.71 draw (plus the alpha root, the honest
+     ring radius and the threat fade). */
+  var SLAG_ANIM = true;
+  var SLAG_DIE = 1.95; /* corpse clock: the whole death plays inside the 2.4 s lab clip */
+  /* corpse time at which the sinking crown's rim reaches the slag (head sinks 1.81u by then;
+     the inverse of slagDieSink) */
+  var SLAG_CROWN_T = 1.05 + 0.57 * Math.acos(1 - 2 * 1.81 / 2.9) / Math.PI;
+  var SLAG_RIB = shade("#d8843c", 0.55), SLAG_RIB_W = shade("#ffffff", 0.55);
+  var SLAG_CRACK = shade("#ff6030", 1.15), SLAG_HEADC = shade("#d8843c", 1.05);
+  /* rig constants, facing space, in u (u = artR·1.40), hand relative to (e.x, yt0 = e.y − 2.25u) */
+  var SLAG_SX = 0.52, SLAG_SY = 0.70;            /* shoulder pivot of the polar hand arcs */
+  var SLAG_LOAD_X = SLAG_SX + 0.495 * Math.cos(-1.816), SLAG_LOAD_Y = SLAG_SY + 0.495 * Math.sin(-1.816);
+  var SLAG_PRE_X = SLAG_SX + 0.440 * Math.cos(0.882), SLAG_PRE_Y = SLAG_SY + 0.440 * Math.sin(0.882);
+  /* embers raise: overhead, cocked back (polish: lower, so the head and its tell disc stay on the
+     phone screen with the King under the top wall) */
+  var SLAG_RAISE_R = 0.54, SLAG_RAISE_TH = -0.44;
+  var SLAG_RAISE_X = SLAG_SX + SLAG_RAISE_R * Math.cos(-2.047), SLAG_RAISE_Y = SLAG_SY + SLAG_RAISE_R * Math.sin(-2.047);
+  /* slam contact: the head lands on the ring's birth circle (centre about 0.58u out, the ring
+     is born at 0.53u) with its lowest pixel at e.y + 0.20u; the haft near vertical in front of
+     him, like the embers chop (polish: it used to land 1.2u out, on the hero's side) */
+  var SLAG_CON_TH = 2.82, SLAG_CON_X = 0.00, SLAG_CON_Y = 2.45 - 0.14 - slagLowU(SLAG_CON_TH);
+  /* drag end (the head pulled in along the floor) and the pry's hand-over angle, chosen so the
+     pry (ease-in) leaves at the speed the return starts with */
+  var SLAG_DRAG_X = SLAG_CON_X - 0.06, SLAG_DRAG_Y = SLAG_CON_Y + 0.01, SLAG_DRAG_TH = SLAG_CON_TH + 0.06;
+  var SLAG_PRY_TH = (0.96 * SLAG_DRAG_TH + 0.25) / 1.96;
+  /* ember chop contact: lowest pixel e.y + 0.15u */
+  var SLAG_ECON_X = 0.20, SLAG_ECON_Y = 0.72;
+  var SLAG_LIE = Math.PI / 2 + 0.45;             /* dropped maul lying on the floor */
+  var SLAG_GY = 2.25 - 0.79;                     /* dropped maul grip, u below yt0 */
+  var SLAG_P = {
+    legacy: false, face: 1, thr: 1, white: false, whiteAll: false, ribCol: SLAG_RIB, clk: 0, dieA: 1,
+    tX: 0, tY: 0, sX: 0, sY: 0, hX: 0, hY: 0, headRot: 0, cX: 0, cY: 0,
+    kX: 0, kY: 0, kShear: 0, kDH: 0, kDW: 0, lLX: 0, lLY: 0, lRX: 0, lRY: 0, shX: 0, shRx: 0, shA: 1,
+    mX: 0, mY: 0, mBang: 0, mSlot: 0, mWhite: false, stripeA: 1, mHX: 0, mHY: 0,
+    smOn: false, smA0: 0, smA1: 0, moteA: 0, moteT: 0, moteF: 1, impA: 0,
+    coreA: 1, coreIn: 1, crackA: 1, crackHot: false, slitA: 1, eyeA: 1, eyeOX: 0, eyeOY: 0, gemA: 1, coreGlowA: 0,
+    bodyOn: true, clipOn: false, poolRx: 0, poolA: 0, poolBub: 0,
+    crownOff: false, cWX: 0, cWY: 0, scA: 0, scRim: 0, scX: 0, scY: 0,
+    bHX: 0, bHY: 0, bBang: 0, bLam: 0, bDl: 0, bFace: 1
+  };
+  /* chart scratch (facing space) and the four lagged screen-space samples */
+  var SLAG_C = { x: 0, y: 0, th: 0, lam: 0, dl: 0, hr: 0, k: 1 };
+  var SLAG_Q0 = { hx: 0, hy: 0, bang: 0, lam: 0, dl: 0, hr: 0 }, SLAG_Q1 = { hx: 0, hy: 0, bang: 0, lam: 0, dl: 0, hr: 0 },
+    SLAG_Q2 = { hx: 0, hy: 0, bang: 0, lam: 0, dl: 0, hr: 0 }, SLAG_Q3 = { hx: 0, hy: 0, bang: 0, lam: 0, dl: 0, hr: 0 },
+    SLAG_Q4 = { hx: 0, hy: 0, bang: 0, lam: 0, dl: 0, hr: 0 };
+  var SLAG_W = { x: 0, y: 0 };
+  function slagC01(t) { return t < 0 ? 0 : t > 1 ? 1 : t; }
+  function slagSmooth(a, b, t) { var k = slagC01((t - a) / (b - a)); return k * k * (3 - 2 * k); }
+  function slagEIQ(t) { t = slagC01(t); return t * t; }
+  function slagSine(t) { return 0.5 - 0.5 * Math.cos(Math.PI * slagC01(t)); }
+  /* how far (u) the maul head's lowest corner hangs below the hand at bang th */
+  function slagLowU(th) {
+    var sb = Math.sin(th), cb = Math.cos(th);
+    return Math.max(0.42 * sb, -0.42 * sb) + Math.max(-0.70 * cb, -1.52 * cb);
+  }
+  function slagN(n) { return S.fxLite ? Math.ceil(n / 2) : n; }
+  /* local (draw space, scaled by vis about the feet) → world, into SLAG_W */
+  function slagW(e, lx, ly) {
+    var vis = enemyVis(e) || SLAG_VIS;
+    SLAG_W.x = e.x + (lx - e.x) * vis;
+    SLAG_W.y = e.y + (ly - e.y) * vis;
+    return SLAG_W;
+  }
+  function slagAnimNew(e) {
+    var F = 1, u = 61.6;
+    if (e) {
+      /* the hero's side: the sim's first live tick turns e.face that way too */
+      F = player ? (player.x < e.x ? -1 : 1) : (e.face || 1);
+      u = artR(e) * 1.40;
+    }
+    return {
+      t: 0, n: 0,
+      atkKind: null, prevAtkT: 0, atkFace: F, aev: 0, prevKit: false, prevHit: false,
+      fromHX: 0.78 * F, fromHY: 1, fromBang: 0.25 * F, fromLam: 0, fromDrop: 0, fromFace: F,
+      lastHX: 0.78 * F, lastHY: 1, lastBang: 0.25 * F, lastLam: 0, lastDrop: 0, lastFace: F,
+      faceFrom: F, faceTo: F, turnT: -1, turnDur: 0.40, crossT: 0,
+      prevHitT: e ? (e.hitT || 0) : 0, hx: 0, hv: 0, hr: 0, hrv: 0, hb: 0, hbv: 0, heat: 0, hurtT: 9, hurtS: 1,
+      hemX: 0, hemV: 0,
+      lx: e ? e.x : 0, ly: e ? e.y : 0, ux: 1, uy: 0, v: 0, gA: 0, plantT: 9,
+      fx: [0, 0], fy: [0, 0], fl: [0, 0], sw: -1, swP: 0, swH: 0, swWalk: false, swLast: 1, stepT: 9, stepD: 0, gsx: 0, gsh: 0, lastHr: 0,
+      bPh: e ? Math.random() : 0, bw: 1, regT: -1, nextReg: 6, gutT: -1, nextGut: 5, hornT: 0.8, hornSide: 1,
+      lookX: F * u * 0.03, lookY: 0,
+      scT0: -9, scX: 0, scY: 0,
+      suPrev: -1, sev: 0,
+      dieAtS: null, dev: 0, diePrev: 0
+    };
+  }
+  /* defaults the draw may read for a boss that is rising before its first tick */
+  var SLAG_AN0 = slagAnimNew(null);
+  /* breath: inhale 1.7 s, exhale 1.3 s; lag in seconds */
+  function slagBreath(an, lag) {
+    var p = an.bPh - lag / 3.0;
+    p -= Math.floor(p);
+    return p < 0.5667 ? slagSine(p / 0.5667) : 1 - slagSine((p - 0.5667) / 0.4333);
+  }
+  /* rise: body height out of the pool */
+  function slagRiseH(su) {
+    if (su < 0.25) return 0;
+    if (su < 0.52) return 0.62 * easeOutCubic((su - 0.25) / 0.27);
+    if (su < 0.57) return 0.62 - 0.02 * Math.sin(Math.PI * (su - 0.52) / 0.05);
+    if (su < 0.75) return 0.62 + 0.38 * easeOutCubic((su - 0.57) / 0.18);
+    return 1;
+  }
+  /* slam chart (facing space). o.k < 1 = still blending in from the pose drawn at the start */
+  function slagSlamVis(t, o) {
+    var q, k, r, p, kb;
+    o.k = 1; o.hr = 0;
+    if (t < 0.10) {
+      o.x = SLAG_PRE_X; o.y = SLAG_PRE_Y; o.th = 0.35; o.lam = 0.03; o.dl = 0.04;
+      o.k = easeOutCubic(t / 0.10);
+    } else if (t < 0.66) {                       /* the heave: forward and up, cocked over the far horn */
+      k = easeInOutQuad((t - 0.10) / 0.56);
+      r = 0.440 + 0.055 * k; p = 0.882 - 2.698 * k;
+      o.x = SLAG_SX + r * Math.cos(p); o.y = SLAG_SY + r * Math.sin(p);
+      o.th = 0.35 - 1.00 * k; o.lam = 0.03 - 0.33 * k; o.dl = 0.04 - 0.06 * k; o.hr = -0.06 * k;
+    } else if (t < 0.84) {                       /* loaded hold: strain tremble */
+      q = (t - 0.66) / 0.18; k = Math.sin(Math.PI * q);
+      o.x = SLAG_LOAD_X; o.y = SLAG_LOAD_Y + 0.01 * Math.sin(57 * t + 1) * k;
+      o.th = -0.65 + 0.02 * Math.sin(57 * t) * k; o.lam = -0.30 - 0.02 * q; o.dl = -0.02; o.hr = -0.06;
+    } else if (t < 0.98) {                       /* downswing over the top, in front of his face: the hand leads, the head whips */
+      q = (t - 0.84) / 0.14; k = Math.pow(q, 1.6); kb = q * q * q;
+      o.x = SLAG_LOAD_X + (SLAG_CON_X - SLAG_LOAD_X) * k; o.y = SLAG_LOAD_Y + (SLAG_CON_Y - SLAG_LOAD_Y) * k;
+      o.th = -0.65 + (SLAG_CON_TH + 0.65) * kb; o.lam = -0.32 + 0.56 * kb; o.dl = -0.02 + 0.16 * kb; o.hr = -0.06 + 0.14 * kb;
+    } else if (t < 1.28) {                       /* contact on the ring tick, bite, lean on the haft */
+      q = t - 0.98;
+      o.x = SLAG_CON_X; o.y = SLAG_CON_Y;
+      o.th = SLAG_CON_TH - 0.05 * Math.sin(Math.PI * Math.min(1, q / 0.10));
+      o.lam = 0.24 + 0.06 * Math.sin(Math.PI * Math.min(1, q / 0.20));
+      o.dl = 0.14 + 0.04 * (q < 0.033 ? q / 0.033 : 1 - easeOutCubic((q - 0.033) / 0.09));
+      o.hr = 0.08;
+    } else if (t < 1.40) {                       /* drag the head in along the floor */
+      k = easeInOutQuad((t - 1.28) / 0.12);
+      o.x = SLAG_CON_X + (SLAG_DRAG_X - SLAG_CON_X) * k; o.y = SLAG_CON_Y + (SLAG_DRAG_Y - SLAG_CON_Y) * k;
+      o.th = SLAG_CON_TH + (SLAG_DRAG_TH - SLAG_CON_TH) * k; o.lam = 0.24 - 0.02 * k; o.dl = 0.14 - 0.01 * k; o.hr = 0.08 - 0.02 * k;
+    } else if (t < 2.38) {
+      /* pry the head out and heave it up and back onto the shoulder. The maul never stops: the
+         pry is an ease-in and the return leaves at the same speed (about 5.4 rad/s), then
+         settles past rest by about 0.04 rad and comes to rest with no snap. The hand stays in close and rises while the head
+         swings up through the horizontal (head centre within about 1.4u of him), then carries
+         it out onto the shoulder. */
+      p = (t - 1.40) / 0.98; kb = slagSmooth(0.35, 1, p);
+      r = Math.sin(Math.PI * p); r *= r;
+      o.x = SLAG_DRAG_X + (0.78 - SLAG_DRAG_X) * kb; o.y = SLAG_DRAG_Y + (1.00 - SLAG_DRAG_Y) * kb - 0.30 * r;
+      if (t < 1.90) {
+        q = (t - 1.40) / 0.50; k = q * q;
+        o.th = SLAG_DRAG_TH - (SLAG_DRAG_TH - SLAG_PRY_TH) * k;
+        o.lam = 0.22 - (0.22 - 0.108) * k; o.dl = 0.13 - (0.13 - 0.064) * k; o.hr = 0.06 - (0.06 - 0.029) * k;
+      } else {
+        q = (t - 1.90) / 0.48; k = 1 - (1 - q) * (1 - q);
+        r = Math.sin(Math.PI * slagC01(2 * q - 1));
+        o.th = SLAG_PRY_TH - (SLAG_PRY_TH - 0.25) * k - 0.10 * r * r;
+        o.lam = 0.108 * (1 - k); o.hr = 0.029 * (1 - k);
+        o.dl = 0.064 * (1 - k) + 0.02 * Math.sin(Math.PI * slagC01((t - 2.14) / 0.16));
+      }
+    } else {
+      o.x = 0.78; o.y = 1.00; o.th = 0.25; o.lam = 0; o.dl = 0;
+    }
+  }
+  /* embers chart: counter-dip, straight overhead raise, charge, chop at his feet on the fire tick */
+  function slagEmberVis(t, o) {
+    var q, k, r, p, kb, L;
+    o.k = 1; o.hr = 0;
+    if (t < 0.08) {
+      o.x = SLAG_PRE_X; o.y = SLAG_PRE_Y; o.th = 0.35; o.lam = 0; o.dl = 0.03;
+      o.k = easeOutCubic(t / 0.08);
+    } else if (t < 0.40) {
+      k = easeInOutQuad((t - 0.08) / 0.32);
+      r = 0.440 + (SLAG_RAISE_R - 0.440) * k * k; p = 0.882 - 2.929 * k;
+      o.x = SLAG_SX + r * Math.cos(p); o.y = SLAG_SY + r * Math.sin(p);
+      /* the head lags the hand's rise and cocks back early, so no frame of the arc lifts the head
+         or its tell disc above the hold (polish: the phone's top edge) */
+      kb = 1 - (1 - k) * (1 - k);
+      o.th = 0.35 + (SLAG_RAISE_TH - 0.35) * kb; o.lam = -0.06 * k; o.dl = 0.03 - 0.06 * k; o.hr = -0.06 * k;
+    } else if (t < 0.54) {
+      k = Math.sin(Math.PI * (t - 0.40) / 0.14);
+      o.x = SLAG_RAISE_X; o.y = SLAG_RAISE_Y;
+      o.th = SLAG_RAISE_TH + 0.015 * Math.sin(70 * t) * k; o.lam = -0.06; o.dl = -0.03; o.hr = -0.06;
+    } else if (t < 0.62) {
+      q = (t - 0.54) / 0.08; k = q * q; kb = q * q * q;
+      o.x = SLAG_RAISE_X + (SLAG_ECON_X - SLAG_RAISE_X) * k; o.y = SLAG_RAISE_Y + (SLAG_ECON_Y - SLAG_RAISE_Y) * k;
+      o.th = SLAG_RAISE_TH + (3.00 - SLAG_RAISE_TH) * kb; o.lam = -0.06 + 0.18 * kb; o.dl = -0.03 + 0.15 * kb; o.hr = -0.06 + 0.12 * kb;
+    } else if (t < 0.80) {
+      q = t - 0.62;
+      o.x = SLAG_ECON_X; o.y = SLAG_ECON_Y;
+      o.th = 3.00 - 0.08 * Math.sin(Math.PI * Math.min(1, q / 0.12));
+      o.lam = 0.12 + 0.04 * Math.sin(Math.PI * Math.min(1, q / 0.2)); o.dl = 0.12; o.hr = 0.06;
+    } else if (t < 1.30) {
+      /* one continuous pull-back and swing onto the shoulder (polish: it used to stop at 1.10,
+         then snap): the hand rides a curve out and round, the maul swings through, overshoots
+         rest by about 0.09 rad and lands on exactly 0.25 */
+      q = (t - 0.80) / 0.50; k = easeInOutQuad(q); kb = 1 - k; L = 0.12 + 0.04 * Math.sin(Math.PI * 0.9);
+      o.x = kb * kb * SLAG_ECON_X + 2 * kb * k * 0.95 + k * k * 0.78;
+      o.y = kb * kb * SLAG_ECON_Y + 2 * kb * k * 0.85 + k * k * 1.00;
+      r = Math.sin(Math.PI * slagC01((q - 0.6) / 0.4));
+      o.th = 3.00 - 2.75 * k - 0.25 * r * r;
+      o.lam = L * kb; o.dl = 0.12 * kb; o.hr = 0.06 * kb;
+    } else {
+      o.x = 0.78; o.y = 1.00; o.th = 0.25; o.lam = 0; o.dl = 0;
+    }
+  }
+  /* one attack-chart sample in screen space: hand (incl. 0.8λ and δ), bang, λ, δ, head rot */
+  function slagChart(e, an, t, o) {
+    var F = e.aimX < 0 ? -1 : 1, C = SLAG_C, k, fx, fy, fb, fl, fd;
+    if (e.atk === "slam") slagSlamVis(t, C); else slagEmberVis(t, C);
+    o.hx = F * (C.x + 0.8 * C.lam); o.hy = C.y + C.dl; o.bang = F * C.th; o.lam = F * C.lam; o.dl = C.dl; o.hr = F * C.hr;
+    if (C.k < 1) {
+      k = C.k;
+      if (an.atkKind === e.atk) { fx = an.fromHX; fy = an.fromHY; fb = an.fromBang; fl = an.fromLam; fd = an.fromDrop; }
+      else { fx = an.lastHX; fy = an.lastHY; fb = an.lastBang; fl = an.lastLam; fd = an.lastDrop; }
+      o.hx = fx + (o.hx - fx) * k; o.hy = fy + (o.hy - fy) * k; o.bang = fb + (o.bang - fb) * k;
+      o.lam = fl + (o.lam - fl) * k; o.dl = fd + (o.dl - fd) * k; o.hr *= k;
+      if ((an.atkKind === e.atk ? an.fromFace : an.lastFace) !== F) o.hy -= 0.30 * Math.sin(Math.PI * k);
+    }
+  }
+  /* rise maul (facing F, su = spawn progress): it hangs straight down inside the pool, is yanked
+     clear of the surface, then swung out and up onto the shoulder with a small overshoot */
+  function slagRiseQ(su, F, o) {
+    var ky = easeInOutQuad((su - 0.66) / 0.10), ks = slagC01((su - 0.74) / 0.22), kh = easeInOutQuad(ks);
+    var sw = ks < 0.8 ? 1.04 * easeInOutQuad(ks / 0.8) : 1.04 - 0.04 * slagSine((ks - 0.8) / 0.2);
+    o.dl = 0.03 * (su < 0.84 ? slagSine((su - 0.80) / 0.04) : 1 - slagSine((su - 0.84) / 0.11));
+    o.hx = F * (0.70 + 0.08 * kh);
+    o.hy = 1.05 - 0.43 * ky + 0.38 * kh + o.dl;
+    o.bang = F * (Math.PI - (Math.PI - 0.25) * sw);
+    o.lam = 0; o.hr = 0;
+  }
+  /* idle base: rest, the maul hand-over turn and the regrip (screen space) */
+  function slagIdleBase(an, o) {
+    var F = an.faceTo, hx = 0.78 * F, hy = 1.00, bang = 0.25 * F, dl = 0, lam = 0, q, a, k, s;
+    if (an.turnT >= 0) {
+      /* the hand-over costs him (polish, 0.40 s): a 0.08 s load, a 0.22 s cross with the torso
+         leaning after the maul, a 0.10 s landing that sinks him and bangs the maul past rest */
+      var F0 = an.faceFrom, F1 = an.faceTo;
+      q = an.turnT;
+      a = slagSine(q / 0.08);
+      k = easeInOutQuad((q - 0.08) / 0.22);
+      s = slagC01((q - 0.30) / 0.10);
+      lam = 0.04 * F1 * Math.sin(Math.PI * k);
+      hx = 0.78 * (F0 + (F1 - F0) * k) + 0.8 * lam;
+      hy = 1.00 - 0.30 * Math.sin(Math.PI * k);
+      bang = 0.25 * (F0 + (F1 - F0) * k) - 0.10 * F0 * a * (1 - k) + 0.08 * F1 * Math.sin(Math.PI * s);
+      dl = 0.04 * a * (1 - k) + 0.04 * Math.sin(Math.PI * s);
+    }
+    if (an.regT >= 0) {
+      q = an.regT;
+      dl += 0.04 * (q < 0.10 ? slagSine(q / 0.10) : 1 - slagSine((q - 0.34) / 0.16));
+      bang += F * 0.06 * (q < 0.10 ? slagSine(q / 0.10) : 1 - slagSine((q - 0.10) / 0.12));
+      if (q >= 0.10 && q < 0.22) hy -= 0.14 * easeOutCubic((q - 0.10) / 0.12);
+      else if (q >= 0.22 && q < 0.34) hy -= 0.14 * (1 - easeInCubic((q - 0.22) / 0.12));
+      if (q >= 0.34) bang += F * 0.03 * Math.sin(Math.PI * (q - 0.34) / 0.08) * (1 - (q - 0.34) / 0.16);
+    }
+    o.hx = hx; o.hy = hy + dl; o.bang = bang; o.lam = lam; o.dl = dl; o.hr = 0;
+  }
+  function slagCopyQ(a, b) { b.hx = a.hx; b.hy = a.hy; b.bang = a.bang; b.lam = a.lam; b.dl = a.dl; b.hr = a.hr; }
+  /* the head nod (P.headRot, about the neck) drawn as parallax: the head block's centre sits
+     0.31u above the neck pivot and the crown's about 0.80u, so they shift by h·θ. Same read
+     at these angles (≤ 0.2 rad), and every head/crown cube stays axis-aligned (a rotated
+     head group rasterised about 4x slower) */
+  function slagNod(P, u) { P.hX += 0.31 * u * P.headRot; P.cX += 0.80 * u * P.headRot; }
+  function slagPoseReset(P) {
+    P.legacy = false; P.face = 1; P.thr = 1; P.white = false; P.whiteAll = false; P.ribCol = SLAG_RIB;
+    P.clk = 0; P.dieA = 1;
+    P.tX = 0; P.tY = 0; P.sX = 0; P.sY = 0; P.hX = 0; P.hY = 0; P.headRot = 0; P.cX = 0; P.cY = 0;
+    P.kX = 0; P.kY = 0; P.kShear = 0; P.kDH = 0; P.kDW = 0; P.lLX = 0; P.lLY = 0; P.lRX = 0; P.lRY = 0;
+    P.shX = 0; P.shRx = 0; P.shA = 1;
+    P.mX = 0; P.mY = 0; P.mBang = 0; P.mSlot = 0; P.mWhite = false; P.stripeA = 1; P.mHX = 0; P.mHY = 0;
+    P.smOn = false; P.smA0 = 0; P.smA1 = 0; P.moteA = 0; P.moteT = 0; P.moteF = 1; P.impA = 0;
+    P.coreA = 1; P.coreIn = 1; P.crackA = 1; P.crackHot = false; P.slitA = 1; P.eyeA = 1; P.eyeOX = 0; P.eyeOY = 0;
+    P.gemA = 1; P.coreGlowA = 0;
+    P.bodyOn = true; P.clipOn = false; P.poolRx = 0; P.poolA = 0; P.poolBub = 0;
+    P.crownOff = false; P.cWX = 0; P.cWY = 0; P.scA = 0; P.scRim = 0; P.scX = 0; P.scY = 0;
+  }
+  /* the pure pose: reads e, e.slagAn, player, S.t (threat fade only) and S.fxLite (glows and
+     motes only); writes only SLAG_P */
+  function slagPose(e, u) {
+    var P = SLAG_P, an = e.slagAn;
+    slagPoseReset(P);
+    if (!SLAG_ANIM || (!an && !(e.alive && e.spawnT > 0))) {
+      P.legacy = true;
+      P.thr = e.alive ? 1 : (an && an.dieAtS != null ? Math.max(0, 1 - (S.t - an.dieAtS) / 0.12) : 0);
+      P.white = e.flash > 0;
+      P.ribCol = P.white ? SLAG_RIB_W : SLAG_RIB;
+      P.coreA = 0.55 + 0.45 * (e.coreGlow || 0.6);
+      return P;
+    }
+    if (!an) an = SLAG_AN0;
+    if (!e.alive) slagPoseDead(e, u, an, P);
+    else slagPoseLive(e, u, an, P);
+    return P;
+  }
+  /* maul head centre (local) and its lowest corner, from a hand + bang */
+  function slagMaulHead(P, u) {
+    var sb = Math.sin(P.mBang), cb = Math.cos(P.mBang);
+    P.mHX = P.mX + 1.24 * u * sb;
+    P.mHY = P.mY - 1.24 * u * cb;
+  }
+  function slagMaulLow(P, u, out) {
+    var sb = Math.sin(P.mBang), cb = Math.cos(P.mBang), best = -1e9, bx = 0, px, py, i, yy;
+    for (i = 0; i < 4; i++) {
+      px = (i & 1 ? 0.42 : -0.42) * u; py = (i & 2 ? -0.70 : -1.52) * u;
+      yy = px * sb + py * cb;
+      if (yy > best) { best = yy; bx = px * cb - py * sb; }
+    }
+    out.x = P.mX + bx; out.y = P.mY + best;
+    return out;
+  }
+  function slagPoseLive(e, u, an, P, suO) {
+    var x = e.x, yt0 = e.y - u * 2.25, lite = !!S.fxLite;
+    var su = suO != null ? suO : e.spawnT > 0 && e.spawnMax ? 1 - e.spawnT / e.spawnMax : 1;
+    var Q0 = SLAG_Q0, Q1 = SLAG_Q1, Q2 = SLAG_Q2, Q3 = SLAG_Q3, F, t = 0, atk = su >= 1 && !!e.atk;
+    if (atk) {
+      t = e.atkT || 0;
+      F = e.aimX < 0 ? -1 : 1;
+      slagChart(e, an, t, Q0);
+      slagChart(e, an, Math.max(0, t - 0.02), Q1);
+      slagChart(e, an, Math.max(0, t - 0.05), Q2);
+      slagChart(e, an, Math.max(0, t - 0.08), Q3);
+    } else {
+      F = suO != null ? an.lastFace || 1 : su < 1 && player ? (player.x < e.x ? -1 : 1) : an.faceTo;
+      if (su < 1) slagRiseQ(su, F, Q0);
+      else slagIdleBase(an, Q0);
+      slagCopyQ(Q0, Q1); slagCopyQ(Q0, Q2); slagCopyQ(Q0, Q3);
+    }
+    P.face = F; P.clk = an.t; P.thr = 1;
+    /* sign for the additive heft and nod: carried through turns, held through attacks
+       (the breath is faded out there), so a facing change never flips them in one frame */
+    var Fa = F;
+    if (atk) Fa = an.atkKind === e.atk ? an.fromFace : an.lastFace;
+    else if (su >= 1 && an.turnT >= 0) Fa = an.faceFrom + (an.faceTo - an.faceFrom) * easeInOutQuad((an.turnT - 0.08) / 0.22);
+    P.bHX = Q0.hx; P.bHY = Q0.hy; P.bBang = Q0.bang; P.bLam = Q0.lam; P.bDl = Q0.dl; P.bFace = F;
+    /* additive layers: breath + sway (faded in attacks, halved in the gait), gait, hurt springs */
+    var gA = an.gA, bw = an.bw * (1 - 0.5 * gA);
+    var b0 = slagBreath(an, 0), b1 = slagBreath(an, 0.08), b2 = slagBreath(an, 0.12), b3 = slagBreath(an, 0.16), bM = slagBreath(an, 0.15);
+    var sw = 0.03 * u * Math.sin(1.05 * an.t) * bw, swH = 0.03 * u * Math.sin(1.05 * (an.t - 0.06)) * bw;
+    /* gait: the weight rolls over the foot that carries it, the head 0.06 s late (slagAnim);
+       each plant sinks the upper body 0.05u (in over 0.04 s, back by 0.16 s). Hurt: a 0.03u
+       drop on the hit tick that eases back over 0.10 s */
+    var gsw = an.gsx, gswH = an.gsh;
+    var pt = an.plantT, gdip = 0.05 * u * gA * (pt < 0.04 ? pt / 0.04 : 1 - slagC01((pt - 0.04) / 0.12));
+    if (an.hurtT < 0.10) gdip += 0.03 * u * an.hurtS * (1 - slagSine(an.hurtT / 0.10));
+    var hX = an.hx, shrug = 0;
+    if (an.regT >= 0) shrug = -0.02 * u * Math.sin(Math.PI * slagC01((an.regT - 0.04) / 0.30));
+    var sinkY = 0, h = 1;
+    if (su < 1) { h = slagRiseH(su); sinkY = (1 - h) * 2.9 * u; }
+    var dl0 = Q0.dl, dl1 = Q1.dl;
+    var tX = 0.70 * Q0.lam * u + hX + sw + gsw, tXf = tX * F;
+    if (tXf < -0.35 * u) tX = -0.35 * u * F; else if (tXf > 0.30 * u) tX = 0.30 * u * F;
+    P.tX = tX;
+    P.tY = dl0 * u - 0.030 * u * b0 * bw + gdip + sinkY;
+    P.sX = 0.80 * Q1.lam * u + hX + sw + gsw;
+    P.sY = dl1 * u - 0.040 * u * b1 * bw + gdip + shrug + sinkY;
+    P.hX = 0.90 * Q2.lam * u + 1.1 * hX + swH + gswH;
+    P.hY = Q2.dl * u - 0.035 * u * b2 * bw + gdip + sinkY;
+    P.headRot = Q2.hr - Fa * 0.02 * b2 * bw + an.hr;
+    P.cX = 0.95 * Q3.lam * u + 1.1 * hX + swH + gswH;
+    slagNod(P, u);
+    P.cY = Q3.dl * u - 0.035 * u * b3 * bw + gdip + sinkY;
+    P.kX = 0.45 * Q1.lam * u + 0.5 * hX + sw + gsw;
+    P.kY = 0.9 * dl1 * u - 0.040 * u * b1 * bw + 0.9 * gdip + sinkY;
+    P.kDW = 0.45 * Math.max(0, dl1) * u;
+    P.kDH = -0.9 * Math.max(0, dl1) * u + 0.036 * u * b1 * bw;
+    var kr = (an.hemX - P.kX) / (1.45 * u);
+    P.kShear = kr > 0.12 ? 0.12 : kr < -0.12 ? -0.12 : kr;
+    /* planted feet: world-fixed while down, one at a time steps (slagFeet) */
+    P.lLX = an.fx[0]; P.lLY = an.fy[0] - an.fl[0] + sinkY;
+    P.lRX = an.fx[1]; P.lRY = an.fy[1] - an.fl[1] + sinkY;
+    P.shX = 0.12 * tX; P.shRx = u * (1.18 + 0.3 * Math.max(0, dl0)) * h; P.shA = 1;
+    /* the maul rides the shoulders */
+    P.mX = x + Q0.hx * u + hX + sw + gsw;
+    P.mY = yt0 + Q0.hy * u - 0.040 * u * b1 * bw + gdip + shrug + sinkY;
+    P.mBang = Q0.bang + Fa * 0.05 * (2 * bM - 1) * bw + an.hb;
+    slagMaulHead(P, u);
+    /* flash: the whole rigid silhouette reads white; weapon, cloth, horns and gem keep colour */
+    P.white = e.flash > 0; P.whiteAll = P.white;
+    P.ribCol = P.white ? SLAG_RIB_W : SLAG_RIB;
+    /* emissives */
+    var tell = 0;
+    if (e.tell > 0) tell = e.tellMax > 0 ? 1 - Math.max(0, e.tell) / e.tellMax : Math.min(1, e.tell);
+    var heat = 0;
+    if (atk && e.atk === "slam") heat = t < 0.98 ? easeInCubic(t / 0.98) : Math.max(0, 1 - (t - 0.98) / 0.4);
+    else if (atk) heat = t < 0.62 ? easeInCubic(t / 0.62) : Math.max(0, 1 - (t - 0.62) / 0.25);
+    var hh = Math.max(heat, an.heat);
+    var core = 0.55 + 0.45 * (0.55 + 0.30 * b0 + 0.15 * Math.sin(4.2 * an.t + (e.bobPhase || 0)));
+    if (atk && e.atk === "slam" && t < 0.98) core = Math.max(core, 0.55 + 0.45 * (0.75 + 0.25 * t / 0.98));
+    core += (1 - core) * hh;
+    P.crackHot = hh > 0.6;
+    var eye = tell > 0 ? 0.88 + 0.12 * Math.sin(an.t * 16)
+      : 0.62 + 0.25 * b0 + 0.06 * (0.6 * Math.sin(37 * an.t) + 0.4 * Math.sin(23 * an.t));
+    if (an.gutT >= 0) {
+      var gq = an.gutT;
+      eye *= gq < 0.05 ? 1 - 0.8 * gq / 0.05 : gq < 0.11 ? 0.2 : 0.2 + 0.8 * slagC01((gq - 0.11) / 0.10);
+    }
+    eye = Math.max(eye, hh);
+    P.eyeOX = an.lookX; P.eyeOY = an.lookY;
+    P.coreGlowA = lite ? 0 : 0.4 * an.heat;
+    if (su < 1) {
+      var ig = slagC01((su - 0.55) / 0.20);
+      core *= ig; P.crackA = ig; P.slitA = ig; P.gemA = ig; P.coreIn = ig;
+      eye *= slagC01((su - 0.62) / 0.16);
+      P.shA = slagC01((su - 0.25) / 0.5);
+      P.bodyOn = su >= 0.25;
+      P.clipOn = su < 0.73; /* from 0.73 nothing (body or maul) reaches below the surface */
+      /* the pool opens, then closes under his feet (shrinks at full alpha: see slagDrawPit) */
+      var pk = slagC01((su - 0.86) / 0.14);
+      P.poolRx = 1.25 * u * (su < 0.25 ? 0.35 + 0.65 * easeOutCubic(su / 0.25) : 1) * (1 - pk * pk);
+      P.poolA = 1; P.poolBub = 4;
+    }
+    P.coreA = core; P.eyeA = eye;
+    /* rise heave smear (the maul sweeps about 1 rad a frame at its fastest) */
+    if (su < 1 && su > 0.74) {
+      slagRiseQ(su - (2 / 60) / (e.spawnMax || 1), F, SLAG_Q4);
+      var dr = Q0.bang - SLAG_Q4.bang;
+      if (dr > 0.25 || dr < -0.25) { P.smOn = true; P.smA1 = P.mBang - Math.PI / 2; P.smA0 = P.smA1 - dr; }
+    }
+    /* attack garnish: smear, ember motes, impact glow */
+    if (atk) {
+      slagChart(e, an, Math.max(0, t - 2 / 60), SLAG_Q4);
+      var da = Q0.bang - SLAG_Q4.bang;
+      if (da > 0.25 || da < -0.25) { P.smOn = true; P.smA1 = P.mBang - Math.PI / 2; P.smA0 = P.smA1 - da; }
+      if (e.atk === "embers") {
+        if (!lite && t >= 0.20 && t < 0.54) { P.moteA = 0.9; P.moteT = t; P.moteF = F; }
+        if (!lite && t >= 0.62 && t < 0.77) P.impA = 0.8 * (1 - (t - 0.62) / 0.15);
+      }
+    }
+    /* scorch where the slam bit the floor (world-anchored) */
+    var sk = (an.t - an.scT0) / 1.0;
+    if (sk >= 0 && sk < 1) {
+      var vis = enemyVis(e) || SLAG_VIS;
+      P.scA = 1 - sk; P.scRim = lite ? 0 : Math.max(0, 1 - sk / 0.5);
+      P.scX = e.x + (an.scX - e.x) / vis; P.scY = e.y + (an.scY - e.y) / vis;
+    }
+  }
+  /* death, facing space: a 0.16u recoil from wherever the kill caught him (a kill mid-slam
+     starts from the +0.24u attack lean), then the settle and the slump */
+  function slagDieLam(t, L0) {
+    var Lr = Math.max(-0.30, L0 - 0.16);
+    if (t < 0.05) return L0;
+    if (t < 0.17) { var k = (t - 0.05) / 0.12; return L0 + (Lr - L0) * k * (2 - k); }
+    if (t < 0.35) return Lr + (-0.04 - Lr) * easeInOutQuad((t - 0.17) / 0.18);
+    return -0.04 + 0.08 * easeInOutQuad((t - 0.35) / 0.40);
+  }
+  function slagDieDl(t, d0) { return t < 0.25 ? d0 : d0 + (0.22 - d0) * easeInOutQuad((t - 0.25) / 0.5); }
+  function slagDieHeadRot(t) {
+    var tt = t - 0.04, rec = tt < 0.05 ? 0 : tt < 0.15 ? slagSine((tt - 0.05) / 0.10) : 1 - slagSine((tt - 0.15) / 0.21);
+    return -0.10 * rec + 0.12 * easeInOutQuad((t - 0.08 - 0.25) / 0.5);
+  }
+  /* a steady sink into thick slag that eases off as he goes under (polish: was a cubic drop) */
+  function slagDieSink(t) { return t < 1.05 ? 0 : slagSine((t - 1.05) / 0.57); }
+  function slagPoseDead(e, u, an, P) {
+    var x = e.x, yt0 = e.y - u * 2.25, lite = !!S.fxLite;
+    var t = Math.max(0, (e.deadMax || SLAG_DIE) - e.deadT), D = an.lastFace || 1;
+    if (an.lastSu < 1) {
+      /* killed before he had fully risen: the rise plays back down, the pool closes over him
+         (nothing that was still under the slag ever shows) */
+      slagPoseLive(e, u, an, P, an.lastSu * (1 - slagSmooth(0, 0.60, t)));
+      P.smOn = false;
+      P.thr = an.dieAtS != null ? Math.max(0, 1 - (S.t - an.dieAtS) / 0.12) : 0;
+      P.white = t < 0.08 || e.flash > 0; P.whiteAll = P.white; P.mWhite = P.white;
+      P.ribCol = P.white ? SLAG_RIB_W : SLAG_RIB;
+      P.poolRx *= 1 - slagSmooth(0.50, 0.85, t);
+      P.dieA = 1 - slagSmooth(0.55, 0.80, t);
+      return;
+    }
+    var L0 = an.lastLam * D, d0 = an.lastDrop, k, q;
+    P.face = D; P.clk = an.t;
+    P.thr = an.dieAtS != null ? Math.max(0, 1 - (S.t - an.dieAtS) / 0.12) : 0;
+    var sk = slagDieSink(t), sinkY = 2.9 * u * sk;
+    var l0 = slagDieLam(t, L0), l1 = slagDieLam(t - 0.02, L0), l2 = slagDieLam(t - 0.05, L0), l3 = slagDieLam(t - 0.08, L0);
+    var dA = slagDieDl(t, d0), dB = slagDieDl(t - 0.02, d0), dC = slagDieDl(t - 0.05, d0), dD = slagDieDl(t - 0.08, d0);
+    P.tX = 0.70 * l0 * D * u; P.tY = dA * u + sinkY;
+    P.sX = 0.80 * l1 * D * u; P.sY = dB * u + 0.04 * u * easeInOutQuad((t - 0.30) / 0.5) + sinkY;
+    /* the nod the kill caught (attack, hurt, breath) hands over to the recoil and the droop */
+    P.hX = 0.90 * l2 * D * u; P.hY = dC * u + sinkY;
+    P.headRot = D * slagDieHeadRot(t) + (an.lastHr || 0) * (1 - slagSmooth(0, 0.25, t));
+    P.cX = 0.95 * l3 * D * u; P.cY = dD * u + sinkY;
+    slagNod(P, u);
+    P.kX = 0.45 * l1 * D * u; P.kY = 0.9 * dB * u + sinkY;
+    P.kDW = 0.45 * Math.max(0, dB) * u; P.kDH = -0.9 * Math.max(0, dB) * u;
+    var kr = (an.hemX - P.kX) / (1.45 * u);
+    P.kShear = kr > 0.12 ? 0.12 : kr < -0.12 ? -0.12 : kr;
+    /* the feet stay where they were planted; a foot caught mid-step drops */
+    var fd = 1 - slagSmooth(0, 0.12, t);
+    P.lLX = an.fx[0]; P.lLY = an.fy[0] - an.fl[0] * fd + sinkY;
+    P.lRX = an.fx[1]; P.lRY = an.fy[1] - an.fl[1] * fd + sinkY;
+    /* the shadow gives way to the pool as it opens */
+    P.shX = 0.12 * P.tX; P.shRx = u * (1.18 + 0.3 * Math.max(0, dA)); P.shA = 1 - easeOutCubic((t - 0.95) / 0.17);
+    /* the grip lets go, the maul topples and clangs on "SHOT!" */
+    var gx = 0.80 * D, hx0 = an.lastHX + 0.8 * (l0 - L0) * D, hy0 = an.lastHY + (dA - d0), hx, hy, bang, slot = 1;
+    var B0 = an.lastBang;
+    if (t < 0.10) { hx = hx0; hy = hy0; bang = B0; }
+    else if (B0 * D > 1.6) {
+      /* killed with the maul already down: it slides out from under him and drops flat */
+      k = easeOutCubic((t - 0.10) / 0.24);
+      hx = hx0 + (gx - hx0) * k; hy = hy0 + (SLAG_GY - hy0) * k; bang = B0 + (D * SLAG_LIE - B0) * k;
+    } else if (t < 0.22) {
+      k = slagEIQ((t - 0.10) / 0.12);
+      hx = hx0 + (gx - hx0) * k; hy = hy0 + (SLAG_GY - hy0) * k; bang = B0 + (D * 0.25 - B0) * k;
+    } else {
+      hx = gx; hy = SLAG_GY;
+      bang = D * (0.25 + (SLAG_LIE - 0.25) * easeInCubic((t - 0.22) / 0.18));
+    }
+    if (t >= 0.40 && slot) bang = D * (SLAG_LIE - (t < 0.52 ? 0.06 * Math.sin(Math.PI * (t - 0.40) / 0.12) : 0));
+    P.mX = x + hx * u; P.mY = yt0 + hy * u; P.mBang = bang; P.mSlot = slot;
+    slagMaulHead(P, u);
+    P.stripeA = 1 - slagSmooth(0.50, 0.90, t);
+    /* kill frame: every rigid mass white */
+    P.white = t < 0.08 || e.flash > 0; P.whiteAll = P.white; P.mWhite = P.white;
+    /* quench from the core outward (emissives only: the body keeps its palette) */
+    P.ribCol = P.white ? SLAG_RIB_W : SLAG_RIB;
+    P.coreA = 1 - slagSmooth(0.35, 0.70, t); P.coreIn = P.coreA;
+    P.crackA = 1 - slagSmooth(0.50, 0.85, t); P.crackHot = t < 0.5;
+    P.slitA = 1 - slagSmooth(0.60, 0.95, t); P.gemA = 1 - slagSmooth(0.70, 1.05, t);
+    P.eyeA = t < 0.78 ? 1 : t < 0.82 ? 0.2 : t < 0.86 ? 1 : t < 0.89 ? 0.15 : t < 0.92 ? 0.7 : 0;
+    P.eyeOX = an.lookX; P.eyeOY = an.lookY;
+    /* the pool opens, he sinks; the crown slips off and floats before it goes under */
+    if (t >= 0.95) {
+      P.poolRx = 1.30 * u * easeOutCubic((t - 0.95) / 0.17) * (1 - slagEIQ((t - 1.72) / 0.23)); P.poolA = 1; P.poolBub = 3;
+    }
+    if (t > 1.05) {
+      P.clipOn = true;
+      if (sinkY > 2.8 * u) P.bodyOn = false;
+    }
+    /* the crown rides the sinking head down to the surface (SLAG_CROWN_T: its rim touches the
+       slag), then floats off level: a splash dip and bob, a drift clear, and it goes under last.
+       Level all the way, so no crown cube is ever drawn rotated. */
+    if (t >= SLAG_CROWN_T) {
+      var tc = SLAG_CROWN_T, x0 = x + 0.95 * slagDieLam(tc - 0.08, L0) * D * u + 0.80 * u * D * slagDieHeadRot(tc);
+      var y0 = yt0 + slagDieDl(tc - 0.08, d0) * u + 2.9 * u * slagDieSink(tc);
+      q = t - tc;
+      P.crownOff = true;
+      P.cWX = x0 + D * 0.25 * u * easeOutCubic(q / 0.35);
+      P.cWY = y0 + 0.10 * u * (1 - Math.exp(-q / 0.06)) + 0.04 * u * Math.exp(-q / 0.15) * Math.sin(2 * Math.PI * q / 0.28)
+        + (t < 1.62 ? 0 : 0.8 * u * slagEIQ((t - 1.62) / 0.22));
+    }
+    P.dieA = t < 1.55 ? 1 : Math.max(0, 1 - slagEIQ((t - 1.55) / 0.40));
+    P.bHX = an.lastHX; P.bHY = an.lastHY; P.bBang = an.lastBang; P.bLam = an.lastLam; P.bDl = an.lastDrop; P.bFace = D;
+  }
+  /* slag pool (rise and sink), local coordinates */
+  function slagDrawPit(g, P, cx, cy, u, A0) {
+    var rx = P.poolRx, ry = rx * 0.30, A = A0 * P.poolA, t = P.clk, i, n, hs, a, rr;
+    if (!(A > 0.003) || !ellipseOk(rx, ry)) return;
+    /* the 2-wide rim is a fill under a pool drawn opaque (a stroked ellipse rasterises at about
+       twice a filled one); while the pool fades it is the plain stroke again */
+    var solid = A > 0.98 && ellipseOk(rx - 1, ry - 1);
+    if (solid) {
+      g.globalAlpha = A * 0.9; g.fillStyle = "#ffb040";
+      g.beginPath(); g.ellipse(cx, cy, rx + 1, ry + 1, 0, 0, 6.3); g.fill();
+      g.globalAlpha = A; g.fillStyle = "#1a0c08";
+      g.beginPath(); g.ellipse(cx, cy, rx - 1, ry - 1, 0, 0, 6.3); g.fill();
+    } else {
+      g.globalAlpha = A * 0.80; g.fillStyle = "#1a0c08";
+      g.beginPath(); g.ellipse(cx, cy, rx, ry, 0, 0, 6.3); g.fill();
+    }
+    if (!S.fxLite) {
+      g.globalAlpha = A * (0.30 + 0.10 * Math.sin(9 * t)); g.fillStyle = "#ff6030";
+      g.beginPath(); g.ellipse(cx, cy, rx * 0.7, ry * 0.7, 0, 0, 6.3); g.fill();
+    }
+    if (!solid) {
+      g.globalAlpha = A * 0.9; g.strokeStyle = "#ffb040"; g.lineWidth = 2;
+      g.beginPath(); g.ellipse(cx, cy, rx, ry, 0, 0, 6.3); g.stroke();
+    }
+    if (!S.fxLite && P.poolBub > 0) {
+      n = Math.floor(6 * t); g.fillStyle = "#ffb040"; hs = u * 0.06;
+      for (i = 0; i < P.poolBub; i++) {
+        a = Math.sin((n + i * 7.31) * 12.9898) * 43758.5453; a -= Math.floor(a);
+        rr = Math.sin((n + i * 3.17) * 78.233) * 12345.678; rr -= Math.floor(rr);
+        g.fillRect(cx + Math.cos(a * 6.283) * rx * 0.62 * rr - hs / 2, cy + Math.sin(a * 6.283) * ry * 0.62 * rr - hs / 2, hs, hs);
+      }
+    }
+    g.globalAlpha = A0;
+  }
+  /* the maul, about the hand (hx, hy), rotated by bang; the tell glow on its head */
+  function slagDrawMaul(g, e, P, u, hx, hy, bang, A0, thr, tell) {
+    var mw = P.mWhite;
+    g.save();
+    g.translate(hx, hy);
+    g.rotate(bang);
+    g.translate(-hx, -hy);
+    cube(g, hx - u * 0.14, hy - u * 0.04, u * 0.28, u * 0.38, u * 0.12, mw ? "#ffffff" : "#8a4820");
+    cube(g, hx - u * 0.10, hy - u * 1.15, u * 0.20, u * 1.18, u * 0.10, mw ? "#ffffff" : "#5a3a2c");
+    cube(g, hx - u * 0.42, hy - u * 1.52, u * 0.84, u * 0.56, u * 0.26, mw ? "#ffffff" : SLAG_HEADC);
+    if (P.stripeA > 0) {
+      if (P.stripeA < 1) g.globalAlpha = A0 * P.stripeA;
+      g.fillStyle = "#ffb040";
+      g.fillRect(hx - u * 0.42, hy - u * 1.28, u * 0.84, u * 0.10);
+      g.fillStyle = "#ff6030";
+      g.fillRect(hx - u * 0.32, hy - u * 1.44, u * 0.64, u * 0.07);
+      if (P.stripeA < 1) g.globalAlpha = A0;
+    }
+    if (P.legacy && (tell > 0.35 || (e.atk === "embers" && e.atkT >= e.atkWind)) && thr > 0) {
+      g.fillStyle = "#ffe8a0";
+      g.globalAlpha = A0 * thr * (0.32 + tell * 0.5);
+      g.beginPath();
+      g.arc(hx, hy - u * 1.28, u * 0.38, 0, 6.3);
+      g.fill();
+      g.globalAlpha = A0;
+    }
+    g.restore();
+    /* the v7.71 tell disc, drawn unrotated at the head stripe's rotated centre (a circle: same
+       pixels, cheaper raster). A glow sprite here cost ~4x the disc at the lab zoom. */
+    if (!P.legacy && tell > 0.35 && thr > 0) {
+      g.fillStyle = "#ffe8a0";
+      g.globalAlpha = A0 * thr * (0.32 + tell * 0.5);
+      g.beginPath();
+      g.arc(hx + u * 1.28 * Math.sin(bang), hy - u * 1.28 * Math.cos(bang), u * 0.38, 0, 6.3);
+      g.fill();
+      g.globalAlpha = A0;
+    }
+  }
+  /* rect clip with its edges on whole device pixels: an anti-aliased clip edge sends every later
+     fill through a coverage mask (about +25 % on the clipped body at the lab zoom) */
+  function slagClipRect(g, x0, y0, x1, y1) {
+    var m = g.getTransform ? g.getTransform() : null;
+    g.beginPath();
+    if (m && m.b === 0 && m.c === 0 && m.a > 0 && m.d > 0) {
+      var X0 = Math.round(m.a * x0 + m.e), X1 = Math.round(m.a * x1 + m.e), Y0 = Math.round(m.d * y0 + m.f), Y1 = Math.round(m.d * y1 + m.f);
+      g.rect((X0 - m.e) / m.a, (Y0 - m.f) / m.d, (X1 - X0) / m.a, (Y1 - Y0) / m.d);
+    } else g.rect(x0, y0, x1 - x0, y1 - y0);
+    g.clip();
+  }
+  function slagDrawCrown(g, P, xC, yC, u, A0, trimC) {
+    cube(g, xC - u * 0.50, yC - u * 0.16, u * 1.00, u * 0.28, u * 0.14, trimC);
+    cube(g, xC - u * 0.68, yC - u * 0.48, u * 0.26, u * 0.38, u * 0.12, "#ffb040");
+    cube(g, xC + u * 0.42, yC - u * 0.48, u * 0.26, u * 0.38, u * 0.12, "#ffb040");
+    cube(g, xC - u * 0.80, yC - u * 0.28, u * 0.16, u * 0.20, u * 0.08, "#ff6030");
+    cube(g, xC + u * 0.64, yC - u * 0.28, u * 0.16, u * 0.20, u * 0.08, "#ff6030");
+    if (P.gemA > 0) {
+      g.fillStyle = "#ff6030";
+      if (P.gemA < 1) g.globalAlpha = A0 * P.gemA;
+      g.fillRect(xC - u * 0.08, yC - u * 0.06, u * 0.16, u * 0.12);
+      if (P.gemA < 1) g.globalAlpha = A0;
+    }
+  }
+  /* the cosmetic clock: one call per sim tick (updateEnemies), before updateBoss */
+  function slagAnim(e, dt) {
+    if (!SLAG_ANIM) return;
+    if (!e.alive && !(e.deadT > 0)) return;
+    var an = e.slagAn || (e.slagAn = slagAnimNew(e));
+    var u = artR(e) * 1.40, uW = u * (enemyVis(e) || SLAG_VIS), P = SLAG_P, lite = !!S.fxLite, F, w, k;
+    if (!e.alive) {
+      slagPoseDead(e, u, an, P);
+      an.t += dt;
+      /* a kill mid-rise sinks back unseen: no clang, dust or crown (dP past every cue) */
+      var dP = an.lastSu < 1 ? 9 : an.diePrev, dN = (e.deadMax || SLAG_DIE) - e.deadT + dt;
+      if (dP < 0.40 && dN >= 0.40) {
+        w = slagW(e, slagMaulLow(P, u, SLAG_W).x, SLAG_W.y);
+        sparks(w.x, w.y, "#fff2c0", slagN(6), -Math.PI / 2, 1.6);
+        dustPuff(w.x, w.y, slagN(4), "#6a5a44");
+        floorRing(w.x, w.y, "#ffb040", 0.2 * uW, 0.9 * uW, 0.30);
+      }
+      for (k = 0; k < 3; k++) {
+        var st = 0.60 + k * 0.25;
+        if (dP < st && dN >= st) {
+          w = slagW(e, e.x + P.tX - u * 0.29, e.y - u * 2.25 + P.tY + u * 0.87);
+          dustPuff(w.x, w.y, slagN(2), "#4a3a34");
+        }
+      }
+      if (!lite && dP < 0.95 && dN >= 0.95) embers(e.x, e.y, "#ff6030", slagN(4));
+      if (dP < SLAG_CROWN_T && dN >= SLAG_CROWN_T) {
+        /* the crown meets the slag */
+        w = slagW(e, e.x + P.cX, e.y + 0.10 * u);
+        embers(w.x, w.y, "#ffb040", slagN(3));
+        floorRing(w.x, w.y, "#ff7040", 0.1 * uW, 0.6 * uW, 0.25);
+      }
+      an.diePrev = dN;
+      slagHem(an, dt, P.kX, u);
+      return;
+    }
+    /* the pose the player just saw (neither the sim nor an has moved since that draw) */
+    slagPoseLive(e, u, an, P);
+    an.lastHX = P.bHX; an.lastHY = P.bHY; an.lastBang = P.bBang; an.lastLam = P.bLam; an.lastDrop = P.bDl; an.lastFace = P.bFace;
+    an.lastHr = P.headRot;
+    var kX0 = P.kX;
+    an.t += dt; an.n++;
+    if (e.spawnT > 0) {
+      var suN = e.spawnMax ? 1 - (e.spawnT - dt) / e.spawnMax : 1, suP = an.suPrev;
+      F = player ? (player.x < e.x ? -1 : 1) : an.faceTo;
+      if (suP < 0) floorRing(e.x, e.y + 0.08 * uW, "#ffb040", 0.3 * uW, 1.4 * uW, 0.40);
+      if (!lite && suN < 0.6 && an.n % 6 === 0) embers(e.x + (Math.random() - 0.5) * 1.6 * uW, e.y + 0.08 * uW, "#ffb040", 1);
+      if (suP < 0.257 && suN >= 0.257) {
+        sparks(e.x - 0.55 * uW, e.y + 0.04 * uW, "#ffd070", slagN(2), -Math.PI / 2, 0.8);
+        sparks(e.x + 0.55 * uW, e.y + 0.04 * uW, "#ffd070", slagN(2), -Math.PI / 2, 0.8);
+      }
+      if (suP < 0.72 && suN >= 0.72) {
+        /* the maul head breaks the surface */
+        embers(e.x + F * 0.70 * uW, e.y, "#ffb040", slagN(4));
+        sparks(e.x + F * 0.70 * uW, e.y, "#ffe0a0", slagN(4), -Math.PI / 2, 1.0);
+      }
+      if (suP < 0.80 && suN >= 0.80) {
+        dustPuff(e.x - 0.24 * uW, e.y - 0.03 * uW, slagN(3));
+        dustPuff(e.x + 0.26 * uW, e.y - 0.03 * uW, slagN(3));
+        floorRing(e.x, e.y + 2, "#8a7a64", 0.4 * uW, 1.3 * uW, 0.35);
+      }
+      an.suPrev = suN;
+      an.faceFrom = an.faceTo = an.atkFace = F; an.turnT = -1; an.crossT = 0;
+      an.lx = e.x; an.ly = e.y;
+      slagIdle(e, an, dt, u, uW, kX0, true);
+      return;
+    }
+    /* attack tracking: blend-from snapshot, contact and fire edges, beats */
+    if (e.atk) {
+      if (an.atkKind !== e.atk || e.atkT < an.prevAtkT) {
+        an.fromHX = an.lastHX; an.fromHY = an.lastHY; an.fromBang = an.lastBang;
+        an.fromLam = an.lastLam; an.fromDrop = an.lastDrop; an.fromFace = an.lastFace;
+        an.atkKind = e.atk; an.aev = 0; an.prevAtkT = 0;
+        an.atkFace = e.aimX < 0 ? -1 : 1;
+        an.faceFrom = an.faceTo = an.atkFace; an.turnT = -1; an.crossT = 0; an.regT = -1;
+      }
+      F = an.atkFace;
+      var t0 = an.prevAtkT, t1 = e.atkT;
+      if (e.atk === "slam") {
+        if (e.kitRing && !an.prevKit) {
+          w = slagW(e, slagMaulLow(P, u, SLAG_W).x, SLAG_W.y);
+          floorRing(w.x, w.y, "#ffb040", 6, 40, 0.25);
+          sparks(w.x, w.y, "#fff2c0", slagN(6), -Math.PI / 2 + F * 0.6, 1.6);
+          dustPuff(w.x, w.y, slagN(4), "#6a5a44");
+          an.scT0 = an.t; an.scX = w.x; an.scY = w.y;
+          an.hemV += F * 1.2 * u;
+        }
+        if (!lite && ((t0 < 0.70 && t1 >= 0.70) || (t0 < 0.80 && t1 >= 0.80))) {
+          w = slagW(e, P.mHX, P.mHY);
+          embers(w.x, w.y, "#ffb040", 1);
+        }
+      } else if (e.atkHit && !an.prevHit) {
+        floorRing(e.x, e.y + 2, "#ffb040", 0.3 * uW, 1.4 * uW, 0.30);
+        for (k = 0; k < 10; k++) if (!lite || k % 2 === 0) sparks(e.x, e.y, "#ffb040", 1, k * Math.PI * 2 / 10 + (e.phase || 0) * 0.4, 0.08);
+        w = slagW(e, P.mHX, P.mHY);
+        dustPuff(w.x, w.y, slagN(3));
+        an.hemV += F * 0.6 * u;
+      }
+    }
+    an.prevAtkT = e.atk ? e.atkT : 0; an.prevKit = !!e.kitRing; an.prevHit = !!e.atkHit;
+    if (!e.atk) an.atkKind = null;
+    /* facing that commits: hysteresis, then the maul hand-over turn */
+    if (!e.atk) {
+      /* the side the sim's idle branch writes into e.face this very tick (dx < 0 ? -1 : 1) */
+      var want = player ? (player.x - e.x < 0 ? -1 : 1) : (e.face || 1);
+      if (want !== an.faceTo) {
+        an.crossT += dt;
+        if (!player || Math.abs(player.x - e.x) > 12 || an.crossT >= 0.25) {
+          if (an.turnT >= 0 && want === an.faceFrom) {
+            an.faceFrom = an.faceTo; an.faceTo = want; an.turnT = Math.max(0, an.turnDur - an.turnT);
+          } else {
+            an.faceFrom = an.faceTo; an.faceTo = want; an.turnT = 0;
+          }
+          an.hemV += -an.faceFrom * 0.6 * u;
+          an.crossT = 0; an.regT = -1;
+        }
+      } else an.crossT = 0;
+      if (an.turnT >= 0) {
+        an.turnT += dt;
+        if (an.turnT >= an.turnDur) { an.turnT = -1; an.faceFrom = an.faceTo; }
+      }
+    }
+    /* hurt: recoil away from the ball (its position: the velocity is already reflected) */
+    if (e.hitT > an.prevHitT + 1e-6) {
+      var cy = e.y - (e.hitLift || 0), bdx = ball ? ball.x - e.x : 0, bdy = ball ? ball.y - cy : 0, bd = Math.hypot(bdx, bdy);
+      var dir = ball && bd < (e.hitR || e.r) + (ball.r || BALL_R) + 24 ? (bdx <= 0 ? 1 : -1) : -an.faceTo;
+      var hs = (e.atk === "slam" && e.atkT < e.atkWind + e.atkActive) || (e.atk === "embers" && e.atkT < e.atkWind) ? 0.4 : 1;
+      /* polish: big enough to read on the phone (torso about 0.09u, head nod about 0.15 rad with
+         the head starting at once, crown about 0.2u), settled in about 0.3 s */
+      an.hv += dir * hs * 4.0 * u;
+      an.hrv += dir * hs * 2.5;
+      an.hurtT = 0; an.hurtS = hs;
+      an.hemV += dir * hs * 0.8 * u;
+      an.heat = 1;
+      if (bd > 1e-3) embers(e.x + bdx / bd * (e.hitR || e.r), cy + bdy / bd * (e.hitR || e.r), "#ff6030", slagN(2));
+      an.regT = -1;
+    }
+    an.prevHitT = e.hitT;
+    an.hurtT += dt;
+    an.hv += (-324 * an.hx - 18 * an.hv) * dt; an.hx += an.hv * dt;
+    if (an.hx > 0.15 * u) { an.hx = 0.15 * u; an.hv = 0; } else if (an.hx < -0.15 * u) { an.hx = -0.15 * u; an.hv = 0; }
+    an.hrv += (-400 * (an.hr - 1.4 * an.hx / u) - 16 * an.hrv) * dt; an.hr += an.hrv * dt;
+    if (an.hr > 0.20) { an.hr = 0.20; an.hrv = 0; } else if (an.hr < -0.20) { an.hr = -0.20; an.hrv = 0; }
+    an.hbv += (-150 * (an.hb + 1.5 * an.hx / u) - 10 * an.hbv) * dt; an.hb += an.hbv * dt;
+    if (an.hb > 0.16) { an.hb = 0.16; an.hbv = 0; } else if (an.hb < -0.16) { an.hb = -0.16; an.hbv = 0; }
+    an.heat = Math.max(0, an.heat - dt / 0.25);
+    /* gait from real travel */
+    var mdx = e.x - an.lx, mdy = e.y - an.ly, d = Math.hypot(mdx, mdy);
+    if (d > 8) {
+      /* placed, not walked (lab stage, knock-away): re-plant both feet at rest */
+      d = 0; mdx = 0; mdy = 0;
+      an.fx[0] = an.fx[1] = an.fy[0] = an.fy[1] = an.fl[0] = an.fl[1] = 0; an.sw = -1;
+    }
+    an.lx = e.x; an.ly = e.y;
+    if (d > 1e-6) {
+      /* from a standstill take the new heading as is (no swing through another direction) */
+      if (an.gA < 0.05) { an.ux = mdx / d; an.uy = mdy / d; }
+      else { an.ux += (mdx / d - an.ux) * 0.2; an.uy += (mdy / d - an.uy) * 0.2; }
+    }
+    var ul = Math.hypot(an.ux, an.uy);
+    if (ul > 1e-6) { an.ux /= ul; an.uy /= ul; } else { an.ux = 1; an.uy = 0; }
+    an.v += (d / dt - an.v) * (1 - Math.exp(-dt / 0.25));
+    var gT = e.atk ? 0 : Math.min(1, an.v / Math.max(1, 0.3 * (e.spd || 0)));
+    if (!(e.spd > 0)) gT = 0;
+    an.gA += (gT - an.gA) * (1 - Math.exp(-dt / (e.atk ? 0.10 : 0.25)));
+    an.plantT += dt;
+    slagFeet(e, an, d, mdx, mdy, dt, u, uW, gT > 0.3 && an.v > 3);
+    /* gait sway (screen x): toward the foot that carries the weight, which is the last one
+       planted, or the other one while a foot swings */
+    var gs = an.sw >= 0 ? (an.sw === 0 ? 1 : -1) : (an.swLast === 0 ? -1 : 1);
+    an.gsx += (0.04 * u * an.gA * gs - an.gsx) * (1 - Math.exp(-dt / 0.12));
+    an.gsh += (an.gsx - an.gsh) * (1 - Math.exp(-dt / 0.06));
+    slagIdle(e, an, dt, u, uW, kX0, false);
+  }
+  /* planted feet (local offsets from each leg's rest, in u-space: fx, fy; lift fl). A foot on the
+     floor is world-fixed: body travel moves it back. One foot at a time steps. Walking (polish:
+     timed swings, not travel-driven ones): the foot furthest behind the step target (0.14u
+     ahead along the heading) goes once the body has moved 0.07u since the last plant (and
+     0.10 s has passed), or 0.9 s after it. The swing takes 0.29 s with a 0.06u lift (a bigger
+     lift only tucks the leg under the torso), so at the 9.6 px/s chase he stomps about every
+     0.65 s with about 0.35 s on both feet. A swing never lands the legs closer than 0.06u
+     (inner edges). Stopped: back to rest over 0.24 s. Re-targeting mid-step stays
+     continuous (the remaining distance is eased, not the whole step). No new step starts
+     during an attack. */
+  function slagFeet(e, an, d, mdx, mdy, dt, u, uW, walking) {
+    var vis = uW / u, fx = an.fx, fy = an.fy, fl = an.fl, A = 0.14 * u, tx = 0, ty = 0, i = -1, j, r, p0, p1, e0, k;
+    for (k = 0; k < 2; k++) if (k !== an.sw) { fx[k] -= mdx / vis; fy[k] -= mdy / vis; }
+    an.stepT += dt; an.stepD += d / vis;
+    if (walking) { tx = A * an.ux; ty = A * an.uy; }
+    if (an.sw < 0) {
+      if (walking) {
+        var b0 = (tx - fx[0]) * an.ux + (ty - fy[0]) * an.uy, b1 = (tx - fx[1]) * an.ux + (ty - fy[1]) * an.uy;
+        j = b0 > b1 + 0.5 ? 0 : b1 > b0 + 0.5 ? 1 : 1 - an.swLast;
+        r = j ? b1 : b0;
+        if (r >= 0.04 * u && ((an.stepT >= 0.10 && an.stepD >= 0.07 * u) || an.stepT >= 0.9)) i = j;
+      } else if (!e.atk) {
+        var m0 = Math.hypot(fx[0], fy[0]), m1 = Math.hypot(fx[1], fy[1]);
+        if (m0 > 0.04 * u || m1 > 0.04 * u) i = m0 >= m1 ? 0 : 1;
+      }
+      if (i >= 0) {
+        r = Math.hypot(tx - fx[i], ty - fy[i]);
+        an.sw = i; an.swP = 0; an.swWalk = walking;
+        an.swH = (walking ? 0.06 : 0.05) * u * Math.min(1, r / (walking ? 0.20 * u : A));
+      }
+    }
+    if (an.sw >= 0) {
+      i = an.sw;
+      if (i === 1) { if (tx < fx[0] - 0.12 * u) tx = fx[0] - 0.12 * u; }
+      else if (tx > fx[1] + 0.12 * u) tx = fx[1] + 0.12 * u;
+      p0 = an.swP;
+      p1 = Math.min(1, p0 + dt / (an.swWalk ? 0.29 : 0.24));
+      e0 = easeInOutQuad(p0);
+      k = e0 < 1 ? (easeInOutQuad(p1) - e0) / (1 - e0) : 1;
+      fx[i] += (tx - fx[i]) * k; fy[i] += (ty - fy[i]) * k;
+      fl[i] = an.swH * Math.sin(Math.PI * p1);
+      an.swP = p1;
+      if (p1 >= 1) {
+        fl[i] = 0; an.sw = -1; an.swLast = i; an.stepT = 0; an.stepD = 0;
+        if (an.swWalk && an.gA > 0.35) {
+          dustPuff(e.x + ((i ? 0.26 : -0.24) * u + fx[i]) * vis, e.y + (-0.02 * u + fy[i]) * vis, slagN(2), "#6a5a44");
+          an.plantT = 0;
+          an.hemV += (i ? -0.2 : 0.2) * u;
+          an.hbv += an.faceTo * 1.2;
+        }
+      }
+    }
+  }
+  /* breath weight, eyes, gutter, regrip, horn embers, cloth hem */
+  function slagIdle(e, an, dt, u, uW, kX0, rising) {
+    var lite = !!S.fxLite, f = 1 - Math.exp(-dt / 0.15), w;
+    an.bPh += dt / 3.0;
+    if (an.bPh > 1e3) an.bPh -= Math.floor(an.bPh);
+    an.bw = e.atk && !rising ? Math.max(0, an.bw - dt / 0.15) : Math.min(1, an.bw + dt / 0.30);
+    if (player) {
+      var lx = (player.x - e.x) / 80, ly = (player.y - (e.y - 54)) / 80;
+      lx = lx > 1 ? 1 : lx < -1 ? -1 : lx; ly = ly > 1 ? 1 : ly < -1 ? -1 : ly;
+      an.lookX += (0.03 * u * lx - an.lookX) * f;
+      an.lookY += (0.02 * u * ly - an.lookY) * f;
+    }
+    if (an.gutT >= 0) { an.gutT += dt; if (an.gutT > 0.21) an.gutT = -1; }
+    else { an.nextGut -= dt; if (an.nextGut <= 0) { an.gutT = 0; an.nextGut = 4 + 3 * Math.random(); } }
+    if (!rising) {
+      if (an.regT >= 0) {
+        var r0 = an.regT;
+        an.regT += dt;
+        if (!lite && r0 < 0.34 && an.regT >= 0.34) {
+          w = slagW(e, SLAG_P.mHX, SLAG_P.mHY);
+          embers(w.x, w.y, "#ffb040", 2);
+        }
+        if (an.regT >= 0.5) an.regT = -1;
+      } else if (!e.atk && an.turnT < 0 && an.gA < 0.2 && an.heat <= 0) {
+        an.nextReg -= dt;
+        if (an.nextReg <= 0) { an.regT = 0; an.nextReg = 5.5 + 2.5 * Math.random(); }
+      }
+      an.hornT -= dt;
+      if (an.hornT <= 0) {
+        an.hornT = 0.6 + 0.4 * Math.random();
+        an.hornSide = -an.hornSide;
+        if (!lite) {
+          w = slagW(e, e.x + an.hornSide * 0.72 * u, e.y - u * 2.25 - 0.18 * u);
+          embers(w.x, w.y, "#ffb040", 1);
+        }
+      }
+    }
+    slagHem(an, dt, kX0 + 0.04 * u * Math.sin(1.3 * an.t), u);
+  }
+  /* cloak hem spring (k 55, c 5.5: ≈ 0.85 s period, ≈ 25 % overshoot) */
+  function slagHem(an, dt, target, u) {
+    an.hemV += (-55 * (an.hemX - target) - 5.5 * an.hemV) * dt;
+    an.hemX += an.hemV * dt;
+    var rel = an.hemX - target;
+    if (rel > 0.18 * u) { an.hemX = target + 0.18 * u; an.hemV = 0; }
+    else if (rel < -0.18 * u) { an.hemX = target - 0.18 * u; an.hemV = 0; }
+  }
+  /* killEnemy hook: the exact last drawn live pose (d0) and the corpse clock */
+  function slagOnKill(en) {
+    if (!SLAG_ANIM) return;
+    var an = en.slagAn || (en.slagAn = slagAnimNew(en));
+    var u = artR(en) * 1.40;
+    an.dieAtS = S.t;
+    slagPoseLive(en, u, an, SLAG_P);
+    an.lastHX = SLAG_P.bHX; an.lastHY = SLAG_P.bHY; an.lastBang = SLAG_P.bBang;
+    an.lastLam = SLAG_P.bLam; an.lastDrop = SLAG_P.bDl; an.lastFace = SLAG_P.bFace; an.lastHr = SLAG_P.headRot;
+    an.lastSu = en.spawnT > 0 && en.spawnMax ? 1 - en.spawnT / en.spawnMax : 1;
+    an.diePrev = 0; an.dev = 0;
+    en.deadT = en.deadMax = SLAG_DIE;
   }
 
   function updateSlagKing(e, dt, dx, dy, dist) {
@@ -14908,131 +15834,239 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     var EMBER = "#ffb040", CORE = "#ff6030", CLOAK = "#4a1c14", CLOAK_D = "#2a100c";
     var u = artR(e) * 1.40;
     e.artH = u * 3.20;
+    /* BB-V7.72 — alpha root (every alpha is A0·k, so rise and death fade as one) and the pure
+       pose (slagPose). P.legacy keeps the v7.71 formulas; the new path plants the feet (yt is
+       constant) and moves each group by base coordinates instead of transforms. */
+    var A0 = g.globalAlpha, Ain = A0;
+    var P = slagPose(e, u);
+    var vis = enemyVis(e) || SLAG_VIS;
     var x = e.x;
     if (e.bobPhase == null) e.bobPhase = Math.random() * 6.3;
-    var face = e.face || (player && player.x < e.x ? -1 : 1);
-    var bob = Math.sin(S.t * 1.5 + e.bobPhase) * u * 0.035;
-    var crouch = (e.crouch || 0) * u;
-    var lean = (e.lean || 0) * u;
-    var yt = e.y - u * 2.25 + bob + crouch;
-    var body = e.flash > 0 ? "#ffffff" : SLAG;
+    var face, bob, crouch, lean, yt;
+    if (P.legacy) {
+      face = e.face || (player && player.x < e.x ? -1 : 1);
+      bob = Math.sin(S.t * 1.5 + e.bobPhase) * u * 0.035;
+      crouch = (e.crouch || 0) * u;
+      lean = (e.lean || 0) * u;
+      yt = e.y - u * 2.25 + bob + crouch;
+    } else {
+      face = P.face;
+      lean = 0;
+      yt = e.y - u * 2.25;
+      if (P.dieA < 1) { A0 *= P.dieA; g.globalAlpha = A0; } /* the pool itself closes, unfaded (Ain) */
+    }
+    var thr = P.thr, clk = P.legacy ? S.t : P.clk;
+    var body = P.white ? "#ffffff" : SLAG;
     var tell = 0;
     if (e.tell > 0) {
       tell = e.tellMax > 0 ? 1 - Math.max(0, e.tell) / e.tellMax : Math.min(1, e.tell);
     }
 
-    if (e.kitRing) {
+    /* BB-V7.72 — the slam ring and its tell are drawn at the true hit radius (world px; this
+       draw is scaled by vis), and fade out 0.12 s after the kill */
+    if (e.kitRing && thr > 0) {
       g.strokeStyle = e.kitRingCol || "#ff7040";
       g.lineWidth = 8;
-      g.globalAlpha = 0.88;
-      g.beginPath(); g.arc(x, e.y, e.kitRingR, 0, 6.3); g.stroke();
-      g.globalAlpha = 1;
+      g.globalAlpha = A0 * 0.88 * thr;
+      g.beginPath(); g.arc(x, e.y, e.kitRingR / vis, 0, 6.3); g.stroke();
+      g.globalAlpha = A0;
     }
-    if (tell > 0) {
+    if (tell > 0 && thr > 0) {
       g.save();
+      g.globalAlpha = A0 * thr;
       if (e.atk === "slam") {
         g.strokeStyle = "rgba(255,112,64," + (0.32 + tell * 0.45) + ")";
         g.lineWidth = 2.8;
         g.beginPath();
-        g.arc(x, e.y, (e.kitRingMax || 178) * (0.32 + 0.68 * tell), 0, 6.3);
+        g.arc(x, e.y, (e.kitRingMax || 178) * (0.32 + 0.68 * tell) / vis, 0, 6.3);
         g.stroke();
       } else {
-        g.globalAlpha = 0.16 + tell * 0.36;
+        g.globalAlpha = A0 * thr * (0.16 + tell * 0.36);
         g.strokeStyle = "#ffb040";
         g.lineWidth = 2.4;
         g.beginPath();
-        g.arc(x, e.y, u * (1.1 + tell * 0.5) + Math.sin(S.t * 14) * u * 0.06, 0, 6.3);
+        g.arc(x, e.y, u * (1.1 + tell * 0.5) + Math.sin(clk * 14) * u * 0.06, 0, 6.3);
         g.stroke();
       }
       g.restore();
     }
 
-    g.save(); g.globalAlpha = 0.48; g.fillStyle = "#0a0806";
-    g.beginPath();
-    g.ellipse(x + lean * 0.12, e.y + u * 0.28, u * (1.18 + (e.crouch || 0) * 0.3), u * 0.32, 0, 0, 6.3);
-    g.fill(); g.restore();
-
-    g.save();
-    g.translate(lean, 0);
-
-    var sway = Math.sin((e.capesway || 0) * 1.3) * u * 0.06 - lean * 0.1;
-    var capeDrop = (e.crouch || 0) * u * 0.18;
-    cube(g, x - u * 0.88 + sway, yt + u * 0.52, u * 0.36, u * 1.42 + capeDrop, u * 0.08, CLOAK_D);
-    cube(g, x - u * 0.36 + sway * 0.5, yt + u * 0.42, u * 0.72, u * 1.58 + capeDrop, u * 0.10, CLOAK);
-    cube(g, x + u * 0.36 + sway * 0.4, yt + u * 0.50, u * 0.42, u * 1.38 + capeDrop, u * 0.08, CLOAK_D);
-
-    var stride = (e.stride || 0) * u;
-    cube(g, x - u * 0.40, yt + u * 1.70 + stride, u * 0.32, u * 0.36, u * 0.16, SLAG_D);
-    cube(g, x + u * 0.10, yt + u * 1.70 - stride, u * 0.32, u * 0.36, u * 0.16, SLAG_D);
-
-    cube(g, x - u * 0.50, yt + u * 0.70, u * 1.00, u * 1.02, u * 0.28, body);
-    g.fillStyle = shade(body, 0.55);
-    for (var ri = 0; ri < 3; ri++) {
-      g.fillRect(x - u * 0.42, yt + u * (0.90 + ri * 0.22), u * 0.84, u * 0.07);
+    if (P.poolRx > 0) { slagDrawPit(g, P, x, e.y + u * 0.10, u, Ain); g.globalAlpha = A0; }
+    if (P.scA > 0) {
+      /* scorch: a stepped voxel oval (5 rects, no overlaps; an ellipse path cost ~5x at the lab
+         zoom) with a hot core that cools */
+      var scx = P.scX, scy = P.scY;
+      g.globalAlpha = A0 * 0.55 * P.scA;
+      g.fillStyle = "#1a0c08";
+      g.fillRect(scx - u * 0.55, scy - u * 0.06, u * 1.10, u * 0.12);
+      g.fillRect(scx - u * 0.42, scy - u * 0.13, u * 0.84, u * 0.07);
+      g.fillRect(scx - u * 0.42, scy + u * 0.06, u * 0.84, u * 0.07);
+      g.fillRect(scx - u * 0.22, scy - u * 0.18, u * 0.44, u * 0.05);
+      g.fillRect(scx - u * 0.22, scy + u * 0.13, u * 0.44, u * 0.05);
+      if (P.scRim > 0) {
+        g.globalAlpha = A0 * 0.5 * P.scRim; g.fillStyle = EMBER;
+        g.fillRect(scx - u * 0.30, scy - u * 0.05, u * 0.60, u * 0.10);
+      }
+      g.globalAlpha = A0;
     }
-    g.fillStyle = CORE;
-    g.globalAlpha = 0.55 + 0.45 * (e.coreGlow || 0.6);
-    g.fillRect(x - u * 0.16, yt + u * 1.02, u * 0.32, u * 0.28);
-    g.globalAlpha = 1;
-    g.fillStyle = EMBER;
-    g.fillRect(x - u * 0.08, yt + u * 1.10, u * 0.16, u * 0.12);
-    /* molten cracks */
-    g.fillStyle = shade(CORE, 1.15);
-    g.fillRect(x - u * 0.40, yt + u * 0.86, u * 0.22, u * 0.05);
-    g.fillRect(x + u * 0.18, yt + u * 1.28, u * 0.24, u * 0.05);
 
-    cube(g, x - u * 1.02, yt + u * 0.56, u * 0.54, u * 0.48, u * 0.22, TRIM);
-    cube(g, x + u * 0.48, yt + u * 0.56, u * 0.54, u * 0.48, u * 0.22, TRIM);
-    g.fillStyle = CORE;
-    g.fillRect(x - u * 0.92, yt + u * 0.72, u * 0.34, u * 0.08);
-    g.fillRect(x + u * 0.58, yt + u * 0.72, u * 0.34, u * 0.08);
-
-    var lift = (e.hammerLift || 0) * u;
-    var bang = (e.hammerAng != null ? e.hammerAng : face * 0.25);
-    var hx = x + face * u * 0.78;
-    var hy = yt + u * 1.00 - lift * 0.45;
-    g.save();
-    g.translate(hx, hy);
-    g.rotate(bang);
-    g.translate(-hx, -hy);
-    cube(g, hx - u * 0.14, hy - u * 0.04, u * 0.28, u * 0.38, u * 0.12, SLAG_D);
-    cube(g, hx - u * 0.10, hy - u * 1.15, u * 0.20, u * 1.18, u * 0.10, TRIM);
-    cube(g, hx - u * 0.42, hy - u * 1.52, u * 0.84, u * 0.56, u * 0.26, shade(SLAG, 1.05));
-    g.fillStyle = EMBER;
-    g.fillRect(hx - u * 0.42, hy - u * 1.28, u * 0.84, u * 0.10);
-    g.fillStyle = CORE;
-    g.fillRect(hx - u * 0.32, hy - u * 1.44, u * 0.64, u * 0.07);
-    if (tell > 0.35 || (e.atk === "embers" && e.atkT >= e.atkWind)) {
-      g.fillStyle = "#ffe8a0";
-      g.globalAlpha = 0.32 + tell * 0.5;
+    if (P.shA > 0) {
+      var shx = P.legacy ? x + lean * 0.12 : x + P.shX;
+      var shrx = P.legacy ? u * (1.18 + (e.crouch || 0) * 0.3) : P.shRx;
+      g.save(); g.globalAlpha = A0 * 0.48 * P.shA; g.fillStyle = "#0a0806";
       g.beginPath();
-      g.arc(hx, hy - u * 1.28, u * 0.38, 0, 6.3);
-      g.fill();
-      g.globalAlpha = 1;
+      if (ellipseOk(shrx, u * 0.32)) { g.ellipse(shx, e.y + u * 0.28, shrx, u * 0.32, 0, 0, 6.3); g.fill(); }
+      g.restore();
     }
-    g.restore();
 
-    cube(g, x - u * 0.42, yt + u * 0.06, u * 0.84, u * 0.62, u * 0.24, body);
-    g.fillStyle = "#1a0c08";
-    g.fillRect(x - u * 0.28, yt + u * 0.22, u * 0.22, u * 0.20);
-    g.fillRect(x + u * 0.06, yt + u * 0.22, u * 0.22, u * 0.20);
-    g.fillStyle = EMBER;
-    var glow = 0.55 + 0.45 * Math.sin(S.t * 3.4 + e.bobPhase);
-    if (tell > 0) glow = 0.88 + 0.12 * Math.sin(S.t * 16);
-    g.globalAlpha = Math.min(1, glow);
-    g.fillRect(x - u * 0.22 + face * u * 0.03, yt + u * 0.27, u * 0.12, u * 0.10);
-    g.fillRect(x + u * 0.12 + face * u * 0.03, yt + u * 0.27, u * 0.12, u * 0.10);
-    g.globalAlpha = 1;
+    var clipY = e.y + u * 0.04, clip = !P.legacy && P.clipOn && P.bodyOn;
+    if (P.legacy) {
+      g.save();
+      g.translate(lean, 0);
+    } else if (clip) {
+      g.save(); slagClipRect(g, x - u * 3, e.y - u * 4, x + u * 3, clipY);
+    }
+    if (P.bodyOn) {
+      var trimC = P.whiteAll ? "#ffffff" : TRIM;
+      if (P.legacy) {
+        var sway = Math.sin((e.capesway || 0) * 1.3) * u * 0.06 - lean * 0.1;
+        var capeDrop = (e.crouch || 0) * u * 0.18;
+        cube(g, x - u * 0.88 + sway, yt + u * 0.52, u * 0.36, u * 1.42 + capeDrop, u * 0.08, CLOAK_D);
+        cube(g, x - u * 0.36 + sway * 0.5, yt + u * 0.42, u * 0.72, u * 1.58 + capeDrop, u * 0.10, CLOAK);
+        cube(g, x + u * 0.36 + sway * 0.4, yt + u * 0.50, u * 0.42, u * 1.38 + capeDrop, u * 0.08, CLOAK_D);
 
-    cube(g, x - u * 0.50, yt - u * 0.16, u * 1.00, u * 0.28, u * 0.14, TRIM);
-    cube(g, x - u * 0.68, yt - u * 0.48, u * 0.26, u * 0.38, u * 0.12, EMBER);
-    cube(g, x + u * 0.42, yt - u * 0.48, u * 0.26, u * 0.38, u * 0.12, EMBER);
-    cube(g, x - u * 0.80, yt - u * 0.28, u * 0.16, u * 0.20, u * 0.08, CORE);
-    cube(g, x + u * 0.64, yt - u * 0.28, u * 0.16, u * 0.20, u * 0.08, CORE);
-    g.fillStyle = CORE;
-    g.fillRect(x - u * 0.08, yt - u * 0.06, u * 0.16, u * 0.12);
+        var stride = (e.stride || 0) * u;
+        cube(g, x - u * 0.40, yt + u * 1.70 + stride, u * 0.32, u * 0.36, u * 0.16, SLAG_D);
+        cube(g, x + u * 0.10, yt + u * 1.70 - stride, u * 0.32, u * 0.36, u * 0.16, SLAG_D);
+      } else {
+        /* cloth cloak: rides the shoulders, the hem spring swings it (as a translate: a sheared
+           cube rasterises about 4x slower than an axis-aligned one), a squat pools it */
+        var xK = x + P.kX + P.kShear * u * 1.13, yK = yt + P.kY, kw = P.kDW, kh = P.kDH;
+        if (!clip || yK + u * 0.42 < clipY) {
+          cube(g, xK - u * 0.88 - kw * 0.5, yK + u * 0.52, u * 0.36 + kw, u * 1.42 + kh, u * 0.08, CLOAK_D);
+          cube(g, xK - u * 0.36 - kw * 0.5, yK + u * 0.42, u * 0.72 + kw, u * 1.58 + kh, u * 0.10, CLOAK);
+          cube(g, xK + u * 0.36 - kw * 0.5, yK + u * 0.50, u * 0.42 + kw, u * 1.38 + kh, u * 0.08, CLOAK_D);
+        }
+        /* planted legs */
+        var legC = P.whiteAll ? "#ffffff" : SLAG_D;
+        if (!clip || yt + u * 1.70 + P.lLY < clipY) cube(g, x + P.lLX - u * 0.40, yt + u * 1.70 + P.lLY, u * 0.32, u * 0.36, u * 0.16, legC);
+        if (!clip || yt + u * 1.70 + P.lRY < clipY) cube(g, x + P.lRX + u * 0.10, yt + u * 1.70 + P.lRY, u * 0.32, u * 0.36, u * 0.16, legC);
+      }
 
-    g.restore();
+      var xT = x + P.tX, yT = yt + P.tY;
+      if (!clip || yT + u * 0.70 < clipY) {
+        cube(g, xT - u * 0.50, yT + u * 0.70, u * 1.00, u * 1.02, u * 0.28, body);
+        g.fillStyle = P.ribCol;
+        for (var ri = 0; ri < 3; ri++) {
+          g.fillRect(xT - u * 0.42, yT + u * (0.90 + ri * 0.22), u * 0.84, u * 0.07);
+        }
+        g.fillStyle = CORE;
+        g.globalAlpha = A0 * P.coreA;
+        g.fillRect(xT - u * 0.16, yT + u * 1.02, u * 0.32, u * 0.28);
+        g.globalAlpha = A0 * P.coreIn;
+        g.fillStyle = EMBER;
+        g.fillRect(xT - u * 0.08, yT + u * 1.10, u * 0.16, u * 0.12);
+        if (P.coreGlowA > 0) glowAt(g, "255,96,48", xT, yT + u * 1.16, u * 0.4, u * 0.4, A0 * P.coreGlowA);
+        /* molten cracks */
+        g.globalAlpha = A0 * P.crackA;
+        g.fillStyle = P.crackHot ? EMBER : SLAG_CRACK;
+        g.fillRect(xT - u * 0.40, yT + u * 0.86, u * 0.22, u * 0.05);
+        g.fillRect(xT + u * 0.18, yT + u * 1.28, u * 0.24, u * 0.05);
+        g.globalAlpha = A0;
+      }
+
+      var xS = x + P.sX, yS = yt + P.sY;
+      if (!clip || yS + u * 0.56 < clipY) {
+        cube(g, xS - u * 1.02, yS + u * 0.56, u * 0.54, u * 0.48, u * 0.22, trimC);
+        cube(g, xS + u * 0.48, yS + u * 0.56, u * 0.54, u * 0.48, u * 0.22, trimC);
+        g.fillStyle = CORE;
+        if (P.slitA < 1) g.globalAlpha = A0 * P.slitA;
+        g.fillRect(xS - u * 0.92, yS + u * 0.72, u * 0.34, u * 0.08);
+        g.fillRect(xS + u * 0.58, yS + u * 0.72, u * 0.34, u * 0.08);
+        if (P.slitA < 1) g.globalAlpha = A0;
+      }
+
+      if (P.legacy) {
+        var lift = (e.hammerLift || 0) * u;
+        var bang = (e.hammerAng != null ? e.hammerAng : face * 0.25);
+        var hx = x + face * u * 0.78;
+        var hy = yt + u * 1.00 - lift * 0.45;
+        slagDrawMaul(g, e, P, u, hx, hy, bang, A0, thr, tell);
+      } else if (!P.mSlot) {
+        slagDrawMaul(g, e, P, u, P.mX, P.mY, P.mBang, A0, thr, tell);
+      }
+      /* swing smear (annular sector about the hand), and the ember impact glow */
+      if (P.smOn && thr > 0) {
+        var sa0 = P.smA0, sa1 = P.smA1, sccw = sa1 < sa0;
+        g.globalAlpha = A0 * thr * 0.35;
+        g.fillStyle = EMBER;
+        g.beginPath();
+        g.arc(P.mX, P.mY, u * 1.52, sa0, sa1, sccw);
+        g.arc(P.mX, P.mY, u * 0.96, sa1, sa0, !sccw);
+        g.closePath();
+        g.fill();
+        g.globalAlpha = A0;
+      }
+      if (P.impA > 0 && thr > 0) {
+        /* chop flash: the tell disc again, on the head as it bites */
+        g.fillStyle = "#ffe8a0";
+        g.globalAlpha = A0 * thr * P.impA;
+        g.beginPath(); g.arc(P.mHX, P.mHY, u * 0.38, 0, 6.3); g.fill();
+        g.globalAlpha = A0;
+      }
+
+      /* the head nod is already in hX / cX as parallax (slagNod): no rotated head group */
+      var xH = x + P.hX, yH = yt + P.hY;
+      if (!clip || yH - u * 0.48 < clipY) {
+        if (!clip || yH + u * 0.06 < clipY) {
+          cube(g, xH - u * 0.42, yH + u * 0.06, u * 0.84, u * 0.62, u * 0.24, body);
+          g.fillStyle = "#1a0c08";
+          g.fillRect(xH - u * 0.28, yH + u * 0.22, u * 0.22, u * 0.20);
+          g.fillRect(xH + u * 0.06, yH + u * 0.22, u * 0.22, u * 0.20);
+          g.fillStyle = EMBER;
+          var glow, eox, eoy;
+          if (P.legacy) {
+            glow = 0.55 + 0.45 * Math.sin(S.t * 3.4 + e.bobPhase);
+            if (tell > 0) glow = 0.88 + 0.12 * Math.sin(S.t * 16);
+            eox = face * u * 0.03; eoy = 0;
+          } else {
+            glow = P.eyeA; eox = P.eyeOX; eoy = P.eyeOY;
+          }
+          if (glow > 0.003) {
+            g.globalAlpha = A0 * Math.min(1, glow);
+            g.fillRect(xH - u * 0.22 + eox, yH + u * 0.27 + eoy, u * 0.12, u * 0.10);
+            g.fillRect(xH + u * 0.12 + eox, yH + u * 0.27 + eoy, u * 0.12, u * 0.10);
+            g.globalAlpha = A0;
+          }
+        }
+        if (!P.crownOff) slagDrawCrown(g, P, x + P.cX, yt + P.cY, u, A0, trimC);
+      }
+    }
+    if (P.legacy || clip) g.restore();
+
+    if (!P.legacy) {
+      /* dropped maul and slipped crown: world-anchored, drawn over the body */
+      if (P.mSlot) slagDrawMaul(g, e, P, u, P.mX, P.mY, P.mBang, A0, thr, tell);
+      if (P.crownOff) {
+        g.save();
+        slagClipRect(g, x - u * 3, e.y - u * 4, x + u * 3, clipY);
+        slagDrawCrown(g, P, P.cWX, P.cWY, u, A0, TRIM);
+        g.restore();
+      }
+      /* ember charge: motes spiral into the maul head */
+      if (P.moteA > 0 && thr > 0) {
+        var mt = P.moteT, ms = u * 0.06;
+        g.globalAlpha = A0 * thr * P.moteA;
+        g.fillStyle = EMBER;
+        for (var mk = 0; mk < 4; mk++) {
+          var mtau = 2.5 * (mt - 0.20) + mk / 4;
+          mtau -= Math.floor(mtau);
+          var mang = mk * Math.PI / 2 + 9 * mt * P.moteF, mrr = 0.9 * u * (1 - mtau);
+          g.fillRect(P.mHX + Math.cos(mang) * mrr - ms / 2, P.mHY + Math.sin(mang) * mrr - ms / 2, ms, ms);
+        }
+        g.globalAlpha = A0;
+      }
+    }
   }
 
   /* BB-V7.44 — Ash Titan rebuilt on cube(). Stone golem, not Ash Knight:
@@ -15678,6 +16712,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
   }
   function drawSpawnRing(g, e) {
     if (e.boss === "bone") return; /* BB-V7.72 the Bone King's rise has its own crypt pit */
+    if (e.boss === "slag" && SLAG_ANIM) return; /* BB-V7.72 slag draws its own pool */
     if (!e.alive || !(e.spawnT > 0) || !e.spawnMax) return;
     if (e.boss === "lord") { drawLordPit(g, e); return; } /* BB-V7.72 — SK-16 */
     var u = 1 - e.spawnT / e.spawnMax, r = artR(e) * enemyVis(e) * (e.boss ? 1.6 : 1.1);
@@ -16122,6 +17157,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     if (!e.alive && e.dieDelay != null && e.boss === "court") a = Math.min(1, Math.max(0, e.deadT) / 0.40);
     if (e.boss === "court" && e.spawnT > 0 && e.spawnMax) a *= Math.min(1, (1 - e.spawnT / e.spawnMax) / 0.3);
     g.globalAlpha = a;
+    if (!e.alive && e.boss === "slag" && SLAG_ANIM) g.globalAlpha = 1; /* BB-V7.72 slag owns its death fade */
     /* BB-V7.15 — trash / knight / lord each have their own vis. Hurtboxes are
        fit to the painted torso in fitSilhouette (not a shared r*N halo). */
     g.save();
@@ -16131,6 +17167,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
          drawSkullLord instead; the knight rises at scale 1 when KNIGHT_OWN_RISE) */
       var su = 1 - e.spawnT / e.spawnMax;
       var rise = su < 0.3 ? 0.02 : Math.max(0.02, easeOutBack((su - 0.3) / 0.7));
+      if (e.boss === "slag" && SLAG_ANIM) { rise = 1; su = 1; a = 1; } /* BB-V7.72 slag rises at scale 1 and owns its alpha */
       g.globalAlpha = a * Math.min(1, su * 2);
       g.translate(e.x, e.y);
       g.scale(1 + (1 - Math.min(1, rise)) * 0.3, rise);
