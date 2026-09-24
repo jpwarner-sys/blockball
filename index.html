@@ -3712,6 +3712,7 @@
     burst(en.x, en.y - (en.hitLift || 0), en.col, trick ? 22 : 12);
     burst(en.x, en.y - (en.hitLift || 0), shade(en.col, 0.7), 5);
     floorRing(en.x, en.y + 4, en.boss ? "#f0e0c0" : shade(en.col, 1.3), 6, en.boss ? 70 : 34, en.boss ? 0.5 : 0.32);
+    if (en.boss === "bone") en.deadT = BONE_DIE;
     en.deadMax = en.deadT;
     /* BB-V7.69 — a kill freezes the frame for a beat so it lands. */
     S.hitStop = Math.max(S.hitStop || 0, en.boss ? 0.09 : (trick ? 0.06 : 0.035));
@@ -4815,6 +4816,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       /* BB-V7.72 — the lord's cosmetic clock ticks before every early-out
          (spawn, stun, daze, death); it never writes a gameplay field. */
       if (e.boss === "lord") lordAnim(e, dt);
+      if (e.boss === "bone" && (e.alive || e.deadT > 0)) boneAnim(e, dt);
       if (!e.alive) {
         e.deadT -= dt;
         /* BB-V7.72 — SK-20: an add the lord's fall killed breaks up when the
@@ -7323,6 +7325,894 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     sfx("spire");
     burst(e.x, e.y, "#c9a44c", 10);
     S.shake = Math.max(S.shake, 0.22);
+    if (e.boneAn && e.alive) boneVolleyFx(e);
+  }
+
+  /* BB-V7.72 — Bone King animation rig (cosmetic only). boneAnim(e, dt) is the
+     one clock: updateEnemies runs it every sim tick (spawn, stun, daze and
+     death included, never in hitStop or pause) and it writes only e.boneAn and
+     particles (prand / Math.random). bonePose(e, u) turns sim state plus
+     e.boneAn into one frame's pose (BONE_P) and writes nothing else, so the
+     draw is the same at 30, 60 and 120 Hz. With no e.boneAn and no rise
+     (paintBossSheet) the pose is today's formulas, pixel for pixel.
+     The one gesture: he drives the scepter down through his fist so its foot
+     strikes the floor on the exact fire tick; the bones leave his feet. */
+  var BONE_STEP = 0.13;   /* gait step length in u (world step 0.13 uW: ~1.5 steps/s at the chase) */
+  var BONE_DIE = 1.7;     /* corpse clock (killEnemy); deadT is draw-only */
+  var BONE_WAVE_V = 158;  /* = fireBoneKingVolley shot speed */
+  var BONE_RC = 0.80 + 4 / 60 - 1e-6; /* rise contact su: the drive is 4 ticks (spawnMax 1) */
+  var BONE_Q = Math.PI / 2;  /* resting rolls in death are exact quarter turns: rects stay rects (cheap) */
+  /* the plant: the scepter lands on a diagonal (foot near the bone origin,
+     topper out past the cowl, shaft leaning at the hero) */
+  var BONE_SA = 0.45;
+  var BONE_SUV = 0.94 / Math.cos(BONE_SA) - 0.08;   /* volley pull: the tug-end slide (hy = e.y - 0.98u) */
+  var BONE_SUR = 0.96 / Math.cos(BONE_SA) - 0.08;   /* rise pull: the planted slide (hy = e.y - u) */
+  var BONE_RFX = 0.60 - 0.96 * Math.tan(BONE_SA);   /* rise contact: foot x from e.x in u (x fS) */
+  var BONE_SH = {
+    notch: shade("#5a2230", 0.55), rib0: shade("#f0e8dc", 0.45), rib0W: shade("#ffffff", 0.45),
+    rib1: shade("#f0e8dc", 0.85), rib1W: shade("#ffffff", 0.85), jaw: shade("#f0e8dc", 0.9),
+    jawW: shade("#ffffff", 0.9), gemHi: shade("#e0b44a", 1.2)
+  };
+  /* hit value pop: the same cloth hues, brighter */
+  var BONE_HOT = {
+    cloak: shade("#5a2230", 1.6), cloakD: shade("#3a141c", 1.6), lining: shade("#8a2840", 1.6),
+    notch: shade(shade("#5a2230", 0.55), 1.6)
+  };
+  /* cape panels in draw order: LINING L, LINING R, CLOAK_D L, CLOAK, CLOAK_D R */
+  var BONE_M = [1, 0.6, 0.7, 0.45, 0.4];        /* cloth wave amplitude (today's sway mults) */
+  var BONE_PH = [0, -0.5, -0.25, -0.6, -0.4];   /* cloth wave phase: a wave crosses the cape */
+  var BONE_HW = [0.6, 0.6, 1, 1, 1];            /* hem spring weight (linings lag less) */
+  var BONE_NM = [1, 0.5, 0.4];                  /* hem notch sway mults */
+  var BONE_NP = [0, 3, 4];                      /* the panel each notch trails */
+  var BONE_W = { x: 0, y: 0 };
+  var BONE_V = boneStaffOut();                  /* volley channels for this frame */
+  var BONE_G = boneStaffOut();                  /* ghost-pose scratch */
+  var BONE_P = {
+    legacy: true, fS: 1, fV: 1, yt: 0, L: 0, yU: 0,
+    shX: 0, shRx: 1.12, shA: 1,
+    capeDx: 0, capeDy: 0, capeTop: 0, capeHem: 0, capeDrop: 0, notchDx: 0, floorL: 0,
+    sw: [0, 0, 0, 0, 0], hem: [0, 0, 0], pool: false,
+    legDx: 0, fLx: 0, fLy: 0, fLz: 0, fRx: 0, fRy: 0, fRz: 0, splay: 0,
+    ribDx: 0, ribDy: 0, offDx: 0, offDy: 0, offBehind: false,
+    hx: 0, hy: 0, sAng: 0, S: 0, gripAfter: false, gripX: 0, gripY: 0, staffFree: false, stBack: false,
+    stBX: 0, stBY: 0, stAng: 0, tipA: 0, tipX: 0, tipY: 0, topX: 0, topY: 0, footX: 0, footY: 0,
+    cowlDx: 0, cowlDy: 0, cowlH: 0.86,
+    headDx: 0, headDy: 0, headRot: 0, neckY: 0, jaw: 0, skX: 0, skY: 0,
+    crDx: 0, crDy: 0, crRot: 0, crFree: false, crX: 0, crY: 0, gripA: 0,
+    eyeA: 1, eyeCore: 0, eyeX: 0, eyeY: 0, eyeSq: false, gemA: 1,
+    white: false, hot: false,
+    ringK: 1, ringA: 1, ringLW: 2.4,
+    relA: 0, relR: 0, relX: 0, relY: 0, relLW: 3,
+    smN: 0, smX: [0, 0, 0, 0, 0, 0], smY: [0, 0, 0, 0, 0, 0], smA: 0, stFront: false,
+    moteN: 0, mX: [0, 0, 0, 0, 0, 0], mY: [0, 0, 0, 0, 0, 0], mA: [0, 0, 0, 0, 0, 0],
+    rise: false, riseD: 0, skipBody: false, pitRx: 0, pitA: 0
+  };
+
+  function boneClamp01(t) { return t <= 0 ? 0 : t >= 1 ? 1 : t; }
+  function boneEaseInQuad(t) { t = boneClamp01(t); return t * t; }
+  function boneEaseOutQuad(t) { t = boneClamp01(t); return t * (2 - t); }
+  function boneEIO(t) { t = boneClamp01(t); return 0.5 - 0.5 * Math.cos(Math.PI * t); }
+  /* one breath per cycle: inhale 0.59 of it, exhale 0.41 (0..1, 1 = full) */
+  function boneBreath(ph) {
+    ph -= Math.floor(ph);
+    return ph < 0.59 ? boneEIO(ph / 0.59) : 1 - boneEIO((ph - 0.59) / 0.41);
+  }
+  /* semi-implicit Euler; a clamp kills the velocity. omega*dt <= 0.44 at 60 Hz */
+  var BONE_SO = { x: 0, v: 0 };   /* boneSpring out: literal keys keep the loads monomorphic */
+  function boneSpring(x0, v0, k, c, target, dt, lim) {
+    var v = v0 + (-k * (x0 - target) - c * v0) * dt;
+    var x = x0 + v * dt;
+    if (x > lim) { x = lim; v = 0; } else if (x < -lim) { x = -lim; v = 0; }
+    BONE_SO.x = x;
+    BONE_SO.v = v;
+  }
+  function boneFxN(n) { return S.fxLite ? Math.ceil(n / 2) : n; }
+  /* local art px (drawEnemy scales the art by vis about the feet) -> world */
+  function boneW(e, lx, ly) {
+    var vis = enemyVis(e);
+    BONE_W.x = e.x + (lx - e.x) * vis;
+    BONE_W.y = e.y + (ly - e.y) * vis;
+    return BONE_W;
+  }
+  function boneStaffOut() {
+    return { sA: 0.35, hUp: 0, hIn: 0, yU: 0, nod: 0, roll: 0, offUp: 0, flare: 0, jaw: 0, lean: 0,
+      hyK: 0, hyAbs: 0, sK: 0, sU: 0, shiver: 0 };
+  }
+  /* staff slide that puts the shaft's lower face on the rest floor line */
+  function boneSlideC(e, u, hy, ang) {
+    return Math.max(0, ((e.y - u * 0.04) - hy) / Math.max(0.2, Math.cos(ang)) - u * 0.08);
+  }
+
+  function boneAnimNew(e) {
+    var spawning = e.spawnT > 0;
+    /* the side updateBoneKing sets e.face to on its next tick (dx < 0 -> -1) */
+    var f0 = player && player.x < e.x ? -1 : 1;
+    return {
+      t: 0, tick: 0, lx: e.x, ly: e.y, pHitT: e.hitT || 0, pHp: e.hp, pAtkT: e.atk ? e.atkT : 0, pSu: -1,
+      faceFrom: f0, faceTo: f0, turnP: -1, turnDur: 0.2, faceHold: 0,
+      v: 0, vxS: 0, vyS: 0, dirX: 1, dirY: 0, gA: 0, gPh: 0, plantT: 9, plantSide: 0,
+      hX: 0, hV: 0, hF: 0, tA: 0, tV: 0, cX: 0, cV: 0, cY: 0, cVy: 0, crA: 0, crV: 0,
+      hurtT: -1, hurtDir: 0, heavy: false,
+      lookX: 0, lookY: 0, look0: false, blinkT: -1, nextBlink: 1.2 + Math.random(), flareT: -1,
+      bPh: Math.random(), bIn: spawning ? 0 : 1,
+      slamT: -1, slamX: e.x, slamY: e.y,
+      ignT: -1,
+      dieT: -1, fall: f0, d0: { ang: 0, hx: 0, hy: 0, S: 0, yU: 0, fV: f0 }
+    };
+  }
+
+  /* The cosmetic clock. Runs before updateBoneKing, so it sees last tick's
+     atkT and position; threshold events use prev < thr <= cur crossings. */
+  function boneAnim(e, dt) {
+    var an = e.boneAn || (e.boneAn = boneAnimNew(e));
+    if (!(dt > 0)) return;
+    var u = artR(e) * 1.42, vis = enemyVis(e), uW = u * vis;
+    var P, w, k, n0, n1;
+    an.t += dt;
+    an.tick++;
+    an.plantT += dt;
+    if (an.ignT >= 0) an.ignT += dt;
+    if (an.flareT >= 0) { an.flareT += dt; if (an.flareT > 0.5) an.flareT = -1; }
+    if (an.hurtT >= 0) { an.hurtT += dt; if (an.hurtT > 1) an.hurtT = -1; }
+    if (an.slamT >= 0) { an.slamT += dt; if (an.slamT >= 0.30) an.slamT = -1; }
+    if (an.blinkT >= 0) { an.blinkT += dt; if (an.blinkT >= 27 * DT - 1e-9) an.blinkT = -1; }
+    /* teleport guard: stage moves, room loads, skipSpawn */
+    if (Math.abs(e.x - an.lx) > 8 || Math.abs(e.y - an.ly) > 8) {
+      an.lx = e.x; an.ly = e.y; an.v = 0; an.vxS = 0; an.vyS = 0;
+    }
+    /* hurt edge: hitEnemy sets hitT 0.2 (burn ticks never do) */
+    var hitT = e.hitT || 0;
+    if (hitT > an.pHitT + 1e-6) {
+      var dealt = an.pHp - e.hp;
+      an.heavy = !!player && dealt >= currentDmg() * 1.4;
+      var dir = (ball && Math.abs(ball.x - e.x) > 1) ? (e.x > ball.x ? 1 : -1) : -an.faceTo;
+      var m = (an.heavy ? 1.4 : 1) * (e.alive ? 1 : 1.4);
+      an.hV += dir * 4.5 * m;
+      an.tV += dir * 1.6;
+      an.crV += dir * 2.5;
+      an.cV += dir * 0.5;
+      an.hurtT = 0;
+      an.hurtDir = dir;
+    }
+    if (!e.alive) {
+      if (an.dieT < 0) {
+        /* first dead tick: snapshot the live staff (bonePose sees a kill frame) */
+        P = bonePose(e, u);
+        an.d0.ang = P.sAng; an.d0.hx = P.hx; an.d0.hy = P.hy; an.d0.S = P.S; an.d0.yU = P.yU; an.d0.fV = P.fV;
+        an.fall = P.sAng > 0.05 ? 1 : P.sAng < -0.05 ? -1 : P.fV;
+        an.dieT = 0;
+      } else {
+        var d0 = an.dieT;
+        an.dieT += dt;
+        boneDieFx(e, an, d0, an.dieT, u);
+      }
+      boneSprings(an, dt);
+      boneAnimPrev(e, an, hitT);
+      return;
+    }
+    if (e.spawnT > 0) {
+      /* facing is locked for the rise (set when the rig is made); the live turn takes over after */
+      var hs = an.faceTo;
+      an.faceFrom = hs; an.turnP = -1; an.faceHold = 0; an.bIn = 0;
+      var smax = e.spawnMax || 1;
+      var suN = 1 - Math.max(0, e.spawnT - dt) / smax, suP = an.pSu;
+      if (suP >= 0) {
+        if (suP < 0.15 && suN >= 0.15) dustPuff(e.x + hs * u * 0.72 * vis, e.y, boneFxN(3));
+        if (suN > 0.15 && suN < 0.80 && an.tick % (S.fxLite ? 8 : 4) === 0) {
+          dustPuff(e.x + (Math.random() - 0.5) * 1.8 * uW, e.y + 1, 1, "#6a5a44");
+        }
+        if (suP < BONE_RC && suN >= BONE_RC) {
+          /* one gold ring at the staff foot; the closing pit is the centre beat */
+          var fx = e.x + hs * u * BONE_RFX * vis, fy = e.y - u * 0.04 * vis;
+          floorRing(fx, fy, "#e0b44a", 6, 44, 0.28);
+          dustPuff(fx, fy, boneFxN(4));
+          an.tV += hs * 1.5;
+          an.crV += hs * 1.2;
+          an.ignT = 0;
+          if (!S.fxLite) {
+            embers(e.x - u * 0.13 * vis, e.y - u * 1.9 * vis, "#ff7a2a", 2);
+            embers(e.x + u * 0.13 * vis, e.y - u * 1.9 * vis, "#ff7a2a", 2);
+          }
+        }
+      }
+      an.pSu = suN;
+      an.lx = e.x; an.ly = e.y;
+      an.bPh += dt / 3.4;
+      boneSprings(an, dt);
+      boneAnimPrev(e, an, hitT);
+      return;
+    }
+    an.bIn = Math.min(1, an.bIn + dt / 0.4);
+    /* facing: hysteresis, cross-body turn, no new turn inside the strike */
+    var W = e.atkWind || 0.82, A = e.atkActive || 0.18;
+    var lock = !!e.atk && e.atkT >= W - 0.12 && e.atkT < W + A;
+    var ef = e.face || an.faceTo;
+    if (an.turnP >= 0) {
+      if (ef === an.faceFrom) {
+        k = an.faceFrom; an.faceFrom = an.faceTo; an.faceTo = k; an.turnP = 1 - an.turnP;
+      }
+      an.turnP += dt / an.turnDur;
+      if (an.turnP >= 1) { an.turnP = -1; an.tV += an.faceTo * 1.2; }
+    } else if (ef !== an.faceTo) {
+      an.faceHold += dt;
+      if (an.faceHold >= 4 * DT - 1e-9 && !lock &&
+          (!player || Math.abs(player.x - e.x) > 12 || an.faceHold >= 0.25 || e.atk)) {
+        an.faceFrom = an.faceTo; an.faceTo = ef; an.turnP = 0; an.turnDur = e.atk ? 0.14 : 0.20; an.faceHold = 0;
+        an.cV -= an.faceTo * 0.6;
+      }
+    } else an.faceHold = 0;
+    /* volley beats (may land a tick late; the contact itself is exact via boneVolleyFx) */
+    if (e.atk) {
+      if (an.pAtkT < 0.10 && e.atkT >= 0.10) an.cV -= an.faceTo * 0.5;
+      if (an.pAtkT < 0.985 && e.atkT >= 0.985) an.tV += an.faceTo * 1.5;
+    }
+    /* speed-driven planted gait */
+    var rvx = (e.x - an.lx) / dt, rvy = (e.y - an.ly) / dt;
+    w = 1 - Math.exp(-dt / 0.12);
+    an.vxS += (rvx - an.vxS) * w;
+    an.vyS += (rvy - an.vyS) * w;
+    an.v = Math.sqrt(an.vxS * an.vxS + an.vyS * an.vyS);
+    if (an.v > 0.5) { an.dirX = an.vxS / an.v; an.dirY = an.vyS / an.v; }
+    var at = e.atk ? e.atkT : 0;
+    var mask = e.atk ? (at < 0.56 ? 0.6 : at < 1.10 ? 0 : 1) : 1;
+    var gT = boneClamp01((an.v - 1.5) / 4) * mask;
+    an.gA += (gT - an.gA) * (1 - Math.exp(-dt / 0.08));
+    n0 = Math.floor(an.gPh / Math.PI);
+    an.gPh += Math.PI * an.v * dt / (BONE_STEP * uW);
+    n1 = Math.floor(an.gPh / Math.PI);
+    if (n1 !== n0 && an.gA > 0.4 && an.v > 4) {
+      /* a foot plants: foot 0 on odd half-cycles, foot 1 on even */
+      k = (n1 % 2 === 1) ? 0 : 1;
+      var flx = e.x + (k ? 0.24 : -0.24) * u + an.dirX * 0.5 * BONE_STEP * u * an.gA;
+      dustPuff(e.x + (flx - e.x) * vis, e.y + 1, boneFxN(2), "#6a5a44");
+      an.tV += k ? -0.25 : 0.25;
+      an.cV += k ? -0.25 : 0.25;   /* the hem kicks with the step */
+      an.plantT = 0;
+      an.plantSide = k;
+    }
+    boneSprings(an, dt);
+    /* idle clocks: breath, blink, look */
+    an.bPh += dt / 3.4;
+    if (!e.atk && hitT <= 0 && an.blinkT < 0) {
+      an.nextBlink -= dt;
+      if (an.nextBlink <= 0) { an.blinkT = 0; an.nextBlink = 4 + 3 * Math.random(); }
+    }
+    var tx = player ? player.x : e.x, ty = player ? player.y : e.y;
+    if (ball && ball.live && !(e.tell > 0)) {
+      var bdx = ball.x - e.x, bdy = ball.y - e.y;
+      if (bdx * bdx + bdy * bdy < 40000) { tx = ball.x; ty = ball.y; }
+    }
+    var lkx = Math.max(-1, Math.min(1, (tx - e.x) / 200));
+    var lky = Math.max(-1, Math.min(1, (ty - (e.y - u * 1.9 * vis)) / 200));
+    if (!an.look0) { an.lookX = lkx; an.lookY = lky; an.look0 = true; }
+    w = 1 - Math.exp(-dt / 0.08);
+    an.lookX += (lkx - an.lookX) * w;
+    an.lookY += (lky - an.lookY) * w;
+    boneAnimPrev(e, an, hitT);
+  }
+  function boneSprings(an, dt) {
+    var o = BONE_SO;
+    boneSpring(an.tA, an.tV, 320, 9, 0, dt, 0.14); an.tA = o.x; an.tV = o.v;
+    boneSpring(an.cX, an.cV, 60, 7.75, -Math.max(-1, Math.min(1, an.vxS / 12)) * 0.06, dt, 0.12); an.cX = o.x; an.cV = o.v;
+    boneSpring(an.cY, an.cVy, 60, 7.75, 0, dt, 0.12); an.cY = o.x; an.cVy = o.v;
+    boneSpring(an.crA, an.crV, 500, 10, 0, dt, 0.10); an.crA = o.x; an.crV = o.v;
+    boneSpring(an.hX, an.hV, 700, 18.5, 0, dt, 0.14); an.hX = o.x; an.hV = o.v;
+    an.hF += (1.2 * an.hX - an.hF) * (1 - Math.exp(-dt / 0.04));
+  }
+  function boneAnimPrev(e, an, hitT) {
+    an.pHitT = hitT;
+    an.pHp = e.hp;
+    an.pAtkT = e.atk ? e.atkT : 0;
+    an.lx = e.x;
+    an.ly = e.y;
+  }
+  /* death beats on dieT crossings (pose positions come from the pure pose) */
+  function boneDieFx(e, an, d0, d1, u) {
+    var P, w;
+    if (d0 < 0.30 && d1 >= 0.30) dustPuff(e.x, e.y, boneFxN(3));
+    if (d0 < 0.40 && d1 >= 0.40) {
+      P = bonePose(e, u);
+      w = boneW(e, P.topX, P.topY);
+      if (!S.fxLite) sparks(w.x, w.y, "#fff2c0", 4, -Math.PI / 2, 2.4);
+      dustPuff(w.x, w.y, boneFxN(2));
+    }
+    if (d0 < 0.52 && d1 >= 0.52 && !S.fxLite) {
+      P = bonePose(e, u);
+      w = boneW(e, P.crX, P.crY);
+      sparks(w.x, w.y, "#e0b44a", 2, -Math.PI / 2, 1.6);
+    }
+    if (d0 < 0.55 && d1 >= 0.55) {
+      P = bonePose(e, u);
+      w = boneW(e, P.skX, P.skY);
+      dustPuff(w.x, w.y, boneFxN(2));
+      dustPuff(e.x, e.y + 2, boneFxN(3), "#d8cfc0");
+    }
+    if (d0 < 0.58 && d1 >= 0.58 && !S.fxLite) {
+      P = bonePose(e, u);
+      w = boneW(e, P.skX, P.skY);
+      embers(w.x, w.y, "#ff7a2a", 2);
+    }
+  }
+  /* The contact, on the exact fire tick (called from fireBoneKingVolley after
+     the last sim write): FX at the staff foot, kicks, the eye flare, and the
+     release ring's clock. Reads the pure pose; writes e.boneAn and particles. */
+  function boneVolleyFx(e) {
+    var an = e.boneAn;
+    var u = artR(e) * 1.42;
+    an.slamT = 0;
+    an.slamX = e.x;
+    an.slamY = e.y;
+    var P = bonePose(e, u);
+    var w = boneW(e, P.footX, P.footY), cx = w.x, cy = w.y;
+    floorRing(cx, cy, "#e0b44a", 6, 44, 0.28);
+    dustPuff(cx, cy, boneFxN(5), "#6a5a44");
+    if (!S.fxLite) sparks(cx, cy - 2, "#fff2c0", 3, -Math.PI / 2, 2.2);
+    an.tV += P.fV * 1.0;
+    an.cVy -= 0.8;
+    an.crV += P.fV * 1.2;
+    an.flareT = 0;
+  }
+
+  /* Pure volley channels at atkT = t (u units; sA and roll in fS radians).
+     gather | raise | loaded hold | strike (4 ticks) | contact on the fire tick |
+     impact hold | tug | pull | settle. Pose at t = 0 and t = 1.55 is the rest pose. */
+  function boneStaff(e, an, t, fS, out) {
+    var u = artR(e) * 1.42;
+    var W = e.atkWind || 0.82;
+    var tF = Math.ceil(W / DT - 1e-6) * DT, tS = tF - 4 * DT;
+    var k, p;
+    out.sA = 0.35; out.hUp = 0; out.hIn = 0; out.yU = 0; out.nod = 0; out.roll = 0;
+    out.offUp = 0; out.flare = 0; out.jaw = 0; out.lean = 0;
+    out.hyK = 0; out.hyAbs = 0; out.sK = 0; out.sU = 0; out.shiver = 0;
+    if (!(t > 0)) return out;
+    if (t < 0.10) {
+      k = easeInOutQuad(t / 0.10);
+      out.sA = 0.35 + 0.10 * k; out.hUp = -0.04 * k; out.yU = 0.04 * k; out.nod = 0.02 * k; out.roll = 0.03 * k;
+    } else if (t < 0.52) {
+      k = easeInOutQuad((t - 0.10) / 0.42);
+      out.sA = 0.45 - 1.45 * k; out.hUp = -0.04 + 0.65 * k; out.hIn = 0.06 * k; out.yU = 0.04 - 0.08 * k;
+      out.nod = 0.02 - 0.05 * k; out.roll = 0.03 - 0.08 * k; out.offUp = 0.12 * k; out.flare = 0.6 * k;
+      out.lean = -0.04 * k;
+    } else if (t < tS) {
+      k = boneEaseOutQuad((t - 0.52) / (tS - 0.52));
+      var trem = 0.03 * Math.sin(2 * Math.PI * 9 * (an ? an.t : 0)) * k * boneClamp01((tS - t) / (3 * DT));
+      out.sA = -1.00 - 0.10 * k + trem; out.hUp = 0.61 + 0.05 * k; out.hIn = 0.06; out.yU = -0.04 - 0.02 * k;
+      out.nod = -0.03; out.roll = -0.05; out.offUp = 0.12; out.flare = 0.6; out.lean = -0.04;
+      out.jaw = 0.03 * boneClamp01((t - 0.60) / (tS - 0.60));
+    } else if (t < W) {
+      p = boneEaseInQuad((t - tS) / (4 * DT));
+      out.sA = -1.10 + (BONE_SA + 1.10) * p; out.hUp = 0.66; out.hyK = p; out.hyAbs = e.y - u * 1.00;
+      out.hIn = 0.06 + 0.06 * p; out.yU = -0.06 + 0.20 * p; out.nod = -0.03 + 0.07 * p; out.roll = -0.05 + 0.11 * p;
+      out.offUp = 0.12 * (1 - p); out.flare = 0.6 - 0.4 * p; out.jaw = 0.03 + 0.02 * p; out.lean = -0.04 + 0.09 * p;
+      out.sK = boneClamp01((p - 0.3) / 0.7);
+    } else if (t < 0.985) {
+      /* contact on the fire tick (atkT >= wind, the sim's own test), impact hold, tug */
+      k = t < 0.95 ? 0 : boneClamp01((t - 0.95) / 0.035);
+      out.sA = BONE_SA; out.hUp = 0.66; out.hyK = 1; out.hyAbs = e.y - u * 1.00 + u * 0.02 * k; out.hIn = 0.12;
+      out.yU = 0.14 + 0.02 * boneEaseOutQuad((t - tF) / (0.95 - tF)) + 0.01 * k;
+      out.nod = 0.04; out.roll = 0.06; out.flare = 0.2; out.jaw = 0.05; out.lean = 0.05; out.sK = 1;
+      p = Math.round((t - tF) / DT);
+      out.shiver = p >= 0 && p < 4 ? (p % 2 ? -0.01 : 0.01) : 0;
+    } else if (t < 1.25) {
+      k = easeOutCubic(boneClamp01((t - 0.985) / 0.265));
+      out.sA = BONE_SA + (0.35 - BONE_SA) * k; out.hyK = 1 - k; out.hyAbs = e.y - u * 0.98; out.hIn = 0.12 * (1 - k);
+      out.yU = 0.17 - 0.19 * k; out.nod = 0.04 * (1 - k); out.roll = 0.06 * (1 - k); out.lean = 0.05 * (1 - k);
+      out.flare = 0.2 * (1 - k); out.jaw = 0.05 * (1 - boneClamp01((t - 0.985) / 0.015));
+      /* the staff is drawn back up through the fist from its tug-end slide;
+         the angle settles back 0.10 rad (follow-through) */
+      out.sU = BONE_SUV * (1 - k);
+    } else if (t < 1.55) {
+      out.yU = -0.02 * (1 - easeInOutQuad((t - 1.25) / 0.30));
+    }
+    return out;
+  }
+  /* rise depth in u: pit opens, first heave, hitch at the lip, second heave */
+  function boneRiseDepth(su) {
+    if (su < 0.15) return 3.85;
+    if (su < 0.50) return 3.85 - 2.65 * boneEaseOutQuad((su - 0.15) / 0.35);
+    if (su < 0.56) return 1.20 + 0.03 * Math.sin(Math.PI * (su - 0.50) / 0.06);
+    if (su < 0.80) return 1.20 * (1 - easeInOutQuad((su - 0.56) / 0.24));
+    return 0;
+  }
+  /* lowest point of the rotated skull (plus jaw) below the neck pivot, in u */
+  function boneSkullLow(r) {
+    var s = Math.abs(Math.sin(r)), c = Math.cos(r);
+    return 0.34 * s + (c >= 0 ? 0.10 * c : -0.62 * c);
+  }
+  /* debug snapshot for __BB_SELFTEST.boneKingState (rounded to 1e-3) */
+  function boneR3(v) { return Math.round(v * 1000) / 1000; }
+  function boneAnSnap(an) {
+    return { turnP: boneR3(an.turnP), faceTo: an.faceTo, gA: boneR3(an.gA), hX: boneR3(an.hX), tA: boneR3(an.tA),
+      dieT: boneR3(an.dieT), ignT: boneR3(an.ignT), slamT: boneR3(an.slamT) };
+  }
+
+  /* rise channels (u units): staff aloft through the ascent, then the
+     volley's thump as a motif (drive over 4 ticks, contact at 0.8667). Pure in
+     su up to the contact; from there on in ig, the ignite clock (e.boneAn.ignT,
+     which runs on into the live ticks), so the pull-out gets its full beat. */
+  function boneRiseStaff(e, u, su, ig, out) {
+    var p;
+    out.sA = 0.35; out.hUp = 0; out.hIn = 0; out.yU = 0; out.nod = 0; out.roll = 0;
+    out.offUp = 0; out.flare = 0; out.jaw = 0; out.lean = 0;
+    out.hyK = 0; out.hyAbs = 0; out.sK = 0; out.sU = 0; out.shiver = 0;
+    if (su < 0.80) { out.sA = 0; out.hUp = 0.72; }
+    else if (su < BONE_RC) {
+      p = boneEaseInQuad((su - 0.80) / (BONE_RC - 0.80));
+      out.sA = BONE_SA * p; out.hUp = 0.72; out.hyK = p; out.hyAbs = e.y - u; out.hIn = 0.12 * p; out.yU = 0.05 * p;
+      out.sK = boneClamp01((p - 0.3) / 0.7);
+    } else boneRisePull(e, u, ig, out);
+    return out;
+  }
+  /* after the rise thump: planted until ig 0.05 (3 ticks, so the landing reads
+     at 30 fps), then the volley's pull over 0.25 s (easeOutCubic) */
+  function boneRisePull(e, u, ig, out) {
+    var k = boneClamp01((ig - 0.05) / 0.25);
+    out.hUp = 0; out.nod = 0; out.roll = 0; out.offUp = 0; out.flare = 0; out.jaw = 0; out.lean = 0; out.shiver = 0;
+    out.hyAbs = e.y - u;
+    if (k <= 0) {
+      out.sA = BONE_SA; out.hyK = 1; out.hIn = 0.12; out.yU = 0.05; out.sK = 1; out.sU = 0;
+      return out;
+    }
+    k = easeOutCubic(k);
+    out.sA = BONE_SA + (0.35 - BONE_SA) * k; out.hyK = 1 - k; out.hIn = 0.12 * (1 - k); out.yU = 0.05 * (1 - k);
+    out.sK = 0; out.sU = BONE_SUR * (1 - k);
+    return out;
+  }
+
+  /* today's formulas (paintBossSheet / a draw before the first tick) */
+  function boneLegacyPose(e, u, P, hs) {
+    var x = e.x;
+    var face = e.face || hs;
+    var bob = Math.sin(S.t * 1.7 + e.bobPhase) * u * 0.04;
+    var crouch = (e.crouch || 0) * u;
+    var lean = (e.lean || 0) * u;
+    var tl = 0;
+    P.fS = face; P.fV = face;
+    P.yt = e.y - u * 2.22 + bob + crouch;
+    P.floorL = P.yt + u * 2.18;
+    P.L = lean; P.yU = 0;
+    P.shX = lean * 0.12; P.shRx = 1.12 + (e.crouch || 0) * 0.28;
+    var sway = Math.sin((e.capesway || 0) * 1.4) * u * 0.07 - lean * 0.1;
+    P.capeDx = lean; P.notchDx = lean; P.capeDy = 0; P.capeDrop = (e.crouch || 0) * u * 0.2;
+    P.sw[0] = sway; P.sw[1] = sway * 0.6; P.sw[2] = sway * 0.7; P.sw[3] = sway * 0.45; P.sw[4] = sway * 0.4;
+    P.hem[0] = sway; P.hem[1] = sway * 0.5; P.hem[2] = sway * 0.4;
+    var stride = (e.stride || 0) * u;
+    P.legDx = lean; P.fLy = stride; P.fRy = -stride;
+    P.ribDx = lean; P.ribDy = 0; P.offDx = lean; P.offDy = 0;
+    var lift = (e.staffLift || 0) * u;
+    P.sAng = e.staffAng != null ? e.staffAng : face * 0.35;
+    P.hx = x + face * u * 0.72 + lean;
+    P.hy = P.yt + u * 0.95 - lift * 0.55;
+    P.gripX = P.hx; P.gripY = P.hy; P.gripA = P.sAng;
+    P.footX = P.hx - u * 0.08 * Math.sin(P.sAng); P.footY = P.hy + u * 0.08 * Math.cos(P.sAng);
+    P.topX = P.hx + u * 1.62 * Math.sin(P.sAng); P.topY = P.hy - u * 1.62 * Math.cos(P.sAng);
+    P.cowlDx = lean; P.cowlDy = 0;
+    P.headDx = lean; P.headDy = 0; P.neckY = P.yt + u * 0.72; P.skX = x + lean; P.skY = P.yt + u * 0.35;
+    if (e.tell > 0) tl = e.tellMax > 0 ? 1 - Math.max(0, e.tell) / e.tellMax : Math.min(1, e.tell);
+    var glow = 0.55 + 0.45 * Math.sin(S.t * 3.2 + e.bobPhase);
+    if (tl > 0) glow = 0.85 + 0.15 * Math.sin(S.t * 16);
+    P.eyeA = glow; P.eyeX = face * u * 0.03; P.eyeY = 0;
+    P.gemA = 0.65 + 0.35 * Math.sin(S.t * 3.6 + e.bobPhase);
+    return P;
+  }
+
+  /* One frame's pose. Pure: reads e, e.boneAn, player and S.fxLite (mote count
+     and ghosts only); writes BONE_P / BONE_V / BONE_G and nothing else. */
+  function bonePose(e, u) {
+    var P = BONE_P, an = e.boneAn;
+    var x = e.x, i, k, p, n;
+    var spawning = e.spawnT > 0 && e.spawnMax > 0;
+    var hs = player && player.x < e.x ? -1 : 1;
+    P.legacy = !an && !spawning;
+    P.white = false; P.hot = false; P.ringK = 1; P.ringA = 1; P.ringLW = 2.4; P.relA = 0;
+    P.smN = 0; P.stFront = false; P.moteN = 0; P.rise = false; P.riseD = 0; P.skipBody = false; P.pitRx = 0; P.pitA = 0;
+    P.eyeCore = 0; P.eyeSq = false; P.jaw = 0; P.headRot = 0; P.crRot = 0; P.crDx = 0; P.crDy = 0; P.crFree = false;
+    P.staffFree = false; P.stBack = false; P.gripAfter = false; P.S = 0; P.tipA = 0; P.offBehind = false;
+    P.capeTop = 0; P.capeHem = 0; P.capeDrop = 0; P.pool = false; P.splay = 0;
+    P.fLx = 0; P.fLy = 0; P.fLz = 0; P.fRx = 0; P.fRy = 0; P.fRz = 0; P.cowlH = 0.86; P.shA = 1;
+    if (P.legacy) return boneLegacyPose(e, u, P, hs);
+
+    var vis = enemyVis(e);
+    var ytP = e.y - u * 2.22;
+    P.yt = ytP;
+    P.floorL = ytP + u * 2.18;
+    P.pool = true;
+    var su = spawning ? boneClamp01(1 - e.spawnT / e.spawnMax) : 1;
+    var dead = !e.alive, dT = dead && an ? an.dieT : -1;
+    var W = e.atkWind || 0.82;
+    var tF = Math.ceil(W / DT - 1e-6) * DT, tS = tF - 4 * DT;
+
+    /* facing: continuous fS for the swing, fV = the art side */
+    var fS, fV, q = 1, sq = 0;
+    if (!an || spawning) { fS = an ? an.faceTo : hs; fV = fS; }
+    else {
+      if (an.turnP >= 0) { q = easeInOutQuad(an.turnP); sq = Math.sin(Math.PI * q); }
+      fS = an.faceFrom + (an.faceTo - an.faceFrom) * q;
+      fV = (an.turnP < 0 || q >= 0.5) ? an.faceTo : an.faceFrom;
+    }
+    P.fS = fS; P.fV = fV;
+
+    /* rest channels plus the idle layers (breath, sway, cloth), faded by the attack */
+    var atkT = e.atk ? e.atkT : 0;
+    var atkW = e.atk ? (atkT < 1.25 ? Math.min(1, atkT / 0.10) : 1 - easeInOutQuad((atkT - 1.25) / 0.30)) : 0;
+    var at = an ? an.t : 0;
+    var bIn = (an && !spawning) ? an.bIn : 0;
+    var idleK = (1 - atkW) * bIn;
+    var bRaw = an ? boneBreath(an.bPh) : 0;
+    var bRib = bRaw * idleK, bOff = 0, bSc = 0, bCowl = 0, bHead = 0;
+    if (idleK > 0) {
+      bOff = boneBreath(an.bPh - 0.05 / 3.4) * idleK;
+      bSc = boneBreath(an.bPh - 0.08 / 3.4) * idleK;
+      bCowl = boneBreath(an.bPh - 0.06 / 3.4) * idleK;
+      bHead = boneBreath(an.bPh - 0.12 / 3.4) * idleK;
+    }
+    var gA = (an && !spawning) ? an.gA : 0;
+    var L = idleK > 0 ? 0.035 * u * Math.sin(2 * Math.PI * at / 5.3 + (e.bobPhase || 0)) * (1 - gA) * idleK : 0;
+
+    /* volley (or rise) channels */
+    var V = spawning ? boneRiseStaff(e, u, su, an && an.ignT >= 0 ? an.ignT : (su - BONE_RC) * e.spawnMax, BONE_V) :
+      boneStaff(e, an, atkT, fS, BONE_V);
+    /* the rise's pull-out finishes on the live ticks (same channels) */
+    if (!spawning && an && e.alive && !e.atk && an.ignT >= 0 && an.ignT < 0.30) boneRisePull(e, u, an.ignT, V);
+    L += V.lean * fS * u;
+    var yU = V.yU * u;
+
+    /* gait feet: swing eases forward, stance moves back exactly one world step */
+    if (gA > 0.001) {
+      var Lloc = BONE_STEP * u, gp = an.gPh / Math.PI;
+      for (k = 0; k < 2; k++) {
+        var pp = (gp + k) % 2, d, z;
+        if (pp < 0) pp += 2;
+        if (pp < 1) { d = (-0.5 + easeInOutQuad(pp)) * Lloc; z = 0.13 * u * Math.max(0, (Math.sin(Math.PI * pp) - 0.25) / 0.75); }
+        else { d = (0.5 - (pp - 1)) * Lloc; z = 0; }
+        if (k === 0) { P.fLx = an.dirX * d * gA; P.fLy = an.dirY * d * gA; P.fLz = z * gA; }
+        else { P.fRx = an.dirX * d * gA; P.fRy = an.dirY * d * gA; P.fRz = z * gA; }
+      }
+      yU -= 0.035 * u * gA * Math.abs(Math.sin(an.gPh));
+      L += 0.035 * u * gA * Math.sin(an.gPh);
+    }
+    if (an && !spawning && an.plantT >= 0.03 && an.plantT < 0.12) yU += 0.03 * u * Math.sin(Math.PI * (an.plantT - 0.03) / 0.09);
+    /* turn: upper body dips, the new side's foot steps */
+    if (sq > 0) {
+      yU += 0.03 * u * sq;
+      if (an.faceTo > 0) P.fRz += 0.05 * u * sq; else P.fLz += 0.05 * u * sq;
+    }
+    /* hurt flinch (spring) and its follower; x0.6 while the attack reads */
+    var wF = atkW > 0.5 ? 0.6 : 1;
+    var hX = an ? an.hX : 0, hF = an ? an.hF : 0;
+    var hXp = hX * u * wF;
+    yU += 0.25 * Math.abs(hX) * u * wF;
+    /* death: buckle then collapse, ribcage down to the floor line */
+    var kb = 0, kc2 = 0;
+    if (dT > 0) {
+      kb = easeInOutQuad((dT - 0.04) / 0.26);
+      kc2 = easeInCubic((dT - 0.30) / 0.25);
+      L *= 1 - kb;
+      yU = Math.min(u * 0.26, yU + (u * 0.26 - yU) * (0.46 * kb + 0.54 * kc2));
+    }
+    P.L = L; P.yU = yU;
+
+    /* group offsets: the upper body pivots over planted feet */
+    P.shX = 0.12 * L + 0.10 * hXp;
+    P.shRx = 1.12 * (1 + 0.25 * Math.max(0, yU) / u) * (1 - 0.02 * bRib) * (dT > 0 ? 1 + 0.2 * easeOutCubic(dT / 0.6) : 1);
+    var clothK = (1 - 0.5 * atkW) * bIn;
+    var cX = an ? an.cX : 0, cY = an ? an.cY : 0, fl = V.flare;
+    P.capeDx = 0.40 * L + 0.45 * hXp;
+    P.capeDy = 0.6 * yU;
+    P.capeTop = -0.03 * u * bRib;
+    P.capeHem = cY * u;
+    for (i = 0; i < 5; i++) {
+      P.sw[i] = (clothK > 0 ? 0.07 * u * BONE_M[i] * Math.sin(1.4 * at + BONE_PH[i]) * clothK : 0) -
+        0.1 * L - fS * fl * 0.12 * u * BONE_M[i] + cX * u * BONE_HW[i];
+    }
+    P.notchDx = 0.30 * L + 0.45 * hXp;
+    for (i = 0; i < 3; i++) {
+      P.hem[i] = (clothK > 0 ? 0.07 * u * BONE_NM[i] * Math.sin(1.4 * at + BONE_PH[BONE_NP[i]] - 0.9) * clothK : 0) -
+        0.1 * L - fS * fl * 0.12 * u * BONE_M[BONE_NP[i]] + 1.4 * cX * u;
+    }
+    P.legDx = 0;
+    P.splay = 0.5 * Math.max(0, yU) + 0.04 * u * kb;
+    P.ribDx = 0.70 * L + 0.70 * hXp + V.shiver * u;
+    P.ribDy = yU - 0.045 * u * bRib;
+    P.offDx = 0.80 * L + 0.80 * hXp;
+    P.offDy = yU - 0.045 * u * bOff - V.offUp * u + 0.20 * u * kb;
+    P.offBehind = Math.abs(fS) < 0.6;
+    P.cowlDx = 0.90 * L + 1.0 * hXp;
+    P.cowlDy = yU - 0.045 * u * bCowl;
+    P.cowlH = 0.86 - 0.31 * kc2;
+    if (dT > 0.30) {
+      /* headless, the hood slumps onto the ribs and the cape tops sag (cloth) */
+      k = easeInOutQuad((dT - 0.30) / 0.35);
+      P.cowlDy += 0.74 * u * k;
+      P.capeTop += 0.40 * u * k;
+    }
+
+    /* scepter: pivot, angle, slide through the fist */
+    var ang = fS * V.sA + fS * 0.02 * bSc;
+    var hx = x + fS * (0.72 - V.hIn) * u + 0.8 * L + 0.8 * hXp;
+    var restHy = ytP + 0.95 * u + 0.8 * yU - V.hUp * u - 0.04 * u * bSc + 0.20 * u * sq;
+    var hy = restHy + (V.hyAbs - restHy) * V.hyK;
+    var Ssl = V.sU * u;
+    if (V.sK > 0) Ssl += V.sK * boneSlideC(e, u, hy, ang);
+    P.hx = hx; P.hy = hy; P.sAng = ang; P.S = Ssl;
+    P.gripX = hx; P.gripY = hy; P.gripA = ang; P.gripAfter = Ssl > 0.01 * u;
+    var sn = Math.sin(ang), cs = Math.cos(ang);
+    P.footX = hx - (Ssl + 0.08 * u) * sn; P.footY = hy + (Ssl + 0.08 * u) * cs;
+    P.topX = hx + (1.62 * u - Ssl) * sn; P.topY = hy - (1.62 * u - Ssl) * cs;
+    var tA = an ? an.tA : 0;
+    if (Math.abs(tA) > 0.001) {
+      /* tip spring: about the fist while free, about the foot once planted */
+      var pl = boneClamp01(Ssl / (0.3 * u));
+      P.tipA = tA; P.tipX = hx + (P.footX - hx) * pl; P.tipY = hy + (P.footY - hy) * pl;
+    }
+    if (dT >= 0.06) {
+      /* the fist opens: the staff drops to the floor, topples, clangs */
+      var d0 = an.d0, f = an.fall;
+      var s0 = Math.sin(d0.ang), c0 = Math.cos(d0.ang);
+      var f0x = d0.hx - (d0.S + 0.08 * u) * s0, f0y = d0.hy + (d0.S + 0.08 * u) * c0;
+      var drop = Math.max(0, P.floorL - f0y), fy, sA2 = d0.ang;
+      if (dT < 0.18) fy = f0y + drop * boneEaseInQuad((dT - 0.06) / 0.12);
+      else {
+        fy = f0y + drop;
+        sA2 = d0.ang + (f * (Math.PI / 2 + 0.45) - d0.ang) * easeInCubic((dT - 0.18) / 0.22);
+        if (dT >= 0.40) sA2 -= f * 0.10 * Math.exp(-(dT - 0.40) / 0.05) * Math.cos(45 * (dT - 0.40));
+      }
+      P.staffFree = true; P.stBX = f0x; P.stBY = fy; P.stAng = sA2;
+      /* raised over the far shoulder (behind the head): it falls behind the ribs */
+      P.stBack = d0.ang * d0.fV < 0;
+      P.hx = d0.hx; P.hy = d0.hy; P.S = d0.S; P.sAng = d0.ang; P.tipA = 0; P.gripAfter = false;
+      k = boneEaseOutQuad((dT - 0.06) / 0.12);
+      P.gripX = d0.hx + f * 0.06 * u * k;
+      P.gripA = d0.ang * (1 - k); /* the fist opens and hangs */
+      P.gripY = d0.hy + 0.8 * (yU - d0.yU);
+      P.topX = f0x + 1.70 * u * Math.sin(sA2); P.topY = fy - 1.70 * u * Math.cos(sA2);
+      P.footX = f0x; P.footY = fy;
+    }
+
+    /* head nest: breath lag, nod, roll, follower flinch; death tumble */
+    /* the live roll is drawn as the shift a turn about the neck gives the
+       skull centre (0.37u up): a rotated nest costs ~6x to fill. The hurt
+       whip is the x1.2 follower alone (it lands 2 ticks late and overshoots). */
+    var hdx = 0.90 * L + hF * u * wF + 0.37 * u * fS * V.roll;
+    var hdy = yU + V.nod * u - 0.05 * u * bHead + 0.06 * u * kb;
+    var hrot = 0;
+    var jaw = V.jaw * u;
+    var hitT = e.hitT || 0;
+    if (hitT > 0.13) jaw += 0.05 * u; else if (hitT > 0.10) jaw -= 0.01 * u;
+    if (dT > 0.10) jaw += 0.04 * u * boneClamp01((dT - 0.10) / 0.15);
+    var crA = an && Math.abs(an.crA) > 0.002 ? an.crA : 0;
+    if (dT > 0.26) {
+      var f1 = an.fall, rotT = -f1 * BONE_Q;
+      var h0x = hdx, h0y = hdy, h0r = hrot;
+      var kt = boneEaseInQuad((dT - 0.26) / 0.29), kl = boneClamp01((dT - 0.26) / 0.29);
+      hrot = h0r + (rotT - h0r) * kt;
+      /* a gravity arc: x flies off early, y falls late, a small lift as it tips off the neck */
+      hdx = h0x + (-f1 * 0.72 * u - h0x) * boneEaseOutQuad(kl);
+      hdy = h0y + ((1.46 - boneSkullLow(rotT)) * u - h0y) * easeInCubic(kl) - 0.06 * u * Math.sin(Math.PI * Math.min(1, kl / 0.3));
+      var dyMax = (1.46 - boneSkullLow(hrot)) * u;
+      if (hdy > dyMax) hdy = dyMax;
+      if (dT >= 0.55 && dT < 0.63) hdy -= 0.04 * u * Math.sin(Math.PI * (dT - 0.55) / 0.08);
+      if (dT >= 0.30) {
+        /* the circlet pops off: from where the tumbling skull held it at 0.30 */
+        var k30 = boneEaseInQuad(0.04 / 0.29), l30 = 0.04 / 0.29;
+        var r30 = h0r + (rotT - h0r) * k30;
+        var nx30 = x + h0x + (-f1 * 0.72 * u - h0x) * boneEaseOutQuad(l30);
+        var ny30 = ytP + 0.72 * u + h0y + ((1.46 - boneSkullLow(rotT)) * u - h0y) * easeInCubic(l30) -
+          0.06 * u * Math.sin(Math.PI * Math.min(1, l30 / 0.3));
+        var c0x = nx30 + 0.63 * u * Math.sin(r30), c0y = ny30 - 0.63 * u * Math.cos(r30);
+        var rl = -f1 * BONE_Q, xl = x - f1 * 1.40 * u, kcl = boneClamp01((dT - 0.30) / 0.22);
+        var crr = r30 + crA + (rl - r30 - crA) * kcl, cyy;
+        if (dT >= 0.63) crr = rl; /* residual rock < 0.03 rad: settle exact (cheap to fill) */
+        else if (dT >= 0.52) crr = rl + f1 * 0.10 * Math.exp(-(dT - 0.52) / 0.08) * Math.cos(40 * (dT - 0.52));
+        var yl = P.floorL - (0.36 * Math.abs(Math.sin(crr)) + 0.17 * Math.abs(Math.cos(crr))) * u;
+        if (dT >= 0.52) cyy = yl;
+        else if (kcl < 0.36) cyy = c0y - 0.15 * u * boneEaseOutQuad(kcl / 0.36);
+        else cyy = c0y - 0.15 * u + (yl - c0y + 0.15 * u) * boneEaseInQuad((kcl - 0.36) / 0.64);
+        P.crFree = true; P.crX = c0x + (xl - c0x) * kcl; P.crY = cyy; P.crRot = crr;
+      }
+    }
+    P.headDx = hdx; P.headDy = hdy; P.headRot = hrot;
+    P.neckY = ytP + 0.72 * u + hdy; P.jaw = jaw;
+    P.skX = x + hdx + 0.37 * u * Math.sin(hrot); P.skY = P.neckY - 0.37 * u * Math.cos(hrot);
+    if (!P.crFree) { P.crDx = crA * 0.36 * u; P.crDy = -0.005 * u * bHead; }
+
+    /* eyes: breath glow, the wind flicker, blink, flare, hurt, ignite, gutter */
+    var tellOn = e.alive && e.atk && e.tell > 0;
+    var glow = 0.5 + 0.45 * bRaw + 0.05 * Math.sin(at * 23 + (e.bobPhase || 0)), core = 0;
+    if (tellOn) glow = 0.85 + 0.15 * Math.sin(at * 16);
+    if (an && an.blinkT >= 0) {
+      var bt = an.blinkT;
+      if (bt < 3 * DT) glow += (0.1 - glow) * (bt / (3 * DT));
+      else if (bt < 7 * DT) glow = 0.1;
+      else if (bt < 12 * DT) glow = 0.1 + 1.1 * ((bt - 7 * DT) / (5 * DT));
+      else glow = 1.2 + (glow - 1.2) * ((bt - 12 * DT) / (15 * DT));
+    }
+    if (an && an.flareT >= 0) {
+      k = an.flareT < 0.15 ? 1 : 1 - boneEaseOutQuad((an.flareT - 0.15) / 0.2);
+      glow += (1.4 - glow) * k; core = Math.max(core, k);
+    }
+    if (spawning || (an && an.ignT >= 0 && an.ignT < 0.35)) {
+      if (su < BONE_RC) { glow = 0; core = 0; }
+      else {
+        var ig = an && an.ignT >= 0 ? an.ignT : (su - BONE_RC) * e.spawnMax;
+        k = boneEaseOutQuad(ig / 0.35);
+        glow += (1.5 - glow) * (1 - k); core = Math.max(core, 1 - k);
+      }
+    }
+    if (hitT > 0.145) { glow = Math.max(glow, 1.35); core = 1; }
+    else if (hitT > 0.06) P.eyeSq = true;
+    P.gemA = 0.65 + 0.35 * Math.sin(at * 3.6 + (e.bobPhase || 0));
+    if (dead) {
+      if (!(dT > 0)) { glow = 1.6; core = 1; P.white = true; P.hot = true; P.eyeSq = false; }
+      else if (dT < 0.12) { glow = 1.3; core = 0.6; }
+      else if (dT < 0.55) { glow = 1.3 - 0.5 * ((dT - 0.12) / 0.43); core = 0; }
+      else if (dT < 0.85) {
+        k = (dT - 0.55) / 0.30;
+        glow = (1 - k) * (0.6 + 0.4 * Math.sin(60 * dT)); core = 0;
+        P.gemA *= 1 - k;
+      } else { glow = 0; core = 0; P.gemA = 0; }
+    } else if (e.flash > 0.055) P.hot = true;
+    P.eyeA = glow; P.eyeCore = core;
+    P.eyeX = (an ? an.lookX : fS) * 0.04 * u;
+    P.eyeY = (an ? an.lookY : 0) * 0.03 * u;
+
+    /* telegraph implosion over the strike's 4 ticks */
+    if (tellOn && atkT >= tS) {
+      p = boneEaseInQuad((atkT - tS) / (4 * DT));
+      P.ringK = 1 - 0.45 * p; P.ringA = 1 + 0.5 * p; P.ringLW = 2.4 + 0.8 * p;
+    }
+    /* release ring: the bone wheel's centreline, at its true world radius */
+    if (e.alive && an && an.slamT >= 0 && an.slamT < 0.30) {
+      k = an.slamT / 0.30;
+      P.relA = 0.55 * (1 - k); P.relLW = 3 - 2 * k;
+      P.relR = BONE_WAVE_V * (an.slamT + DT) / vis;
+      P.relX = x + (an.slamX - x) / vis; P.relY = e.y + (an.slamY - e.y) / vis;
+    }
+    /* smear: one light band along the topper's path over the last two ticks
+       (the strike only: the contact frame is a clean key). Outer edge = the
+       topper's crown, inner edge 0.60u down the shaft. */
+    if (e.alive && e.atk && an && !S.fxLite && an.pAtkT < atkT - 1e-9 &&
+        atkT >= tF - 2 * DT - 1e-6 && atkT < tF - 1e-6) {
+      for (i = 2; i >= 0; i--) {
+        var gAng, gHx, gHy, gS;
+        if (i === 0) { gAng = P.sAng; gHx = P.hx; gHy = P.hy; gS = P.S; }
+        else {
+          var G = boneStaff(e, an, Math.max(tS, atkT - i * DT), fS, BONE_G);
+          var gRest = ytP + 0.95 * u + 0.8 * G.yU * u - G.hUp * u;
+          gAng = fS * G.sA;
+          gHy = gRest + (G.hyAbs - gRest) * G.hyK;
+          gHx = x + fS * (0.72 - G.hIn) * u + 0.8 * L + 0.8 * hXp;
+          gS = G.sU * u + (G.sK > 0 ? G.sK * boneSlideC(e, u, gHy, gAng) : 0);
+        }
+        var gs = Math.sin(gAng), gc = Math.cos(gAng), ro = 1.78 * u - gS, rin = ro - 0.60 * u;
+        P.smX[2 - i] = gHx + ro * gs; P.smY[2 - i] = gHy - ro * gc;
+        P.smX[3 + i] = gHx + rin * gs; P.smY[3 + i] = gHy - rin * gc;
+      }
+      P.smN = 6; P.smA = 0.45;
+    }
+    /* the strike and contact swing in front of the hood (the turn's late path) */
+    P.stFront = e.alive && !!e.atk && atkT >= tS + DT - 1e-6 && atkT < tF + 3 * DT - 1e-6;
+    /* motes: gold flecks leave the tell ring and gather at the topper */
+    if (e.alive && e.atk && atkT >= 0.40 && atkT < 0.81) {
+      for (k = 0; k < 6; k++) {
+        if (S.fxLite && (k & 1)) continue;
+        var tk = 0.40 + 0.05 * k, mp = (atkT - tk) / 0.16;
+        if (mp < 0 || mp >= 1) continue;
+        var ma = k * Math.PI / 3 + 0.6, mr = u * (1.05 + (tk / W) * 0.55);
+        var msx = x + Math.cos(ma) * mr, msy = e.y + Math.sin(ma) * mr, ke = easeInCubic(mp);
+        n = P.moteN++;
+        P.mX[n] = msx + (P.topX - msx) * ke;
+        P.mY[n] = msy + (P.topY - msy) * ke - 0.6 * u * Math.sin(Math.PI * mp);
+        P.mA[n] = 0.4 + 0.6 * mp;
+      }
+    }
+    /* rise: the pit, the depth under the floor, the shadow fading in */
+    if (spawning) {
+      P.rise = true;
+      P.skipBody = su < 0.15;
+      P.riseD = boneRiseDepth(su) * u;
+      var kcP = boneClamp01((su - BONE_RC) / (1 - BONE_RC));
+      P.pitRx = u * 1.05 * (su < 0.15 ? easeOutCubic(su / 0.15) : 1) * (1 - 0.4 * kcP);
+      P.pitA = 1 - kcP;
+      P.shA = boneClamp01((su - 0.45) / 0.35);
+    }
+    return P;
+  }
+  function boneCapePanel(g, P, i, px, py, w, h, z, col) {
+    px += P.sw[i];
+    if (P.legacy) h += P.capeDrop;
+    else {
+      /* cloth only: the top breathes, the hem springs, the floor pools it */
+      py += P.capeTop;
+      h += -P.capeTop + P.capeHem * BONE_HW[i];
+      var over = py + h + z - P.floorL;
+      if (over > 0) { h -= over; w += 0.5 * over; px -= 0.25 * over; }
+    }
+    cube(g, px, py, w, h, z, col);
+  }
+  function boneNotch(g, P, i, px, py, w, h) {
+    px += P.hem[i];
+    if (P.legacy) py += P.capeDrop;
+    else {
+      py += P.capeHem * 1.4;
+      if (py > P.floorL - h) py = P.floorL - h;
+    }
+    g.fillRect(px, py, w, h);
+  }
+  function boneOffHand(g, P, x, yt, u, body) {
+    var ox = x + P.offDx, oy = yt + P.offDy;
+    cube(g, ox - P.fS * u * 0.62, oy + u * 0.82, u * 0.22, u * 0.42, u * 0.12, "#a89880");
+    cube(g, ox - P.fS * u * 0.70, oy + u * 1.18, u * 0.26, u * 0.18, u * 0.10, body);
+  }
+  /* scepter — the hand (grip cube) holds it at the butt; a thump slides the
+     staff down through the fist so its foot strikes the floor. drawBoneKing
+     draws it in front of the head while a turn swings it across (|fS| < 0.6)
+     and through the strike and contact (P.stFront). */
+  function boneScepter(g, e, P, u, body, tell, A0) {
+    var hx = P.hx, hy = P.hy, bang = P.sAng, sy = hy + P.S, ri;
+    var BONE_D = "#a89880", STEEL = "#79808c", GOLD = "#e0b44a";
+    if (P.smN > 0) {
+      /* the strike smear: one light band under the staff, light not stone */
+      g.globalAlpha = A0 * P.smA;
+      g.fillStyle = "#fff2c0";
+      g.beginPath();
+      g.moveTo(P.smX[0], P.smY[0]);
+      for (ri = 1; ri < P.smN; ri++) g.lineTo(P.smX[ri], P.smY[ri]);
+      g.closePath();
+      g.fill();
+      g.globalAlpha = A0;
+    }
+    g.save();
+    if (P.tipA !== 0) { g.translate(P.tipX, P.tipY); g.rotate(P.tipA); g.translate(-P.tipX, -P.tipY); }
+    if (P.staffFree) {
+      g.save();
+      if (P.gripA !== 0) boneRot(g, P.gripX, P.gripY, P.gripA);
+      cube(g, P.gripX - u * 0.12, P.gripY - u * 0.04, u * 0.24, u * 0.36, u * 0.12, BONE_D);
+      g.restore();
+      g.translate(P.stBX, P.stBY); g.rotate(P.stAng); g.translate(-hx, -(sy + u * 0.08));
+    } else if (bang !== 0) {
+      g.translate(hx, hy);
+      g.rotate(bang);
+      g.translate(-hx, -hy);
+    }
+    if (!P.staffFree && !P.gripAfter) cube(g, hx - u * 0.12, hy - u * 0.04, u * 0.24, u * 0.36, u * 0.12, BONE_D);
+    cube(g, hx - u * 0.08, sy - u * 1.55, u * 0.16, u * 1.55, u * 0.08, STEEL);
+    cube(g, hx - u * 0.18, sy - u * 1.78, u * 0.36, u * 0.32, u * 0.14, body);
+    g.fillStyle = "#0a0604";
+    g.fillRect(hx - u * 0.12, sy - u * 1.70, u * 0.10, u * 0.10);
+    g.fillRect(hx + u * 0.02, sy - u * 1.70, u * 0.10, u * 0.10);
+    cube(g, hx - u * 0.22, sy - u * 1.48, u * 0.44, u * 0.12, u * 0.08, GOLD);
+    /* glow ball over the topper, as today (tell > 0.4 or the active window);
+       the sockets are laid back on top so the skull still looks out of the light */
+    if (e.alive && (tell > 0.4 || (e.atk === "volley" && e.atkT >= e.atkWind && e.atkT < e.atkWind + e.atkActive))) {
+      g.fillStyle = "#ffe8a0";
+      g.globalAlpha = A0 * (0.35 + tell * 0.5);
+      g.beginPath();
+      g.arc(hx, sy - u * 1.62, u * 0.28, 0, 6.3);
+      g.fill();
+      g.globalAlpha = A0;
+      g.fillStyle = "#0a0604";
+      g.fillRect(hx - u * 0.12, sy - u * 1.70, u * 0.10, u * 0.10);
+      g.fillRect(hx + u * 0.02, sy - u * 1.70, u * 0.10, u * 0.10);
+    }
+    if (!P.staffFree && P.gripAfter) cube(g, hx - u * 0.12, hy - u * 0.04, u * 0.24, u * 0.36, u * 0.12, BONE_D);
+    g.restore();
+  }
+  /* rotate about (px, py); a quarter turn is set exactly so rects stay rects */
+  function boneRot(g, px, py, a) {
+    g.translate(px, py);
+    if (a === BONE_Q) g.transform(0, 1, -1, 0, 0, 0);
+    else if (a === -BONE_Q) g.transform(0, -1, 1, 0, 0, 0);
+    else g.rotate(a);
+    g.translate(-px, -py);
+  }
+  function boneCirclet(g, cx, cy, u, ol) {
+    var TG = "#8a6428";
+    cube(g, cx - u * 0.36, cy + u * 0.02, u * 0.72, u * 0.14, u * 0.10, TG, ol);
+    cube(g, cx - u * 0.34, cy - u * 0.08, u * 0.10, u * 0.12, u * 0.06, TG, ol);
+    cube(g, cx + u * 0.24, cy - u * 0.08, u * 0.10, u * 0.12, u * 0.06, TG, ol);
+    g.fillStyle = "#6a2030";
+    g.fillRect(cx - u * 0.05, cy + u * 0.04, u * 0.10, u * 0.08);
   }
 
   function updateBoneKing(e, dt, dx, dy, dist) {
@@ -12894,6 +13784,9 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      between knight and lord. Volley wind-up raises the scepter. */
   function drawBoneKing(g, e) {
     ensureBoneKing(e);
+    /* BB-V7.72 — alpha root: every alpha is relative to drawEnemy's fade */
+    /* dead: drawEnemy's alpha = deadT is ignored while deadT > 1 (out of range) */
+    var A0 = e.alive ? g.globalAlpha : Math.min(1, Math.max(0, e.deadT));
     var BONE = "#f0e8dc", BONE_D = "#a89880", GOLD = "#e0b44a";
     var CLOAK = "#5a2230", CLOAK_D = "#3a141c", LINING = "#8a2840";
     var EMBER = "#ff7a2a", STEEL = "#79808c";
@@ -12901,138 +13794,191 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     e.artH = u * 3.15;
     var x = e.x;
     if (e.bobPhase == null) e.bobPhase = Math.random() * 6.3;
-    var face = e.face || (player && player.x < e.x ? -1 : 1);
-    var bob = Math.sin(S.t * 1.7 + e.bobPhase) * u * 0.04;
-    var crouch = (e.crouch || 0) * u;
-    var lean = (e.lean || 0) * u;
-    var yt = e.y - u * 2.22 + bob + crouch;
-    var body = e.flash > 0 ? "#ffffff" : BONE;
+    /* BB-V7.72 — the pose is one pure function of sim state + e.boneAn */
+    var P = bonePose(e, u);
+    var yt = P.yt;
+    var body = (e.flash > 0 || P.white) ? "#ffffff" : BONE;
+    var hot = P.hot;
     var tell = 0;
-    if (e.tell > 0) {
+    if (e.alive && e.tell > 0) {
       tell = e.tellMax > 0 ? 1 - Math.max(0, e.tell) / e.tellMax : Math.min(1, e.tell);
     }
 
     if (tell > 0) {
       g.save();
-      g.globalAlpha = 0.18 + tell * 0.38;
+      g.globalAlpha = Math.min(A0 * 0.9, A0 * (0.18 + tell * 0.38) * P.ringA);
       g.strokeStyle = "#e0b44a";
-      g.lineWidth = 2.4;
+      g.lineWidth = P.ringLW;
       g.beginPath();
-      g.arc(x, e.y, u * (1.05 + tell * 0.55) + Math.sin(S.t * 14) * u * 0.06, 0, 6.3);
+      g.arc(x, e.y, (u * (1.05 + tell * 0.55) + Math.sin(S.t * 14) * u * 0.06) * P.ringK, 0, 6.3);
       g.stroke();
-      g.globalAlpha = 0.10 + tell * 0.16;
+      g.globalAlpha = A0 * (0.10 + tell * 0.16);
       g.fillStyle = "#c9a44c";
       g.beginPath();
-      g.arc(x, e.y, u * (0.7 + tell * 0.35), 0, 6.3);
+      g.arc(x, e.y, u * (0.7 + tell * 0.35) * P.ringK, 0, 6.3);
       g.fill();
       g.restore();
     }
+    /* release ring: the bone wheel's centreline at its true world radius */
+    if (P.relA > 0) {
+      g.save();
+      g.globalAlpha = A0 * P.relA;
+      g.strokeStyle = GOLD;
+      g.lineWidth = P.relLW;
+      g.beginPath();
+      g.arc(P.relX, P.relY, P.relR, 0, 6.3);
+      g.stroke();
+      g.restore();
+    }
+    /* rise: the crypt pit opens under the summoning ring */
+    if (P.rise && P.pitA > 0 && ellipseOk(P.pitRx, P.pitRx * 0.30)) {
+      g.save();
+      g.globalAlpha = A0 * 0.85 * P.pitA;
+      g.fillStyle = "#0a0806";
+      g.beginPath();
+      g.ellipse(x, e.y + u * 0.06, P.pitRx, P.pitRx * 0.30, 0, 0, 6.3);
+      g.fill();
+      g.globalAlpha = A0 * 0.6 * P.pitA;
+      g.strokeStyle = "#c9a44c";
+      g.lineWidth = 2;
+      g.stroke();
+      g.restore();
+    }
 
-    g.save(); g.globalAlpha = 0.46; g.fillStyle = "#0a0806";
-    g.beginPath();
-    g.ellipse(x + lean * 0.12, e.y + u * 0.28, u * (1.12 + (e.crouch || 0) * 0.28), u * 0.30, 0, 0, 6.3);
-    g.fill(); g.restore();
+    var srx = u * P.shRx, sry = u * 0.30;
+    if (P.shA > 0 && ellipseOk(srx, sry)) {
+      g.save(); g.globalAlpha = A0 * 0.46 * P.shA; g.fillStyle = "#0a0806";
+      g.beginPath();
+      g.ellipse(x + P.shX, e.y + u * 0.28, srx, sry, 0, 0, 6.3);
+      g.fill(); g.restore();
+    }
+    if (P.skipBody) return;
+    var clip = P.riseD > 0;
+    if (clip) {
+      g.save();
+      g.beginPath();
+      g.rect(x - u * 3.2, e.y - u * 6, u * 6.4, u * 6.02);
+      g.clip();
+      g.translate(0, P.riseD);
+    }
 
-    g.save();
-    g.translate(lean, 0);
+    /* cape: five cloth panels (a wave crosses them), then the hem notches */
+    var cx = x + P.capeDx, cy = yt + P.capeDy;
+    boneCapePanel(g, P, 0, cx - u * 0.92, cy + u * 0.50, u * 0.38, u * 1.48, u * 0.08, hot ? BONE_HOT.lining : LINING);
+    boneCapePanel(g, P, 1, cx + u * 0.54, cy + u * 0.54, u * 0.38, u * 1.40, u * 0.08, hot ? BONE_HOT.lining : LINING);
+    boneCapePanel(g, P, 2, cx - u * 0.78, cy + u * 0.40, u * 0.48, u * 1.62, u * 0.10, hot ? BONE_HOT.cloakD : CLOAK_D);
+    boneCapePanel(g, P, 3, cx - u * 0.32, cy + u * 0.36, u * 0.64, u * 1.70, u * 0.12, hot ? BONE_HOT.cloak : CLOAK);
+    boneCapePanel(g, P, 4, cx + u * 0.28, cy + u * 0.40, u * 0.48, u * 1.55, u * 0.10, hot ? BONE_HOT.cloakD : CLOAK_D);
+    g.fillStyle = hot ? BONE_HOT.notch : BONE_SH.notch;
+    var nx = x + P.notchDx;
+    boneNotch(g, P, 0, nx - u * 0.70, cy + u * 1.90, u * 0.16, u * 0.14);
+    boneNotch(g, P, 1, nx - u * 0.08, cy + u * 1.96, u * 0.18, u * 0.16);
+    boneNotch(g, P, 2, nx + u * 0.42, cy + u * 1.86, u * 0.16, u * 0.12);
 
-    var sway = Math.sin((e.capesway || 0) * 1.4) * u * 0.07 - lean * 0.1;
-    var capeDrop = (e.crouch || 0) * u * 0.2;
-    cube(g, x - u * 0.92 + sway, yt + u * 0.50, u * 0.38, u * 1.48 + capeDrop, u * 0.08, LINING);
-    cube(g, x + u * 0.54 + sway * 0.6, yt + u * 0.54, u * 0.38, u * 1.40 + capeDrop, u * 0.08, LINING);
-    cube(g, x - u * 0.78 + sway * 0.7, yt + u * 0.40, u * 0.48, u * 1.62 + capeDrop, u * 0.10, CLOAK_D);
-    cube(g, x - u * 0.32 + sway * 0.45, yt + u * 0.36, u * 0.64, u * 1.70 + capeDrop, u * 0.12, CLOAK);
-    cube(g, x + u * 0.28 + sway * 0.4, yt + u * 0.40, u * 0.48, u * 1.55 + capeDrop, u * 0.10, CLOAK_D);
-    g.fillStyle = shade(CLOAK, 0.55);
-    g.fillRect(x - u * 0.70 + sway, yt + u * 1.90 + capeDrop, u * 0.16, u * 0.14);
-    g.fillRect(x - u * 0.08 + sway * 0.5, yt + u * 1.96 + capeDrop, u * 0.18, u * 0.16);
-    g.fillRect(x + u * 0.42 + sway * 0.4, yt + u * 1.86 + capeDrop, u * 0.16, u * 0.12);
+    /* legs: planted; the gait moves the feet, a drop splays them (bent knees) */
+    var lx = x + P.legDx;
+    cube(g, lx - u * 0.38 - P.splay + P.fLx, yt + u * 1.68 + P.fLy - P.fLz, u * 0.28, u * 0.34, u * 0.16, BONE_D);
+    cube(g, lx + u * 0.10 + P.splay + P.fRx, yt + u * 1.68 + P.fRy - P.fRz, u * 0.28, u * 0.34, u * 0.16, BONE_D);
 
-    var stride = (e.stride || 0) * u;
-    cube(g, x - u * 0.38, yt + u * 1.68 + stride, u * 0.28, u * 0.34, u * 0.16, BONE_D);
-    cube(g, x + u * 0.10, yt + u * 1.68 - stride, u * 0.28, u * 0.34, u * 0.16, BONE_D);
-
-    cube(g, x - u * 0.42, yt + u * 0.72, u * 0.84, u * 0.94, u * 0.26, body);
-    g.fillStyle = shade(body, 0.45);
-    for (var ri = 0; ri < 4; ri++) {
-      g.fillRect(x - u * 0.34, yt + u * (0.86 + ri * 0.16), u * 0.68, u * 0.05);
+    /* off-hand bone (matches facing); behind the ribs mid-turn */
+    if (P.offBehind) boneOffHand(g, P, x, yt, u, body);
+    if (P.stBack) boneScepter(g, e, P, u, body, tell, A0);
+    var rbx = x + P.ribDx, rby = yt + P.ribDy, ri;
+    cube(g, rbx - u * 0.42, rby + u * 0.72, u * 0.84, u * 0.94, u * 0.26, body);
+    g.fillStyle = body === BONE ? BONE_SH.rib0 : BONE_SH.rib0W;
+    for (ri = 0; ri < 4; ri++) {
+      g.fillRect(rbx - u * 0.34, rby + u * (0.86 + ri * 0.16), u * 0.68, u * 0.05);
     }
     g.fillStyle = "#1a100c";
-    g.fillRect(x - u * 0.18, yt + u * 0.90, u * 0.36, u * 0.62);
-    g.fillStyle = shade(body, 0.85);
-    for (var rj = 0; rj < 4; rj++) {
-      g.fillRect(x - u * 0.32, yt + u * (0.86 + rj * 0.16), u * 0.64, u * 0.065);
+    g.fillRect(rbx - u * 0.18, rby + u * 0.90, u * 0.36, u * 0.62);
+    g.fillStyle = body === BONE ? BONE_SH.rib1 : BONE_SH.rib1W;
+    for (ri = 0; ri < 4; ri++) {
+      g.fillRect(rbx - u * 0.32, rby + u * (0.86 + ri * 0.16), u * 0.64, u * 0.065);
     }
     g.fillStyle = GOLD;
-    g.globalAlpha = 0.65 + 0.35 * Math.sin(S.t * 3.6 + e.bobPhase);
-    g.fillRect(x - u * 0.09, yt + u * 1.06, u * 0.18, u * 0.14);
-    g.globalAlpha = 1;
-    g.fillStyle = shade(GOLD, 1.2);
-    g.fillRect(x - u * 0.05, yt + u * 1.09, u * 0.10, u * 0.07);
+    g.globalAlpha = A0 * P.gemA;
+    g.fillRect(rbx - u * 0.09, rby + u * 1.06, u * 0.18, u * 0.14);
+    g.globalAlpha = A0;
+    g.fillStyle = BONE_SH.gemHi;
+    g.fillRect(rbx - u * 0.05, rby + u * 1.09, u * 0.10, u * 0.07);
+    if (!P.offBehind) boneOffHand(g, P, x, yt, u, body);
 
-    /* off-hand bone (matches facing) */
-    cube(g, x - face * u * 0.62, yt + u * 0.82, u * 0.22, u * 0.42, u * 0.12, BONE_D);
-    cube(g, x - face * u * 0.70, yt + u * 1.18, u * 0.26, u * 0.18, u * 0.10, body);
-
-    /* scepter — raised on volley wind-up */
-    var lift = (e.staffLift || 0) * u;
-    var bang = (e.staffAng != null ? e.staffAng : face * 0.35);
-    var hx = x + face * u * 0.72;
-    var hy = yt + u * 0.95 - lift * 0.55;
-    g.save();
-    g.translate(hx, hy);
-    g.rotate(bang);
-    g.translate(-hx, -hy);
-    cube(g, hx - u * 0.12, hy - u * 0.04, u * 0.24, u * 0.36, u * 0.12, BONE_D);
-    cube(g, hx - u * 0.08, hy - u * 1.55, u * 0.16, u * 1.55, u * 0.08, STEEL);
-    cube(g, hx - u * 0.18, hy - u * 1.78, u * 0.36, u * 0.32, u * 0.14, body);
-    g.fillStyle = "#0a0604";
-    g.fillRect(hx - u * 0.12, hy - u * 1.70, u * 0.10, u * 0.10);
-    g.fillRect(hx + u * 0.02, hy - u * 1.70, u * 0.10, u * 0.10);
-    cube(g, hx - u * 0.22, hy - u * 1.48, u * 0.44, u * 0.12, u * 0.08, GOLD);
-    if (tell > 0.4 || (e.atk === "volley" && e.atkT >= e.atkWind && e.atkT < e.atkWind + e.atkActive)) {
-      g.fillStyle = "#ffe8a0";
-      g.globalAlpha = 0.35 + tell * 0.5;
-      g.beginPath();
-      g.arc(hx, hy - u * 1.62, u * 0.28, 0, 6.3);
-      g.fill();
-      g.globalAlpha = 1;
-    }
-    g.restore();
+    if (!P.offBehind && !P.stFront && !P.stBack) boneScepter(g, e, P, u, body, tell, A0);
 
     /* burgundy cowl behind a smaller skull — crypt king, not the Lord's bare head */
-    cube(g, x - u * 0.55, yt - u * 0.22, u * 0.24, u * 0.86, u * 0.12, CLOAK_D);
-    cube(g, x + u * 0.31, yt - u * 0.22, u * 0.24, u * 0.86, u * 0.12, CLOAK_D);
-    cube(g, x - u * 0.40, yt - u * 0.36, u * 0.80, u * 0.32, u * 0.12, CLOAK);
+    var cwx = x + P.cowlDx, cwy = yt + P.cowlDy;
+    cube(g, cwx - u * 0.55, cwy - u * 0.22, u * 0.24, u * P.cowlH, u * 0.12, hot ? BONE_HOT.cloakD : CLOAK_D);
+    cube(g, cwx + u * 0.31, cwy - u * 0.22, u * 0.24, u * P.cowlH, u * 0.12, hot ? BONE_HOT.cloakD : CLOAK_D);
+    cube(g, cwx - u * 0.40, cwy - u * 0.36, u * 0.80, u * 0.32, u * 0.12, hot ? BONE_HOT.cloak : CLOAK);
 
-    /* skull — tighter than the Lord's */
-    cube(g, x - u * 0.34, yt + u * 0.10, u * 0.68, u * 0.50, u * 0.20, body);
-    cube(g, x - u * 0.26, yt + u * 0.54, u * 0.52, u * 0.16, u * 0.12, shade(body, 0.9));
+    /* skull — tighter than the Lord's; the nest turns about the neck */
+    var skx = x + P.headDx, sky = yt + P.headDy, rot = P.headRot;
+    /* while the dead skull tumbles (0.3 s, off the quarter turns) rotated
+       fills are costly per call: no 1 px outlines, and the sockets, nose and
+       teeth go down as one path (they do not overlap the eyes) */
+    var spin = rot !== 0 && rot !== BONE_Q && rot !== -BONE_Q;
+    if (rot !== 0) { g.save(); boneRot(g, skx, P.neckY, rot); }
+    cube(g, skx - u * 0.34, sky + u * 0.10, u * 0.68, u * 0.50, u * 0.20, body, !spin);
+    cube(g, skx - u * 0.26, sky + u * 0.54 + P.jaw, u * 0.52, u * 0.16, u * 0.12, body === BONE ? BONE_SH.jaw : BONE_SH.jawW, !spin);
     g.fillStyle = "#0a0604";
-    g.fillRect(x - u * 0.24, yt + u * 0.22, u * 0.20, u * 0.20);
-    g.fillRect(x + u * 0.04, yt + u * 0.22, u * 0.20, u * 0.20);
-    g.fillStyle = EMBER;
-    var glow = 0.55 + 0.45 * Math.sin(S.t * 3.2 + e.bobPhase);
-    if (tell > 0) glow = 0.85 + 0.15 * Math.sin(S.t * 16);
-    g.globalAlpha = Math.min(1, glow);
-    g.fillRect(x - u * 0.18 + face * u * 0.03, yt + u * 0.28, u * 0.10, u * 0.09);
-    g.fillRect(x + u * 0.08 + face * u * 0.03, yt + u * 0.28, u * 0.10, u * 0.09);
-    g.globalAlpha = 1;
-    g.fillStyle = "#0a0604";
-    g.fillRect(x - u * 0.04, yt + u * 0.42, u * 0.08, u * 0.10);
-    for (var tooth = 0; tooth < 4; tooth++) {
-      g.fillRect(x - u * 0.18 + tooth * u * 0.10, yt + u * 0.54, u * 0.045, u * 0.12);
+    if (spin) {
+      g.beginPath();
+      g.rect(skx - u * 0.24, sky + u * 0.22, u * 0.20, u * 0.20);
+      g.rect(skx + u * 0.04, sky + u * 0.22, u * 0.20, u * 0.20);
+      g.rect(skx - u * 0.04, sky + u * 0.42, u * 0.08, u * 0.10);
+      for (ri = 0; ri < 4; ri++) g.rect(skx - u * 0.18 + ri * u * 0.10, sky + u * 0.54 + P.jaw, u * 0.045, u * 0.12);
+      g.fill();
+    } else {
+      g.fillRect(skx - u * 0.24, sky + u * 0.22, u * 0.20, u * 0.20);
+      g.fillRect(skx + u * 0.04, sky + u * 0.22, u * 0.20, u * 0.20);
+    }
+    var glow = P.eyeA;
+    if (glow > 0) {
+      var eh = P.eyeSq ? u * 0.045 : u * 0.09, ey = sky + u * 0.28 + P.eyeY + (P.eyeSq ? u * 0.025 : 0);
+      g.fillStyle = EMBER;
+      g.globalAlpha = A0 * Math.min(1, glow);
+      g.fillRect(skx - u * 0.18 + P.eyeX, ey, u * 0.10, eh);
+      g.fillRect(skx + u * 0.08 + P.eyeX, ey, u * 0.10, eh);
+      if (P.eyeCore > 0) {
+        g.fillStyle = "#ffe8a0";
+        g.globalAlpha = A0 * Math.min(1, P.eyeCore);
+        g.fillRect(skx - u * 0.155 + P.eyeX, ey + eh * 0.25, u * 0.05, eh * 0.5);
+        g.fillRect(skx + u * 0.105 + P.eyeX, ey + eh * 0.25, u * 0.05, eh * 0.5);
+      }
+      g.globalAlpha = A0;
+    }
+    if (!spin) {
+      g.fillStyle = "#0a0604";
+      g.fillRect(skx - u * 0.04, sky + u * 0.42, u * 0.08, u * 0.10);
+      for (ri = 0; ri < 4; ri++) {
+        g.fillRect(skx - u * 0.18 + ri * u * 0.10, sky + u * 0.54 + P.jaw, u * 0.045, u * 0.12);
+      }
     }
 
     /* tarnished circlet — low band, two nubs. No key, no tall points. */
-    var TGOLD = "#8a6428";
-    cube(g, x - u * 0.36, yt + u * 0.02, u * 0.72, u * 0.14, u * 0.10, TGOLD);
-    cube(g, x - u * 0.34, yt - u * 0.08, u * 0.10, u * 0.12, u * 0.06, TGOLD);
-    cube(g, x + u * 0.24, yt - u * 0.08, u * 0.10, u * 0.12, u * 0.06, TGOLD);
-    g.fillStyle = "#6a2030";
-    g.fillRect(x - u * 0.05, yt + u * 0.04, u * 0.10, u * 0.08);
-
-    g.restore();
+    if (!P.crFree) {
+      var ccy = sky + P.crDy;
+      boneCirclet(g, skx + P.crDx, ccy, u, !spin);
+    }
+    if (rot !== 0) g.restore();
+    if (P.crFree) {
+      g.save();
+      boneRot(g, P.crX, P.crY, P.crRot);
+      boneCirclet(g, P.crX, P.crY - u * 0.09, u, P.crRot === 0 || P.crRot === BONE_Q || P.crRot === -BONE_Q);
+      g.restore();
+    }
+    if ((P.offBehind || P.stFront) && !P.stBack) boneScepter(g, e, P, u, body, tell, A0);
+    /* motes gathering to the topper through the wind */
+    if (P.moteN > 0) {
+      var ms = u * 0.07;
+      g.fillStyle = GOLD;
+      for (ri = 0; ri < P.moteN; ri++) {
+        g.globalAlpha = A0 * P.mA[ri];
+        g.fillRect(P.mX[ri] - ms * 0.5, P.mY[ri] - ms * 0.5, ms, ms);
+      }
+      g.globalAlpha = A0;
+    }
+    if (clip) g.restore();
   }
 
   /* BB-V7.44 — Slag King rebuilt on cube(). Forge monarch, not a recolor of
@@ -13813,6 +14759,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     }
   }
   function drawSpawnRing(g, e) {
+    if (e.boss === "bone") return; /* BB-V7.72 the Bone King's rise has its own crypt pit */
     if (!e.alive || !(e.spawnT > 0) || !e.spawnMax) return;
     if (e.boss === "lord") { drawLordPit(g, e); return; } /* BB-V7.72 — SK-16 */
     var u = 1 - e.spawnT / e.spawnMax, r = artR(e) * enemyVis(e) * (e.boss ? 1.6 : 1.1);
@@ -14270,6 +15217,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       g.scale(1 + (1 - Math.min(1, rise)) * 0.3, rise);
       g.translate(-e.x, -e.y);
     }
+    if (e.boss === "bone" && e.spawnT > 0) { g.restore(); g.save(); } /* BB-V7.72 bone rise at scale 1 */
     g.translate(e.x, e.y);
     g.scale(enemyVis(e), enemyVis(e));
     g.translate(-e.x, -e.y);
@@ -16720,7 +17668,8 @@ function endRunToMenu() {
         vis: enemyVis(e), artR: artR(e), artH: Math.round(e.artH || 0),
         bodyR: e.bodyR, hitR: e.hitR, hitLift: e.hitLift,
         x: Math.round(e.x), y: Math.round(e.y), hp: e.hp, maxHp: e.maxHp,
-        cd: Math.round((e.cd || 0) * 100) / 100
+        cd: Math.round((e.cd || 0) * 100) / 100,
+        an: e.boneAn ? boneAnSnap(e.boneAn) : null
       };
     },
     gotoSkullLair: function (seed) {
