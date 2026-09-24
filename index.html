@@ -997,6 +997,7 @@
     text-shadow: 0 1px 0 rgba(255, 220, 170, 0.35);
   }
   button.bb.good { background: linear-gradient(180deg, #3a6a44, #2a5032); }
+  button.bb.pri.cant { filter: saturate(0.25) brightness(0.62); box-shadow: inset 0 1px 0 rgba(255, 220, 170, 0.2), 0 2px 0 #120d09; }
   button.bb.warn { background: linear-gradient(180deg, #6a3228, #4e241c); }
   button.bb.on { box-shadow: 0 0 0 1px #f0a050, 0 0 12px rgba(240, 160, 80, 0.32), inset 0 1px 0 rgba(255, 228, 184, 0.18), 0 2px 0 #120d09; }
   #menuCard h2.fold, #pauseCard h2.fold { background: linear-gradient(180deg, #45392b, #372c20); box-shadow: inset 0 1px 0 rgba(255, 228, 184, 0.12), 0 2px 0 #120d09; }
@@ -3376,8 +3377,10 @@
           hpMul: e.hpMul || 0
         }));
         if (e.revive && ents.length) ents[ents.length - 1].revive = true;
-      } else if (e.kind === "chest") chests.push({ x: x, y: y, open: false, r: 14 });
-      else if (e.kind === "prop") props.push(makeProp(e.type, x, y));
+      } else if (e.kind === "chest") chests.push({ x: x, y: y, open: !!e.opened, r: 14, ent: e, openT: -9 });
+      /* BB-V7.69 — a DOWN resets the fight, not the furniture: an opened
+         chest and a smashed pile stay spent, or dying was a way to re-loot. */
+      else if (e.kind === "prop" && !e.smashed) { var pr0 = makeProp(e.type, x, y); pr0.ent = e; props.push(pr0); }
     }
     room = {
       spec: spec,
@@ -4211,6 +4214,7 @@
   function smashProp(p, src) {
     if (!p || !p.alive) return false;
     p.alive = false;
+    if (p.ent) p.ent.smashed = true;
     var spec = PROP_KIND[p.type] || PROP_KIND.barrel;
     burst(p.x, p.y, spec.col, p.boom ? 8 : 12);
     burst(p.x, p.y, spec.hoop, 5);
@@ -4886,7 +4890,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       if (dist > TILE * 1.2 && !fatRayClear(e.x, e.y, player.x, player.y, Math.max(6, e.r * 0.9))) {
         var f = roomFlow();
         var tx = Math.floor(e.x / TILE), ty = Math.floor(e.y / TILE), best = -1, bx = 0, by = 0, i, j, nx, ny, v;
-        if (f) {
+        if (f && tx >= 0 && ty >= 0 && tx < f.cols && ty < f.rows) {
           for (j = -1; j <= 1; j++) {
             for (i = -1; i <= 1; i++) {
               if (!i && !j) continue;
@@ -6975,7 +6979,9 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      squash, knockback, hit-stop, debris with height, multi-hit callouts,
      outlined damage numbers; voxel chest, crystal shards, pixel hearts,
      loot magnet; hero throw / hurt / catch poses; menus get lit block
-     buttons. */
+     buttons; floor bosses get a bottom-centre boss bar; a DOWN no longer
+     restocks opened chests or smashed piles; the upgrade card dims what
+     you can't buy. */
   var BUILD = "v7.69";
   var FEEL_DEF = { spd: 250, accel: 2600, brake: 3600, throwSpd: 620, aimMode: "drag", aimDead: 2, aimHold: 64 };
   var FEEL = (function () {
@@ -7475,6 +7481,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     drawWorld(g);
     g.restore();
     if (S.mode === "play" && !S.fxLite) drawVignette(g, cw, ch);
+    if (S.mode === "play" && !S.downed) drawBossBar(g, cw, ch);
     /* clocked on S.t (which runs while paused) so a pause at load can't hold black */
     var fadeK = S.fade ? 1 - (S.t - S.fade.t0) / S.fade.dur : 0;
     if (fadeK > 0) {
@@ -11028,7 +11035,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
        BB-V7.69 — trash only shows one once hurt; a white chunk trails the
        loss so a hit reads as a bite, and the fill steps green → gold → red. */
     var topOff = (e.artH || artR(e)) * enemyVis(e);
-    if (e.alive && !(e.spawnT > 0) && (e.boss || e.hp < e.maxHp)) {
+    if (e.alive && !(e.spawnT > 0) && !bigBoss(e) && (e.boss || e.hp < e.maxHp)) {
       var w = Math.max(20, artR(e) * 2 * enemyVis(e));
       var ratio = Math.max(0, e.hp / e.maxHp);
       if (e.hpShow == null || e.hpShow < e.hp) e.hpShow = e.hp;
@@ -11048,12 +11055,69 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       g.fillRect(e.x - 6, e.y - topOff - 4, 4, 8);
     }
     g.globalAlpha = 1;
-    if (e.boss && e.alive) {
+    if (e.boss && e.alive && !bigBoss(e)) {
       g.fillStyle = "#f0e0c0";
       g.font = "bold 12px sans-serif";
       g.textAlign = "center";
       g.fillText(e.name, e.x, e.y - topOff - 16);
     }
+  }
+
+  /* BB-V7.69 — floor bosses and the Skull Lord get a screen boss bar at the
+     bottom centre (the one strip no HUD chip or thumb ring owns): spaced
+     name, a trailing white chunk for the last hit, ticks at 75/50/25 — the
+     lord's court calls. Knights and guards keep their overhead bars. */
+  function bigBoss(e) {
+    return !!(e && (e.boss === "bone" || e.boss === "slag" || e.boss === "ash" || e.boss === "thorn" || e.boss === "lord"));
+  }
+  function drawBossBar(g, cw, ch) {
+    if (!room || S.mode !== "play") return;
+    var e = null, i;
+    for (i = 0; i < room.enemies.length; i++) {
+      if (room.enemies[i].alive && bigBoss(room.enemies[i])) { e = room.enemies[i]; break; }
+    }
+    if (!e) { S.bossBarA = 0; return; }
+    var target = e.spawnT > 0 ? 0 : 1;
+    S.bossBarA = (S.bossBarA || 0) + (target - (S.bossBarA || 0)) * 0.08;
+    var A = S.bossBarA;
+    if (A < 0.02) return;
+    var dpr = cw / Math.max(1, window.innerWidth);
+    var w = Math.min(cw * 0.46, 560 * dpr), h = Math.max(8, 11 * dpr);
+    var x = (cw - w) * 0.5, y = ch - Math.max(26 * dpr, ch * 0.07) - h;
+    var ratio = Math.max(0, e.hp / e.maxHp);
+    if (e.barShow == null || e.barShow < e.hp) e.barShow = e.hp;
+    e.barShow += (e.hp - e.barShow) * 0.05;
+    g.save();
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    g.globalAlpha = A;
+    g.fillStyle = "rgba(12,8,6,0.82)";
+    g.fillRect(x - 3 * dpr, y - 3 * dpr, w + 6 * dpr, h + 6 * dpr);
+    g.fillStyle = "#3a2a20";
+    g.fillRect(x, y, w, h);
+    g.fillStyle = "#f0e6d4";
+    g.fillRect(x, y, w * Math.max(0, e.barShow / e.maxHp), h);
+    var grd = g.createLinearGradient(0, y, 0, y + h);
+    grd.addColorStop(0, "#e86a50");
+    grd.addColorStop(1, "#a82a20");
+    g.fillStyle = grd;
+    g.fillRect(x, y, w * ratio, h);
+    g.fillStyle = "rgba(255,230,210,0.35)";
+    g.fillRect(x, y, w * ratio, Math.max(1, h * 0.2));
+    g.fillStyle = "rgba(12,8,6,0.7)";
+    for (i = 1; i < 4; i++) g.fillRect(x + w * i / 4 - dpr, y, 2 * dpr, h);
+    g.strokeStyle = "#c4a070";
+    g.lineWidth = Math.max(1, dpr);
+    g.strokeRect(x - 1.5 * dpr, y - 1.5 * dpr, w + 3 * dpr, h + 3 * dpr);
+    g.font = "800 " + Math.round(13 * dpr) + "px -apple-system, 'Segoe UI', sans-serif";
+    g.textAlign = "center";
+    g.textBaseline = "bottom";
+    var name = String(e.name || "").split("").join(" ");
+    g.lineWidth = 3 * dpr;
+    g.strokeStyle = "rgba(12,8,6,0.9)";
+    g.strokeText(name, cw * 0.5, y - 6 * dpr);
+    g.fillStyle = "#f4e2c0";
+    g.fillText(name, cw * 0.5, y - 6 * dpr);
+    g.restore();
   }
 
   /* BB-V7.69 — loot reads as things: a faceted blue shard (the HUD's own
@@ -11725,9 +11789,13 @@ function endRunToMenu() {
   function renderShop() {
     function row(name, lv, fn) {
       var cost = curveCost(lv);
+      /* BB-V7.69 — what you can't afford (or have maxed) dims, so the card
+         reads at a glance instead of six identical orange buttons */
+      var capped = upgradeCapped(fn);
+      var cant = capped || player.frag < cost;
       return "<div class='shopRow'><span class='shopName'><span class='shopTitle'>" + name + "</span>" +
         "<span class='shopLv'>lv " + lv + "</span></span>" +
-        "<button class='bb pri shopBuy' data-up='" + fn + "'>BUY " + cost + "</button></div>";
+        "<button class='bb pri shopBuy" + (cant ? " cant" : "") + "' data-up='" + fn + "'>" + (capped ? "MAX" : "BUY " + cost) + "</button></div>";
     }
     document.getElementById("shopCard").innerHTML =
       "<h1>UPGRADE</h1>" +
@@ -12225,6 +12293,7 @@ function endRunToMenu() {
       if (!ch.open && Math.hypot(ch.x - player.x, ch.y - player.y) < 28) {
         ch.open = true;
         ch.openT = S.t;
+        if (ch.ent) ch.ent.opened = true;
         burst(ch.x, ch.y - 10, "#f0c850", 10);
         sparks(ch.x, ch.y - 14, "#fff2c0", 6, -Math.PI / 2, 1.4);
         floorRing(ch.x, ch.y + 8, "#f0c850", 6, 34, 0.35);
