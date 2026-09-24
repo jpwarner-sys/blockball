@@ -6152,9 +6152,9 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     out.x = P.mX + bx; out.y = P.mY + best;
     return out;
   }
-  function slagPoseLive(e, u, an, P) {
+  function slagPoseLive(e, u, an, P, suO) {
     var x = e.x, yt0 = e.y - u * 2.25, lite = !!S.fxLite;
-    var su = e.spawnT > 0 && e.spawnMax ? 1 - e.spawnT / e.spawnMax : 1;
+    var su = suO != null ? suO : e.spawnT > 0 && e.spawnMax ? 1 - e.spawnT / e.spawnMax : 1;
     var Q0 = SLAG_Q0, Q1 = SLAG_Q1, Q2 = SLAG_Q2, Q3 = SLAG_Q3, F, t = 0, atk = su >= 1 && !!e.atk;
     if (atk) {
       t = e.atkT || 0;
@@ -6164,7 +6164,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       slagChart(e, an, Math.max(0, t - 0.05), Q2);
       slagChart(e, an, Math.max(0, t - 0.08), Q3);
     } else {
-      F = su < 1 && player ? (player.x < e.x ? -1 : 1) : an.faceTo;
+      F = suO != null ? an.lastFace || 1 : su < 1 && player ? (player.x < e.x ? -1 : 1) : an.faceTo;
       if (su < 1) slagRiseQ(su, F, Q0);
       else slagIdleBase(an, Q0);
       slagCopyQ(Q0, Q1); slagCopyQ(Q0, Q2); slagCopyQ(Q0, Q3);
@@ -6297,6 +6297,18 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
   function slagPoseDead(e, u, an, P) {
     var x = e.x, yt0 = e.y - u * 2.25, lite = !!S.fxLite;
     var t = Math.max(0, (e.deadMax || SLAG_DIE) - e.deadT), D = an.lastFace || 1;
+    if (an.lastSu < 1) {
+      /* killed before he had fully risen: the rise plays back down, the pool closes over him
+         (nothing that was still under the slag ever shows) */
+      slagPoseLive(e, u, an, P, an.lastSu * (1 - slagSmooth(0, 0.60, t)));
+      P.smOn = false;
+      P.thr = an.dieAtS != null ? Math.max(0, 1 - (S.t - an.dieAtS) / 0.12) : 0;
+      P.white = t < 0.08 || e.flash > 0; P.whiteAll = P.white; P.mWhite = P.white;
+      P.ribCol = P.white ? SLAG_RIB_W : SLAG_RIB;
+      P.poolRx *= 1 - slagSmooth(0.50, 0.85, t);
+      P.dieA = 1 - slagSmooth(0.55, 0.80, t);
+      return;
+    }
     var L0 = an.lastLam * D, d0 = an.lastDrop, k, q;
     P.face = D; P.clk = an.t;
     P.thr = an.dieAtS != null ? Math.max(0, 1 - (S.t - an.dieAtS) / 0.12) : 0;
@@ -6321,19 +6333,18 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     /* the shadow gives way to the pool as it opens */
     P.shX = 0.12 * P.tX; P.shRx = u * (1.18 + 0.3 * Math.max(0, dA)); P.shA = 1 - easeOutCubic((t - 0.95) / 0.17);
     /* the grip lets go, the maul topples and clangs on "SHOT!" */
-    var gx = 0.80 * D, hx0 = an.lastHX + 0.8 * (l0 - L0) * D, hy0 = an.lastHY + (dA - d0), hx, hy, bang, slot = 0;
+    var gx = 0.80 * D, hx0 = an.lastHX + 0.8 * (l0 - L0) * D, hy0 = an.lastHY + (dA - d0), hx, hy, bang, slot = 1;
     var B0 = an.lastBang;
     if (t < 0.10) { hx = hx0; hy = hy0; bang = B0; }
     else if (B0 * D > 1.6) {
-      /* killed with the maul already down: it just drops flat */
-      k = easeInOutQuad((t - 0.10) / 0.30);
+      /* killed with the maul already down: it slides out from under him and drops flat */
+      k = easeOutCubic((t - 0.10) / 0.24);
       hx = hx0 + (gx - hx0) * k; hy = hy0 + (SLAG_GY - hy0) * k; bang = B0 + (D * SLAG_LIE - B0) * k;
-      slot = t < 0.22 ? 0 : 1;
     } else if (t < 0.22) {
       k = slagEIQ((t - 0.10) / 0.12);
       hx = hx0 + (gx - hx0) * k; hy = hy0 + (SLAG_GY - hy0) * k; bang = B0 + (D * 0.25 - B0) * k;
     } else {
-      hx = gx; hy = SLAG_GY; slot = 1;
+      hx = gx; hy = SLAG_GY;
       bang = D * (0.25 + (SLAG_LIE - 0.25) * easeInCubic((t - 0.22) / 0.18));
     }
     if (t >= 0.40 && slot) bang = D * (SLAG_LIE - (t < 0.52 ? 0.06 * Math.sin(Math.PI * (t - 0.40) / 0.12) : 0));
@@ -6477,7 +6488,8 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     if (!e.alive) {
       slagPoseDead(e, u, an, P);
       an.t += dt;
-      var dP = an.diePrev, dN = (e.deadMax || SLAG_DIE) - e.deadT + dt;
+      /* a kill mid-rise sinks back unseen: no clang, dust or crown (dP past every cue) */
+      var dP = an.lastSu < 1 ? 9 : an.diePrev, dN = (e.deadMax || SLAG_DIE) - e.deadT + dt;
       if (dP < 0.40 && dN >= 0.40) {
         w = slagW(e, slagMaulLow(P, u, SLAG_W).x, SLAG_W.y);
         sparks(w.x, w.y, "#fff2c0", slagN(6), -Math.PI / 2, 1.6);
@@ -6749,6 +6761,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     slagPoseLive(en, u, an, SLAG_P);
     an.lastHX = SLAG_P.bHX; an.lastHY = SLAG_P.bHY; an.lastBang = SLAG_P.bBang;
     an.lastLam = SLAG_P.bLam; an.lastDrop = SLAG_P.bDl; an.lastFace = SLAG_P.bFace; an.lastHr = SLAG_P.headRot;
+    an.lastSu = en.spawnT > 0 && en.spawnMax ? 1 - en.spawnT / en.spawnMax : 1;
     an.diePrev = 0; an.dev = 0;
     en.deadT = en.deadMax = SLAG_DIE;
   }
@@ -12222,7 +12235,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       /* knights and bosses rise out of their ring the same way trash does */
       var su = 1 - e.spawnT / e.spawnMax;
       var rise = su < 0.3 ? 0.02 : Math.max(0.02, easeOutBack((su - 0.3) / 0.7));
-      if (e.boss === "slag" && SLAG_ANIM) { rise = 1; su = 1; } /* BB-V7.72 slag rises at scale 1 */
+      if (e.boss === "slag" && SLAG_ANIM) { rise = 1; su = 1; a = 1; } /* BB-V7.72 slag rises at scale 1 and owns its alpha */
       g.globalAlpha = a * Math.min(1, su * 2);
       g.translate(e.x, e.y);
       g.scale(1 + (1 - Math.min(1, rise)) * 0.3, rise);
