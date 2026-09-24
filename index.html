@@ -4752,6 +4752,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
          boss or knight solid white for its whole death fade */
       if (e.flash > 0) e.flash -= dt;
       if (e.hitT > 0) e.hitT -= dt;
+      if (e.boss === "mini") knightAnim(e, dt); /* BB-V7.72 — cosmetic knight clock */
       if (!e.alive) {
         e.deadT -= dt;
         continue;
@@ -5405,6 +5406,256 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     e.ghost = 1;
     e.slashTrail = [];
     e.cd = 0.55 + rnd() * 0.35;
+  }
+
+  /* BB-V7.72 — Bone Knight animation clock (cosmetic). knightAnim is ticked
+     from updateEnemies on the fixed sim DT, above the spawn / stun / daze
+     early-outs, so it freezes in hitStop, pause, the shop and DOWN exactly
+     like atkT / spawnT / deadT. It writes e.knightAn and S.particles (through
+     prand = Math.random) and nothing else: no rnd(), no shake, no hitStop, no
+     shots. knightPose (drawKnight) is a pure function of this state and the
+     entity; emitters fire here only, on threshold crossings and state edges.
+     The Slag / Ash / Thorn Knights share it through the legacy bridge. */
+  function knightClamp01(t) { return t < 0 ? 0 : t > 1 ? 1 : t; }
+  function knightEaseInQuad(t) { t = knightClamp01(t); return t * t; }
+  function knightEaseOutQuad(t) { t = knightClamp01(t); return 1 - (1 - t) * (1 - t); }
+  function knightSmooth01(t) { t = knightClamp01(t); return t * t * (3 - 2 * t); }
+  function knightFxN(n) { return S.fxLite ? Math.ceil(n / 2) : n; }
+  function knightCross(a, b, th) { return a < th && b >= th; }
+  /* local art px (inside drawEnemy's vis transform) -> world px, for emitters */
+  var KNIGHT_W = { x: 0, y: 0 };
+  function knightW(e, lx, ly) {
+    var vis = enemyVis(e);
+    KNIGHT_W.x = e.x + (lx - e.x) * vis;
+    KNIGHT_W.y = e.y + (ly - e.y) * vis;
+    return KNIGHT_W;
+  }
+  function knightAnimNew(e) {
+    var side = player ? (player.x < e.x ? -1 : 1) : 1;
+    return {
+      t: 0, n: 0, bPh: Math.random(),
+      lx: e.x, ly: e.y, vS: 0, vxS: 0, gA: 0, gPh: 0, gCnt: 0,
+      faceFrom: side, faceTo: side, turnP: -1, turnDur: 0.18, faceHold: 0,
+      kind: null, pAtkT: 0, sinceEnd: 9, pVL: e.volleysLeft || 0,
+      pStep: e.spireStep == null ? -1 : e.spireStep, pDisarm: !!e.disarm, rearmT: 9,
+      relF: 1, relA: null, lastLean: 0, lastCrouch: 0, lastLift: 0,
+      pHitT: e.hitT || 0, hx: 0, hv: 0, hxPrev: 0, hurtT: 9,
+      crA: 0, crV: 0, hx1: null, hx2: 0,
+      nextBlink: 1.2 + 1.2 * Math.random(), blinkT: 9, nextGrip: 5 + 3 * Math.random(), gripT: 9,
+      pSu: -1, pDie: -1
+    };
+  }
+  /* rise beats (KN-13): su crossings while spawning; returns a crest impulse */
+  /* polish: beats follow knightRiseH (break 0.22, hitch 0.44, eyes 0.72,
+     hop landing 0.74); dust cut so the hop and salute read (was ~11 puffs) */
+  function knightRiseFx(e, an, a, b, u, k, lite) {
+    var vis = enemyVis(e), imp = 0, w;
+    if (knightCross(a, b, 0.05) && !lite) burst(e.x, e.y, "#6a5a44", 3);
+    if (knightCross(a, b, 0.22)) {
+      if (!lite) burst(e.x, e.y, "#6a5a44", 3);
+      dustPuff(e.x, e.y, lite ? 1 : 2);
+    }
+    if (knightCross(a, b, 0.44) && !lite) dustPuff(e.x, e.y, 1);
+    if (knightCross(a, b, 0.72) && !lite) {
+      w = knightW(e, e.x - 0.17 * u, e.y - 1.70 * u); embers(w.x, w.y, k.eye, 1);
+      w = knightW(e, e.x + 0.17 * u, e.y - 1.70 * u); embers(w.x, w.y, k.eye, 1);
+    }
+    if (knightCross(a, b, 0.74)) {
+      if (lite) dustPuff(e.x, e.y, 1);
+      else { dustPuff(e.x - 0.28 * u * vis, e.y, 1); dustPuff(e.x + 0.28 * u * vis, e.y, 1); }
+      imp += an.faceTo * 2;
+    }
+    return imp;
+  }
+  /* death beats (KN-12): dieT crossings; positions mirror knightDeathPose */
+  function knightDeathFx(e, an, a, b, u, k, lite) {
+    var vis = enemyVis(e), F = an.faceTo, D = -F, w, i;
+    if (knightCross(a, b, 0.10) && !lite) {
+      for (i = -1; i <= 1; i += 2) {
+        w = knightW(e, e.x + i * 0.17 * u, e.y - 1.70 * u);
+        embers(w.x, w.y, k.eye, 1);
+      }
+    }
+    if (knightCross(a, b, 0.34) && !e.disarm) {
+      w = knightW(e, e.x + F * 0.84 * u, e.y - 0.08 * u);
+      sparks(w.x, w.y, "#fff2c0", lite ? 1 : 3);
+      if (!lite) dustPuff(w.x, w.y, 2);
+    }
+    if (knightCross(a, b, 0.40) && !lite) dustPuff(e.x + F * 0.90 * u * vis, e.y, 1);
+    if (knightCross(a, b, 0.44) && !lite) dustPuff(e.x - F * 0.90 * u * vis, e.y, 1);
+    if (knightCross(a, b, 0.50)) dustPuff(e.x + D * 0.62 * u * vis, e.y, lite ? 1 : 2);
+    if (knightCross(a, b, 0.56)) {
+      dustPuff(e.x, e.y, knightFxN(4));
+      floorRing(e.x, e.y + 3, "#8a7a64", 8, 40, 0.3);
+    }
+  }
+  function knightAnim(e, dt) {
+    var an = e.knightAn;
+    if (!an) an = e.knightAn = knightAnimNew(e);
+    var u = artR(e) * 1.35, k = KNIGHT[e.type] || KNIGHT.minibone, lite = !!S.fxLite;
+    var sword = k.weap === "sword", w, P;
+    if (!e.alive) {
+      /* dead: every live layer freezes; only the death beats run */
+      var dieT = (e.deadMax || 1.2) - (e.deadT || 0);
+      if (dieT > an.pDie) knightDeathFx(e, an, an.pDie, dieT, u, k, lite);
+      an.pDie = dieT;
+      return;
+    }
+    an.t += dt;
+    an.n++;
+    an.bPh += dt / 2.6;
+    if (an.bPh > 1000) an.bPh -= 1000;
+    var side = player ? (player.x < e.x ? -1 : 1) : an.faceTo;
+    var tele = false, imp = 0;
+    var evRel = false, evCatch = false, evSp0 = false, evSpN = false, evWr = false, evKn = false, evStep = -1;
+    if (e.spawnT > 0) {
+      an.faceFrom = an.faceTo = side; an.turnP = -1; an.faceHold = 0;
+      an.lx = e.x; an.ly = e.y; an.vS = 0; an.vxS = 0; an.gA = 0; an.gPh = 0;
+      var su = e.spawnMax ? 1 - e.spawnT / e.spawnMax : 1;
+      if (KNIGHT_OWN_RISE && su - an.pSu > 0 && su - an.pSu < 0.1) imp += knightRiseFx(e, an, an.pSu, su, u, k, lite);
+      an.pSu = su;
+      an.pHitT = e.hitT || 0;
+      an.pDisarm = !!e.disarm;
+    } else {
+      /* facing (KN-04): 2-tick hysteresis, then a short arc */
+      var want = an.faceTo;
+      if (e.atk === "throw") want = side;              /* the side throwKnightWeapon spawns on */
+      else if (e.atk) { if (Math.abs(e.aimX || 0) > 0.05) want = e.aimX < 0 ? -1 : 1; }
+      else if (player && Math.abs(player.x - e.x) > 6) want = side;
+      if (want !== an.faceTo) {
+        an.faceHold++;
+        if (an.faceHold >= 2) {
+          an.faceHold = 0;
+          if (an.turnP >= 0) { an.faceFrom = an.faceTo; an.faceTo = want; an.turnP = 1 - an.turnP; }
+          else { an.faceFrom = an.faceTo; an.faceTo = want; an.turnP = 0; an.turnDur = e.atk ? 0.10 : 0.24; }
+        }
+      } else an.faceHold = 0;
+      if (an.turnP >= 0) {
+        an.turnP += dt / an.turnDur;
+        if (an.turnP >= 1) an.turnP = -1;
+      }
+      /* attack tracking: tails, flags, edges */
+      if (e.atk) {
+        if (e.atk !== an.kind || e.atkT < an.pAtkT) {
+          an.kind = e.atk; an.sinceEnd = 0; an.pAtkT = e.atkT;
+          an.pVL = e.volleysLeft || 0; an.pStep = e.spireStep == null ? -1 : e.spireStep;
+        }
+        an.lastLean = e.lean || 0; an.lastCrouch = e.crouch || 0; an.lastLift = knightLiftPose(e);
+        if (sword && e.atk === "knives" && (e.volleysLeft || 0) < an.pVL) evKn = true;
+        if (sword && e.atk === "spire" && e.spireStep !== an.pStep && e.spireStep >= 0) {
+          if (an.pStep < 0) evSp0 = true; else evSpN = true;
+        }
+        if (sword && e.atk === "spire" && knightCross(an.pAtkT, e.atkT, 1.26)) evWr = true;
+        if (e.atk === "throw" && !e.disarm && player) {
+          /* mirror of throwKnightWeapon's side and aim on this tick (read-only) */
+          var Fr = player.x < e.x ? -1 : 1;
+          an.relF = Fr;
+          an.relA = Math.atan2(player.y - (e.y - u * 0.85), player.x - (e.x + Fr * u * 0.74));
+        }
+        an.pAtkT = e.atkT; an.pVL = e.volleysLeft || 0; an.pStep = e.spireStep == null ? -1 : e.spireStep;
+      } else an.sinceEnd = Math.min(9, an.sinceEnd + dt);
+      /* disarm edges */
+      an.rearmT += dt;
+      if (!an.pDisarm && e.disarm) evRel = true;
+      if (an.pDisarm && !e.disarm) an.rearmT = dt;
+      if (knightCross(an.rearmT - dt, an.rearmT, 0.16)) evCatch = true;
+      an.pDisarm = !!e.disarm;
+      /* gait (KN-05): real displacement drives the steps */
+      var vis = enemyVis(e);
+      var ddx = e.x - an.lx, ddy = e.y - an.ly, d = Math.sqrt(ddx * ddx + ddy * ddy);
+      an.lx = e.x; an.ly = e.y;
+      if (d > 40) {
+        tele = true; d = 0; ddx = 0; an.vS = 0; an.vxS = 0;
+        an.gPh = Math.round(an.gPh / Math.PI) * Math.PI;
+      }
+      var kS = 1 - Math.exp(-dt / 0.08);
+      an.vS += (d / dt - an.vS) * kS;
+      an.vxS += (ddx / dt - an.vxS) * kS;
+      var gOn = !e.atk || e.atk === "knives" || e.atk === "embers" || e.atk === "needles";
+      var gT = gOn ? knightClamp01((an.vS - 6) / 24) : 0;
+      an.gA += (gT - an.gA) * (1 - Math.exp(-dt / (gT > an.gA ? 0.10 : 0.12)));
+      var c0 = Math.floor(an.gPh / Math.PI);
+      an.gPh += Math.PI * Math.min(d, 60 * dt) / (0.45 * u * vis);
+      if (an.vS < 6) {
+        var gk = Math.round(an.gPh / Math.PI) * Math.PI;
+        an.gPh += (gk - an.gPh) * (1 - Math.exp(-dt / 0.05));
+      }
+      var c1 = Math.floor(an.gPh / Math.PI);
+      if (c1 !== c0 && an.gA > 0.6) {
+        an.gCnt++;
+        if ((an.gCnt & 1) === 0 && !lite) evStep = c1;
+      }
+      /* hurt spring (KN-11) */
+      an.hxPrev = an.hx;
+      var ht = e.hitT || 0;
+      if (ht > an.pHitT + 1e-4) {
+        var dir = (ball && Math.abs(ball.x - e.x) < 90) ? (e.x < ball.x ? -1 : 1) : -an.faceTo;
+        an.hv += dir * 4.4 * u;
+        an.hurtT = 0;
+      }
+      an.pHitT = ht;
+      var hw = 2 * Math.PI * 3.0, hz = 0.55, hh = dt / 2; /* polish: outlasts the 0.11 s flash */
+      for (var s2 = 0; s2 < 2; s2++) {
+        an.hv += (-hw * hw * an.hx - 2 * hz * hw * an.hv) * hh;
+        an.hx += an.hv * hh;
+      }
+      if (an.hx > 0.2 * u) { an.hx = 0.2 * u; an.hv = 0; }
+      else if (an.hx < -0.2 * u) { an.hx = -0.2 * u; an.hv = 0; }
+      if (an.hurtT > 0.5 && Math.abs(an.hx) < 0.002 * u && Math.abs(an.hv) < 0.05 * u) { an.hx = 0; an.hv = 0; }
+      an.hurtT += dt;
+      /* idle timers: blink, grip adjust */
+      if (!e.atk) {
+        an.nextBlink -= dt;
+        if (an.nextBlink <= 0) { an.blinkT = 0; an.nextBlink = 3.5 + 2.5 * Math.random(); }
+      }
+      an.blinkT += dt;
+      if (!e.atk && !e.disarm && an.gA < 0.2 && an.rearmT > 0.6) {
+        an.nextGrip -= dt;
+        if (an.nextGrip <= 0) { an.gripT = 0; an.nextGrip = 5 + 3 * Math.random(); }
+      }
+      an.gripT += dt;
+    }
+    /* pose sample: positional emitters and the crest / topper spring */
+    P = knightPose(e, u);
+    var F = P.fa;
+    if (evRel) { w = knightW(e, e.x + F * 0.28 * u, e.y); dustPuff(w.x, w.y, lite ? 1 : 2); }
+    if (evCatch) {
+      w = knightW(e, P.hdX, P.hdY - 0.22 * u);
+      sparks(w.x, w.y, k.accent, lite ? 2 : 4);
+      imp += F * 2;
+    }
+    if (evSp0) {
+      w = knightW(e, P.pkX, P.pkY);
+      dustPuff(w.x, w.y, knightFxN(4));
+      floorRing(w.x, w.y, "#d8cdb4", 4, 26, 0.25);
+      imp += F * 2.5;
+    }
+    if (evSpN && !lite) { w = knightW(e, P.pkX, P.pkY); dustPuff(w.x, w.y, 1); }
+    if (evWr) {
+      w = knightW(e, P.pkX, P.pkY);
+      if (!lite) burst(w.x, w.y, "#6a5a44", 3);
+      dustPuff(w.x, w.y, lite ? 1 : 2);
+    }
+    if (evKn) {
+      w = knightW(e, e.x + F * 0.16 * u, e.y);
+      sparks(w.x, w.y, "#fff2c0", lite ? 1 : 3, Math.atan2(e.aimY || 0, e.aimX || 1), 0.8);
+      if (!lite) dustPuff(w.x, w.y, 1);
+    }
+    if (evStep >= 0) {
+      w = knightW(e, e.x + ((evStep & 1) ? -0.28 : 0.28) * u, e.y);
+      dustPuff(w.x, w.y, 1);
+    }
+    var hX = P.hX;
+    if (an.hx1 == null || tele) { an.hx1 = hX; an.hx2 = hX; }
+    var ax = (hX - 2 * an.hx1 + an.hx2) / (dt * dt), lim = 150 * u;
+    if (ax > lim) ax = lim; else if (ax < -lim) ax = -lim;
+    var cw = 2 * Math.PI * 3, cz = 0.28;
+    an.crV += imp;
+    an.crV += (-cw * cw * an.crA - 2 * cz * cw * an.crV - 0.9 * ax / u) * dt;
+    an.crA += an.crV * dt;
+    if (an.crA > 0.2) { an.crA = 0.2; an.crV = 0; }
+    else if (an.crA < -0.2) { an.crA = -0.2; an.crV = 0; }
+    an.hx2 = an.hx1; an.hx1 = hX;
   }
 
   function updateKnight(e, dt, dx, dy, dist) {
@@ -9233,21 +9484,22 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
                   helm: "crest", arms: "spike", weap: "scythe", cloak: "#5a2848" }
   };
 
-  function drawKnightWeapon(g, k, wx, yt, u, face, lift, swing, pose) {
+  /* BB-V7.72 — optional trailing sh: the knight's cached shades (knightShades) */
+  function drawKnightWeapon(g, k, wx, yt, u, face, lift, swing, pose, sh) {
     var sw = swing || 0;
     if (k.weap === "sword") {
       /* bone-blade: notched edge + gold crossguard */
       var sx = pose === "spire" ? wx - face * u * 0.1 : wx;
       var sy = yt - lift;
-      cube(g, sx - u * 0.13, sy + u * 0.86, u * 0.26, u * 0.46, u * 0.12, shade(k.body, 0.72));
+      cube(g, sx - u * 0.13, sy + u * 0.86, u * 0.26, u * 0.46, u * 0.12, (sh ? sh.b72 : shade(k.body, 0.72)));
       cube(g, sx - u * 0.11, sy - u * 0.10, u * 0.22, u * 1.00, u * 0.10, k.trim);
-      cube(g, sx - u * 0.06, sy + u * 0.10, u * 0.08, u * 0.14, u * 0.04, shade(k.body, 1.1));
-      cube(g, sx - u * 0.06, sy + u * 0.36, u * 0.08, u * 0.14, u * 0.04, shade(k.body, 1.1));
+      cube(g, sx - u * 0.06, sy + u * 0.10, u * 0.08, u * 0.14, u * 0.04, (sh ? sh.b11 : shade(k.body, 1.1)));
+      cube(g, sx - u * 0.06, sy + u * 0.36, u * 0.08, u * 0.14, u * 0.04, (sh ? sh.b11 : shade(k.body, 1.1)));
       cube(g, sx - u * 0.25, sy + u * 0.80, u * 0.50, u * 0.14, u * 0.08, k.accent);
     } else if (k.weap === "hammer") {
       /* slag maul: thick head, ember stripe, short haft on slam wind */
       var hl = pose === "slam" ? lift * 1.15 : lift;
-      cube(g, wx - u * 0.09, yt + u * 0.10 - hl, u * 0.18, u * 1.36, u * 0.09, shade(k.body, 0.6));
+      cube(g, wx - u * 0.09, yt + u * 0.10 - hl, u * 0.18, u * 1.36, u * 0.09, (sh ? sh.b06 : shade(k.body, 0.6)));
       cube(g, wx - u * 0.34, yt - u * 0.28 - hl, u * 0.68, u * 0.50, u * 0.24, k.trim);
       g.fillStyle = k.accent; g.fillRect(wx - u * 0.34, yt - u * 0.08 - hl, u * 0.68, u * 0.09);
       g.fillStyle = "#ff6030"; g.fillRect(wx - u * 0.28, yt - u * 0.22 - hl, u * 0.56, u * 0.06);
@@ -9255,20 +9507,20 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       /* ash reaper: long crook, blade sweeps with swing */
       var hook = face * (u * 0.34 + sw * u * 0.55);
       var tipY = yt - u * 0.44 - lift + sw * u * 0.35;
-      cube(g, wx - u * 0.08, yt - u * 0.10 - lift, u * 0.16, u * 1.66, u * 0.08, shade(k.body, 0.6));
+      cube(g, wx - u * 0.08, yt - u * 0.10 - lift, u * 0.16, u * 1.66, u * 0.08, (sh ? sh.b06 : shade(k.body, 0.6)));
       cube(g, wx - hook, tipY, u * 0.52, u * 0.16, u * 0.08, k.accent);
       cube(g, wx - hook, tipY + u * 0.14, u * 0.16, u * 0.28, u * 0.06, k.accent);
-      cube(g, wx - hook - face * u * 0.12, tipY - u * 0.08, u * 0.18, u * 0.10, u * 0.05, shade(k.accent, 1.15));
+      cube(g, wx - hook - face * u * 0.12, tipY - u * 0.08, u * 0.18, u * 0.10, u * 0.05, (sh ? sh.a115 : shade(k.accent, 1.15)));
     } else {
       /* thorn lance: barbed tip, leveled on charge */
       var lx = pose === "charge" ? wx + face * u * (0.2 + lift * 0.4) : wx;
       var ly = pose === "charge" ? yt + u * 0.15 : yt;
       var ll = pose === "charge" ? lift * 0.2 : lift;
-      cube(g, lx - u * 0.07, ly - u * 0.30 - ll, u * 0.14, u * 1.96, u * 0.07, shade(k.body, 0.6));
+      cube(g, lx - u * 0.07, ly - u * 0.30 - ll, u * 0.14, u * 1.96, u * 0.07, (sh ? sh.b06 : shade(k.body, 0.6)));
       cube(g, lx - u * 0.15, ly - u * 0.52 - ll, u * 0.30, u * 0.26, u * 0.10, k.accent);
       cube(g, lx - u * 0.20, ly - u * 0.18 - ll, u * 0.10, u * 0.12, u * 0.04, k.accent);
       cube(g, lx + u * 0.10, ly - u * 0.02 - ll, u * 0.10, u * 0.12, u * 0.04, k.accent);
-      g.fillStyle = shade(k.accent, 1.2);
+      g.fillStyle = (sh ? sh.a12 : shade(k.accent, 1.2));
       g.beginPath();
       g.moveTo(lx + u * 0.07, ly - u * 0.52 - ll);
       g.lineTo(lx + face * u * 0.28, ly - u * 0.38 - ll);
@@ -9277,10 +9529,602 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     }
   }
 
+  /* BB-V7.72 — Bone Knight rig. knightPose is pure: it reads the entity, its
+     cosmetic clock e.knightAn (may be null: a draw before the first tick, or a
+     bench), player, ball and enemyVis, and fills the module object KNIGHT_P in
+     local art px / radians. It writes nothing else. drawKnight only reads
+     KNIGHT_P, and puts the group offsets into the existing cube() arguments;
+     the only transforms are the weapon (while rotated), the topper spring,
+     the death pieces and the rise clip. Size, palette and art are unchanged.
+     Rigid groups: legs (planted on the floor line), cloak (the only stretch:
+     its top follows the torso, the hem stays), cuirass, pauldrons, hand +
+     weapon, head, helm + topper. Layers: rest, breath / idle, gait, turn,
+     attack (authored sword throw / knives / spire, or the legacy bridge for
+     the other kits), re-arm, hurt, then rise or death, then eyes and flash. */
+  var KNIGHT_HOT_FLASH = true;   /* hurt value-pop on the dark masses (KN-11) */
+  var KNIGHT_OWN_RISE = true;    /* scale-1 rise through the floor (KN-13, needs the drawEnemy gate) */
+  var KNIGHT_STRIDE = 0.07;      /* leg swing, u; the lifted leg travels forward */
+  var KNIGHT_SH = Object.create(null);
+  function knightShades(type, k) {
+    var s = KNIGHT_SH[type];
+    if (s) return s;
+    s = KNIGHT_SH[type] = {
+      b72: cubeShades(k.body)[0], b11: shade(k.body, 1.1), b06: shade(k.body, 0.6),
+      a08: shade(k.accent, 0.8), a115: shade(k.accent, 1.15), a12: shade(k.accent, 1.2),
+      c12: shade(k.cloak, 1.2), w72: cubeShades("#ffffff")[0],
+      hTrim: shade(k.trim, 1.6), hAcc: shade(k.accent, 1.35), hCloak: shade(k.cloak, 1.6), hLeg: shade(k.body, 1.15)
+    };
+    return s;
+  }
+  var KNIGHT_P = {
+    fS: 1, fa: 1, eF: 1,
+    lLX: 0, lLY: 0, lRX: 0, lRY: 0, clX: 0, clY: 0, clH: 0, tX: 0, tY: 0, tA: 0,
+    pLX: 0, pLY: 0, pLA: 0, pRX: 0, pRY: 0, pRA: 0, hX: 0, hY: 0, mX: 0, mY: 0, mA: 0, crA: 0,
+    hdX: 0, hdY: 0, wA: 0, wAl: 1, wShow: 1, wLeg: false, wLift: 0, wPose: "", wFront: false, rh: false, rhX: 0, rhY: 0,
+    eG: 1, eCore: false, eDX: 0, eDY: 0, hot: 0, shX: 0, shK: 1,
+    clip: false, clipY: 0, riseSkip: false, slotR: 0,
+    sm: false, smTX: 0, smTY: 0, ck: false, ckR: 0, ckF: 0, pkX: 0, pkY: 0,
+    gl: false, glX: 0, glY: 0, glW: 0, glH: 0, glA: 0, thr: 1
+  };
+  /* authored-move scratch: face-local hand (u) and blade angle (rad, + = tip
+     toward the facing side, 0 = up), body lean / drop in u */
+  var KNIGHT_A = {
+    L: 0, Lh: 0, D: 0, Dh: 0, ty: 0, hx: 0.74, hy: 1.09, th: 0, abs: false, ax: 0, ay: 0, aw: 0,
+    lock: 0, pSX: 0, pSY: 0, pY: 0, eye: 0, sm: false, smX: 0, smY: 0, ck: false, ckR: 0, ckF: 0, pkX: 0, pkY: 0, fr: false
+  };
+  var KNIGHT_W2 = { x: 0, y: 0, a: 0, hx: 0, hy: 0, th: 0 };
+  /* shoulder cubes, left side: x, y, w, h, z (u); on its side (death) the
+     lowest point is w/2 below the cube centre */
+  var KNIGHT_ARMS = {
+    pauldron: [-0.86, 0.56, 0.40, 0.34, 0.16],
+    slab: [-0.98, 0.48, 0.50, 0.46, 0.22],
+    spike: [-0.82, 0.58, 0.34, 0.30, 0.14],
+    bramble: [-0.84, 0.54, 0.38, 0.32, 0.15]
+  };
+  /* lowest point of each helm below its band centre once on its side (a quarter turn) */
+  var KNIGHT_HELM_LOW = { crest: 0.44, horn: 0.72, hood: 0.52, antler: 0.52 };
+  var KNIGHT_CK = [];
+  function knightBreath(ph) { return 0.5 - 0.5 * Math.cos(2 * Math.PI * ph); }
+  /* rotate about (cx, cy). Angles within 0.012 rad of a quarter turn snap to
+     an exact matrix: canvases fast-path rects that stay rects, and a rotated
+     voxel cube costs ~4x an upright one. 0.012 rad is < 1 px at a blade tip. */
+  function knightRot(g, cx, cy, a) {
+    var h = Math.PI / 2, q = Math.round(a / h), c, s;
+    if (Math.abs(a - q * h) < 0.012) {
+      q = ((q % 4) + 4) % 4;
+      c = q === 0 ? 1 : q === 2 ? -1 : 0; s = q === 1 ? 1 : q === 3 ? -1 : 0;
+    } else { c = Math.cos(a); s = Math.sin(a); }
+    g.transform(c, s, -s, c, cx - c * cx + s * cy, cy - s * cx - c * cy);
+  }
+  function knightNoRot(a) { return a < 0.012 && a > -0.012; }
+  /* the torso may sink at most 0.14u over the planted legs (0.24u of leg shows) */
+  function knightDropCap(d, u) {
+    var a = 0.10 * u;
+    return d <= a ? d : a + 0.04 * u * (1 - Math.exp(-(d - a) / (0.04 * u)));
+  }
+  /* today's lift pose: bladeLift, else the telegraph progress */
+  function knightLiftPose(e) {
+    if (e.bladeLift != null && e.bladeLift > 0) return e.bladeLift;
+    if (e.tell > 0) return e.tellMax > 0 ? 1 - Math.max(0, e.tell) / e.tellMax : Math.min(1, e.tell);
+    return 0;
+  }
+  function knightARest(A) {
+    A.L = 0; A.Lh = 0; A.D = 0; A.Dh = 0; A.ty = 0; A.hx = 0.74; A.hy = 1.09; A.th = 0; A.abs = false;
+    A.lock = 0; A.pSX = 0; A.pSY = 0; A.pY = 0; A.eye = 0; A.sm = false; A.ck = false; A.fr = false;
+  }
+  /* throw body at atkT t: face-local lean and torso drop (u) */
+  function knightThrowBody(A, t, head) {
+    var L, D, p;
+    if (t < 0.10) { p = easeInOutQuad(t / 0.10); L = 0.02 * p; D = 0.03 * p; }
+    else if (t < 0.54) { p = easeOutCubic((t - 0.10) / 0.44); L = 0.02 - 0.10 * p; D = 0.03 - 0.05 * p; }
+    else if (t < 0.66) { L = -0.08; D = -0.02; }
+    else if (t < 0.7667) { p = knightEaseInQuad((t - 0.66) / 0.1066); L = -0.08 + 0.20 * p; D = -0.02 + 0.07 * p; }
+    else {
+      var tau = t - 0.7667;
+      L = 0.12 * Math.exp(-tau / 0.12) * Math.cos(2 * Math.PI * tau / 0.40) * (1 - knightSmooth01((t - 1.10) / 0.10));
+      D = 0.05 * (1 - easeInOutQuad(tau / 0.40));
+    }
+    if (head) { A.Lh = L; A.Dh = D; } else { A.L = L; A.D = D; }
+  }
+  /* BB-V7.72 polish — the throw's cock / loaded hold: grip (face-local u) above
+     the sword-side shoulder, outside the face (0.38u) and helm band (0.44u);
+     blade tipped 0.45 rad back so it stands beside and above the helm, tip
+     by the crest. Drawn after the helm (KNIGHT_P.wFront) from atkT 0.10 to
+     the release tick, so the band corner never hides it. */
+  var KNIGHT_COCK_X = 0.64, KNIGHT_COCK_Y = 0.28, KNIGHT_COCK_TH = -0.45;
+  /* the whip (atkT 0.66 -> 0.7667, the last held tick): grip and screen angle */
+  function knightWhip(t, x, yt0, u, fS, Fr, gRx, gRy, thR) {
+    var p = knightEaseInQuad((t - 0.66) / 0.1066), b = Math.sin(Math.PI * p);
+    var sx = x + fS * KNIGHT_COCK_X * u, sy = yt0 + KNIGHT_COCK_Y * u, W = KNIGHT_W2, c0 = KNIGHT_COCK_TH;
+    W.x = sx + (gRx - sx) * p + Fr * 0.10 * u * b;
+    W.y = sy + (gRy - sy) * p - 0.12 * u * b;
+    W.a = c0 * fS + (Fr * thR - c0 * fS) * p;
+    return W;
+  }
+  /* KN-07 throw: counter-dip, overhand cock, loaded hold, whip that ends on
+     the shot's spawn (grip 0.45u behind it, crossguards coincide), empty-hand
+     follow-through, rest by atkT 1.20 (< the 1.2167 end tick) */
+  function knightThrowPose(A, e, an, tA, u, x, yt0, fS) {
+    var vis = enemyVis(e), p;
+    var rel = !!(e.disarm && an && an.relA != null);
+    var Fr = rel ? an.relF : ((player && player.x < e.x) ? -1 : 1);
+    /* throwKnightWeapon's spawn and aim, read-only mirror (keep in sync) */
+    var sxW = e.x + Fr * u * 0.74, syW = e.y - u * 0.85;
+    var ang = rel ? an.relA : (player ? Math.atan2(player.y - syW, player.x - sxW) : (Fr < 0 ? Math.PI : 0));
+    var sxL = e.x + (sxW - e.x) / vis, syL = e.y + (syW - e.y) / vis;
+    var ca = Math.cos(ang), sa = Math.sin(ang);
+    var gRx = sxL - 0.45 * u * ca, gRy = syL - 0.45 * u * sa;
+    var thR = Fr * (ang + Math.PI / 2);
+    while (thR < -0.6) thR += 2 * Math.PI;
+    while (thR >= 2 * Math.PI - 0.6) thR -= 2 * Math.PI;
+    knightThrowBody(A, tA, false);
+    knightThrowBody(A, tA - 0.06, true);
+    var tr = an ? Math.sin(an.t * 88) : 0, tr2 = an ? Math.cos(an.t * 71) : 0;
+    if (tA < 0.10) { p = easeInOutQuad(tA / 0.10); A.hy = 1.09 + 0.05 * p; }
+    else if (tA < 0.54) {
+      p = easeOutCubic((tA - 0.10) / 0.44);
+      A.hx = 0.74 + (KNIGHT_COCK_X - 0.74) * p; A.hy = 1.14 + (KNIGHT_COCK_Y - 1.14) * p; A.th = KNIGHT_COCK_TH * p;
+      A.pSX = -0.03 * p; A.pSY = -0.07 * p;
+    } else if (tA < 0.66) {
+      var tw = knightClamp01((tA - 0.54) / 0.04) * (1 - knightClamp01((tA - 0.62) / 0.04));
+      A.hx = KNIGHT_COCK_X + 0.008 * tr * tw; A.hy = KNIGHT_COCK_Y + 0.008 * tr2 * tw; A.th = KNIGHT_COCK_TH;
+      A.pSX = -0.03; A.pSY = -0.07;
+    } else if (!e.disarm) {
+      var W = knightWhip(Math.min(tA, 0.7667), x, yt0, u, fS, Fr, gRx, gRy, thR);
+      var pw = knightEaseInQuad((tA - 0.66) / 0.1066);
+      A.abs = true; A.ax = W.x; A.ay = W.y; A.aw = W.a;
+      A.pSX = -0.03 + 0.11 * pw; A.pSY = -0.07 * (1 - pw);
+      if (tA >= 0.72 && !S.fxLite) {
+        W = knightWhip(tA - 1 / 30, x, yt0, u, fS, Fr, gRx, gRy, thR);
+        A.sm = true;
+        A.smX = W.x + Math.sin(W.a) * 1.19 * u; A.smY = W.y - Math.cos(W.a) * 1.19 * u;
+      }
+    } else {
+      /* released: the empty hand follows through along the flight, then home */
+      var fx = gRx + 0.25 * u * ca, fy = gRy + 0.25 * u * sa + 0.05 * u;
+      A.abs = true; A.aw = 0;
+      if (tA < 0.90) { p = easeOutCubic((tA - 0.7833) / 0.1167); A.ax = gRx + (fx - gRx) * p; A.ay = gRy + (fy - gRy) * p; }
+      else {
+        p = easeInOutQuad((tA - 0.90) / 0.30);
+        var rx = x + fS * 0.74 * u, ry = yt0 + 1.09 * u;
+        A.ax = fx + (rx - fx) * p; A.ay = fy + (ry - fy) * p;
+      }
+      A.pSX = 0.08 * (1 - easeInOutQuad((tA - 0.7667) / 0.34));
+    }
+    A.eye = tA < 0.7833 ? 0.37 * knightClamp01((tA - 0.60) / 0.18) : 0.37 * (1 - knightClamp01((tA - 0.7833) / 0.15));
+    A.fr = !e.disarm && tA >= 0.10; /* cock, hold and whip draw after the helm */
+    A.lock = tA < 0.90 ? knightClamp01((tA - 0.54) / 0.12) : 1 - easeInOutQuad((tA - 0.90) / 0.30);
+  }
+  /* spire body at atkT t */
+  function knightSpireBody(A, t, head) {
+    var L = 0, D = 0, p;
+    if (t < 0.12) D = 0.03 * easeInOutQuad(t / 0.12);
+    else if (t < 0.45) D = 0.03 - 0.06 * easeInOutQuad((t - 0.12) / 0.33);
+    else if (t < 0.64) D = -0.03 - 0.02 * easeInOutQuad((t - 0.45) / 0.19);
+    else if (t < 0.725) { p = easeInCubic((t - 0.64) / 0.085); D = -0.05 + 0.17 * p; L = 0.06 * p; }
+    else if (t < 1.26) { D = 0.12; L = 0.06; }
+    else if (t < 1.42) { p = easeOutCubic((t - 1.26) / 0.16); D = 0.12 - 0.08 * p - 0.03 * Math.sin(Math.PI * p); L = 0.06; }
+    else if (t < 1.67) { p = easeInOutQuad((t - 1.42) / 0.25); D = 0.04 * (1 - p); L = 0.06 * (1 - p); }
+    if (head) { A.Lh = L; A.Dh = D; } else { A.L = L; A.D = D; }
+  }
+  /* KN-09 spire: reverse-grip raise, plunge on the first eruption tick,
+     planted shudders, racing crack, wrench, wheel forward (never through the
+     floor), rest by atkT 1.67 (< the 1.6833 end tick) */
+  function knightSpirePose(A, e, an, tA, u, x, yt0, fS, F) {
+    var p, st = e.spireStep == null ? -1 : e.spireStep;
+    var Px = x + F * Math.max(0.50 * u, F * (e.aimX || 0) * 0.95 * u);
+    var Py = e.y + Math.max(0, e.aimY || 0) * 0.30 * u;
+    A.pkX = Px; A.pkY = Py;
+    knightSpireBody(A, tA, false);
+    knightSpireBody(A, tA - 0.06, true);
+    var tr = an ? Math.sin(an.t * 88) : 0;
+    if (tA < 0.12) A.hy = 1.09 + 0.04 * easeInOutQuad(tA / 0.12);
+    else if (tA < 0.45) {
+      p = easeInOutQuad((tA - 0.12) / 0.33);
+      A.hx = 0.74 - 0.16 * p; A.hy = 1.13 - 0.83 * p; A.th = Math.PI * p;
+    } else if (tA < 0.64) {
+      p = easeInOutQuad((tA - 0.45) / 0.19);
+      var tw = knightClamp01((tA - 0.45) / 0.05) * (1 - knightClamp01((tA - 0.60) / 0.04));
+      A.hx = 0.58 + 0.008 * tr * tw; A.hy = 0.30 - 0.06 * p + 0.006 * tr * tw; A.th = Math.PI;
+      A.eye = 0.37 * p;
+    } else {
+      var gx = Px, gy = Py - 1.19 * u, sx = x + fS * 0.58 * u, sy = yt0 + 0.24 * u;
+      A.abs = true;
+      if (tA < 0.725) {
+        p = easeInCubic((tA - 0.64) / 0.085);
+        A.ax = sx + (gx - sx) * p; A.ay = sy + (gy - sy) * p; A.aw = fS * Math.PI; A.pY = 0.04 * p; A.eye = 0.37;
+      } else if (tA < 1.26) {
+        /* polish: each eruption kicks back up the blade (about 1-1.4 phone px) */
+        var sd = st >= 0 ? knightClamp01(1 - (tA - (0.72 + 0.12 * st)) / 0.08) : 0;
+        A.ax = gx + ((st & 1) ? 0.035 : -0.035) * u * sd; A.ay = gy + 0.05 * u * sd; A.aw = fS * Math.PI;
+        A.ty = 0.035 * sd; A.pY = 0.04; A.pSY = 0.03 * sd;
+        A.eye = 0.37 * (1 - knightClamp01((tA - 0.725) / 0.15)) + 0.2 * sd;
+      } else if (tA < 1.42) {
+        p = easeOutCubic((tA - 1.26) / 0.16);
+        A.ax = gx - fS * 0.05 * u * p; A.ay = gy - 0.30 * u * p; A.aw = fS * (Math.PI - 0.35 * p); A.pY = 0.04 * (1 - p);
+      } else {
+        p = easeInOutQuad((tA - 1.42) / 0.25);
+        var wx0 = gx - fS * 0.05 * u, wy0 = gy - 0.30 * u, rx = x + fS * 0.74 * u, ry = yt0 + 1.09 * u;
+        A.ax = wx0 + (rx - wx0) * p; A.ay = wy0 + (ry - wy0) * p; A.aw = fS * (Math.PI - 0.35) * (1 - p);
+      }
+    }
+    A.lock = tA < 0.64 ? knightClamp01((tA - 0.45) / 0.19) : tA < 1.42 ? 1 : 1 - easeInOutQuad((tA - 1.42) / 0.25);
+    /* the crack races to each eruption: 42 + 38·step mirrors fireBoneSpire (read-only) */
+    if (st >= 0 && tA >= 0.725) {
+      var fade = 1 - knightClamp01((tA - 1.26) / 0.42);
+      if (fade > 0) {
+        A.ck = true; A.ckF = fade;
+        A.ckR = Math.min(194, 42 + 38 * (st + knightClamp01((tA - 0.72 - 0.12 * st) / 0.12)));
+      }
+    }
+  }
+  /* KN-10 knives clock: seconds since the last knife, or (negative) until the
+     next one. volleyCd is exactly 0.42 on each fire tick. */
+  function knightKnivesS(e, an) {
+    var s;
+    if (e.atk && e.atkT < e.atkWind) s = e.atkT - e.atkWind - 1 / 60;
+    else {
+      s = 0.42 - (e.volleyCd || 0) + (e.atk ? 0 : (an ? an.sinceEnd : 0));
+      if (e.atk && e.volleysLeft > 0) {
+        var pre = -((e.volleyCd || 0) + 1 / 60);
+        if (pre > -0.20) s = pre;
+      }
+    }
+    return s;
+  }
+  /* knives hand: back-swing behind the far leg, scrape through the floor at
+     the knife's spawn on the fire tick, carry up: one backward revolution.
+     Polish spacing: the back-swing snaps out and eases into the loaded key,
+     a short settle, then the strike accelerates (ease-in) so the scrape is
+     the fastest part: the tip is straight down (-3.15) at s = 0, the fire
+     tick, with the grip at (0.15, 0.86) so the tip touches the floor line. */
+  var KNIGHT_KS0 = -0.048, KNIGHT_KS1 = 0.022; /* strike window, s */
+  function knightKnivesHand(W, s) {
+    var p, q;
+    if (s <= -0.20 || s >= 0.22) { W.hx = 0.74; W.hy = 1.09; W.th = 0; }
+    else if (s < -0.07) { p = knightEaseOutQuad((s + 0.20) / 0.13); W.hx = 0.74 - 0.62 * p; W.hy = 1.09 - 0.15 * p; W.th = -2.20 * p; }
+    else if (s < KNIGHT_KS0) { p = knightSmooth01((s + 0.07) / (KNIGHT_KS0 + 0.07)); W.hx = 0.12; W.hy = 0.94; W.th = -2.20 - 0.15 * p; }
+    else if (s < KNIGHT_KS1) {
+      p = knightEaseInQuad((s - KNIGHT_KS0) / (KNIGHT_KS1 - KNIGHT_KS0));
+      W.th = -2.35 - 1.70 * p;
+      q = p / 0.4706; /* 0.4706 = strike progress at s = 0 (th -3.15) */
+      if (q < 1) { W.hx = 0.12 + 0.03 * q; W.hy = 0.94 - 0.08 * q; }
+      else { q = (p - 0.4706) / 0.5294; W.hx = 0.15 + 0.25 * q; W.hy = 0.86 + 0.06 * q; }
+    }
+    else { p = easeOutCubic((s - KNIGHT_KS1) / (0.22 - KNIGHT_KS1)); W.hx = 0.40 + 0.34 * p; W.hy = 0.92 + 0.17 * p; W.th = -4.05 + (4.05 - 2 * Math.PI) * p; }
+  }
+  function knightKnivesPose(A, e, an, u, x, yt0, fS) {
+    var s = knightKnivesS(e, an), p, L = 0, D = 0;
+    knightKnivesHand(A, s);
+    if (s > -0.20 && s < 0.22) {
+      /* lean peaks through the strike window (KNIGHT_KS0 .. KNIGHT_KS1 + 0.02) */
+      if (s < -0.07) { p = knightEaseOutQuad((s + 0.20) / 0.13); L = -0.04 * p; D = 0.03 * p; }
+      else if (s < KNIGHT_KS0) { L = -0.04; D = 0.03; }
+      else if (s < 0) { p = knightEaseOutQuad((s - KNIGHT_KS0) / -KNIGHT_KS0); L = -0.04 + 0.11 * p; D = 0.03 + 0.01 * p; }
+      else if (s < KNIGHT_KS1 + 0.02) { L = 0.07; D = 0.04; }
+      else { p = easeOutCubic((s - KNIGHT_KS1 - 0.02) / (0.20 - KNIGHT_KS1)); L = 0.07 * (1 - p) - 0.007 * Math.sin(Math.PI * p); D = 0.04 * (1 - p); }
+    }
+    A.L = A.Lh = L; A.D = A.Dh = D;
+    A.eye = 0.3 * knightClamp01(Math.min((s + 0.15) / 0.02, (KNIGHT_KS0 - s) / 0.02));
+    A.lock = s < 0 ? knightClamp01((s + 0.12) / 0.07) : 1 - knightClamp01((s - 0.05) / 0.10);
+    if (s >= KNIGHT_KS0 + 0.02 && s <= KNIGHT_KS1 + 0.03 && !S.fxLite) {
+      var W = KNIGHT_W2;
+      knightKnivesHand(W, s - 1 / 30);
+      var a0 = fS * W.th, gx = x + fS * W.hx * u, gy = yt0 + W.hy * u;
+      A.sm = true; A.smX = gx + Math.sin(a0) * 1.19 * u; A.smY = gy - Math.cos(a0) * 1.19 * u;
+    }
+  }
+  /* KN-13 rise height (0 = under the floor, 1 = standing). Polish: the whole
+     climb runs 0.08 su earlier (head breaks the floor at 0.22, hitch
+     0.44-0.50, body 0.50-0.68, hop 0.68-0.74, eyes 0.72-0.76) and the
+     time goes to the salute: raise 0.76-0.83, hold 0.83-0.93, snap to 1.00 */
+  function knightRiseH(su) {
+    if (su < 0.22) return 0;
+    if (su < 0.44) return 0.48 * easeOutCubic((su - 0.22) / 0.22);
+    if (su < 0.50) return 0.48 - 0.015 * Math.sin(Math.PI * (su - 0.44) / 0.06);
+    if (su < 0.68) return 0.48 + 0.52 * easeOutCubic((su - 0.50) / 0.18);
+    return 1;
+  }
+  function knightPose(e, u) {
+    var P = KNIGHT_P, A = KNIGHT_A, an = e.knightAn || null, PI = Math.PI;
+    var k = KNIGHT[e.type] || KNIGHT.minibone, sword = k.weap === "sword";
+    var x = e.x, yt0 = e.y - u * 2.05, bph = e.bobPhase || 0;
+    var alive = !!e.alive, spawning = alive && e.spawnT > 0;
+    var rawFace = (e.aimX != null && e.atk) ? (e.aimX < 0 ? -1 : 1) : ((player && e.x < player.x) ? 1 : -1);
+    /* facing: fS blends across a turn, fa is the art side */
+    var fS, fa, eF, sq = 0, fTo;
+    if (an) {
+      fTo = an.faceTo;
+      if (an.turnP >= 0) {
+        var q = knightSmooth01(an.turnP);
+        fS = an.faceFrom + (an.faceTo - an.faceFrom) * q;
+        fa = q < 0.5 ? an.faceFrom : an.faceTo;
+        eF = q > 0.25 ? an.faceTo : an.faceFrom;
+        sq = Math.sin(PI * q);
+      } else fS = fa = eF = an.faceTo;
+    } else fS = fa = eF = fTo = rawFace;
+    /* attack layer (tails: the last kind keeps its clock for 0.40 s) */
+    var kind = e.atk || (an && an.sinceEnd < 0.40 ? an.kind : null);
+    var tA = e.atk ? e.atkT : (an ? e.atkT + an.sinceEnd : e.atkT);
+    var authored = sword && (kind === "throw" || kind === "knives" || kind === "spire");
+    var lean = 0, crouch = 0, lift = 0, legacy = false;
+    knightARest(A);
+    if (authored) {
+      if (kind === "throw") knightThrowPose(A, e, an, tA, u, x, yt0, fS);
+      else if (kind === "spire") knightSpirePose(A, e, an, tA, u, x, yt0, fS, fa);
+      else knightKnivesPose(A, e, an, u, x, yt0, fS);
+    } else if (kind) {
+      /* legacy bridge: today's lean / crouch / lift, with a 0.15 s tail */
+      if (e.atk) { lean = e.lean || 0; crouch = e.crouch || 0; lift = knightLiftPose(e); legacy = true; }
+      else if (an && an.sinceEnd < 0.15) {
+        var tf = 1 - knightEaseOutQuad(an.sinceEnd / 0.15);
+        lean = an.lastLean * tf; crouch = an.lastCrouch * tf; lift = an.lastLift * tf; legacy = true;
+      }
+    }
+    /* breath, sway, eyes, gait, hurt, grip adjust */
+    var Llive = 0, bT = 0, bP = 0, bH = 0, bD = 0, gA = 0, gs = 0, dirX = 1, vr = 0;
+    var eG = 0.88, hurt = 0, hurtH = 0, hurtT = 9, grip = 0;
+    if (an) {
+      /* polish: breath sized for the phone (about 1 px at play scale) */
+      bT = -0.050 * u * knightBreath(an.bPh);
+      bP = -0.065 * u * knightBreath(an.bPh - 0.02);
+      bH = -0.040 * u * knightBreath(an.bPh - 0.0167);
+      bD = -0.060 * u * knightBreath(an.bPh - 0.04);
+      gA = an.gA; gs = an.gPh; dirX = an.vxS < 0 ? -1 : 1;
+      vr = Math.max(-1, Math.min(1, an.vxS / 35));
+      var swayK = e.atk ? 1 - knightClamp01(e.atkT / 0.15) : knightClamp01(an.sinceEnd / 0.15);
+      Llive = 0.035 * u * Math.sin(2 * PI * an.t / 5.3 + bph) * (1 - gA) * swayK + gA * 0.05 * u * vr;
+      eG = 0.80 + 0.18 * Math.sin(2 * PI * an.t / 2.3 + bph);
+      if (an.blinkT < 0.13) eG *= an.blinkT < 0.07 ? 0.1 : 0.1 + 0.9 * (an.blinkT - 0.07) / 0.06;
+      hurt = an.hx; hurtH = an.hxPrev; hurtT = an.hurtT;
+      if (an.gripT < 0.40 && !e.atk && !e.disarm) grip = Math.sin(PI * an.gripT / 0.40);
+    }
+    var lLX = 0, lLY = 0, lRX = 0, lRY = 0, bounce = 0, pG = 0, gripG = 0, clG = 0;
+    if (gA > 0.001) {
+      var sn = Math.sin(gs), cs = Math.cos(gs);
+      lLY = -gA * 0.10 * u * Math.max(0, sn); lLX = -dirX * gA * KNIGHT_STRIDE * u * cs;
+      lRY = -gA * 0.10 * u * Math.max(0, -sn); lRX = dirX * gA * KNIGHT_STRIDE * u * cs;
+      bounce = gA * 0.025 * u * (1 - Math.abs(sn));
+      pG = gA * 0.02 * u * sn;
+      gripG = gA * 0.02 * u * Math.sin(gs - 0.6);
+      clG = -dirX * gA * 0.04 * u;
+    }
+    /* rise (KN-13): whole rig slides up through a floor clip, hop, salute */
+    var rigY = 0, swY = 0, shK = 1, eyeRise = -1, sal = 0, snap = -1;
+    P.clip = false; P.riseSkip = false; P.slotR = 0; P.clipY = e.y + 0.05 * u;
+    if (spawning && KNIGHT_OWN_RISE) {
+      var su = e.spawnMax ? knightClamp01(1 - e.spawnT / e.spawnMax) : 1;
+      var h = knightRiseH(su), hs = knightRiseH(su - 0.03);
+      rigY = (1 - h) * 2.95 * u; swY = (1 - hs) * 2.95 * u;
+      P.clip = h < 1 || hs < 1; P.riseSkip = su < 0.22;
+      P.slotR = 0.95 * u * easeOutCubic(su / 0.22) * (1 - easeInOutQuad((su - 0.68) / 0.14));
+      shK = 0.3 + 0.7 * h;
+      if (su >= 0.68 && su < 0.74) {
+        var hop = -0.07 * u * Math.sin(PI * (su - 0.68) / 0.06);
+        rigY += hop; swY += hop; shK *= 1 + 0.15 * hop / (0.07 * u);
+      }
+      eyeRise = su < 0.72 ? 0 : su < 0.76 ? 1.5 * (su - 0.72) / 0.04 : su < 0.84 ? 1.5 + (eG - 1.5) * easeInOutQuad((su - 0.76) / 0.08) : -1;
+      if (su >= 0.76) { if (su < 0.83) sal = easeInOutQuad((su - 0.76) / 0.07); else if (su < 0.93) sal = 1; else snap = (su - 0.93) / 0.07; }
+    }
+    /* compose the groups (local px) */
+    var Lrig = lean * u, liftUp = -lift * 0.08 * u;
+    var Dc = knightDropCap(A.D * u + crouch * u, u), Dhc = knightDropCap(A.Dh * u + crouch * u, u);
+    var splay = 0.35 * Math.max(0, Dc);
+    var Lt = fS * A.L * u + Llive, Lh = fS * A.Lh * u + Llive;
+    var yB = bounce + liftUp + A.ty * u;
+    var tyUp = Dc + bT + yB;
+    P.fS = fS; P.fa = fa; P.eF = eF;
+    P.lLX = lLX - splay + Lrig; P.lLY = lLY + rigY;
+    P.lRX = lRX + splay + Lrig; P.lRY = lRY + rigY;
+    P.tX = Lt + hurt + Lrig; P.tY = tyUp + rigY + Math.abs(hurt) * (0.02 / 0.12); P.tA = 0;
+    P.clX = 0.8 * Lt + 0.6 * hurt + clG + Lrig; P.clY = 0.8 * tyUp + rigY; P.clH = -0.8 * tyUp;
+    var pinch = 0.06 * u * sq;
+    var rattle = (an && hurtT < 0.12) ? (((an.n >> 1) & 1) ? 0.02 : -0.02) * u * (1 - hurtT / 0.12) : 0;
+    var pBase = 1.05 * (Lt + hurt) + rattle + Lrig, pYb = Dc + bP + yB + A.pY * u + rigY;
+    var pSx = fS * A.pSX * u, pSy = A.pSY * u;
+    P.pLX = pBase + pinch + (fa < 0 ? pSx : 0); P.pLY = pYb + pG + (fa < 0 ? pSy : 0); P.pLA = 0;
+    P.pRX = pBase - pinch + (fa > 0 ? pSx : 0); P.pRY = pYb - pG + (fa > 0 ? pSy : 0); P.pRA = 0;
+    P.hX = 1.15 * Lh + 1.25 * hurtH + Lrig; P.hY = Dhc + bD + yB + rigY;
+    P.mX = P.hX; P.mY = P.hY; P.mA = 0; P.crA = an ? an.crA : 0;
+    /* hand + weapon */
+    var unlock = 1 - A.lock, hdX, hdY, wA;
+    if (A.abs) { hdX = A.ax; hdY = A.ay; wA = A.aw; }
+    else { hdX = x + fS * A.hx * u; hdY = yt0 + A.hy * u; wA = fS * A.th; }
+    hdX += unlock * 0.9 * Llive + 0.9 * hurt + Lrig;
+    hdY += unlock * (bH + 0.9 * bounce + gripG) + (authored ? 0 : 0.9 * Dc + liftUp) + swY;
+    hdY -= 0.20 * u * sq;
+    wA += fTo * 0.30 * sq;
+    hdY -= 0.05 * u * grip; wA += fa * 0.10 * grip;
+    var wAl = 1;
+    P.gl = false; P.rh = false;
+    if (an && !e.disarm) {
+      /* KN-08 re-arm: the weapon drops into the hand and is caught */
+      var r = an.pDisarm ? 0 : an.rearmT;
+      if (r < 0.16) {
+        var rp = r / 0.16;
+        /* polish: the empty hand waits at the grip until the hilt lands on it */
+        P.rh = true; P.rhX = hdX; P.rhY = hdY;
+        hdY -= 0.50 * u * (1 - knightEaseInQuad(rp));
+        if (sword) wA += fa * 0.5 * (1 - rp);
+        wAl = Math.min(1, r / 0.06);
+      } else if (r < 0.30) {
+        var dip = 0.06 * u * Math.min(1, (r - 0.16) / 0.034) * (1 - easeOutCubic((r - 0.16) / 0.14));
+        hdY += dip; P.tY += dip / 3;
+      }
+      if (r >= 0.16 && r < 0.20 && !S.fxLite) {
+        P.gl = true; P.glX = hdX + Math.sin(wA) * 0.22 * u; P.glY = hdY - Math.cos(wA) * 0.22 * u;
+        P.glW = 0.50 * u; P.glH = 0.10 * u; P.glA = 0.8;
+      }
+    }
+    P.wShow = e.disarm ? 2 : 1; P.wAl = wAl; P.wFront = A.fr && !e.disarm;
+    P.wLeg = legacy; P.wLift = lift * 0.42 * u; P.wPose = (legacy && e.atk) ? e.atk : "";
+    if (sal > 0 || snap >= 0) {
+      /* salute: blade upright before the face (drawn after the helm), then guard */
+      var sX = x, sY = yt0 + 1.05 * u + swY;
+      if (snap < 0) { hdX += (sX - hdX) * sal; hdY += (sY - hdY) * sal; wA *= 1 - sal; }
+      else {
+        var bx = easeOutBack(snap), by = easeOutCubic(snap);
+        hdX = sX + (hdX - sX) * bx; hdY = sY + (hdY - sY) * by; wA *= by;
+        if (snap >= 0.4 && !S.fxLite) {
+          P.gl = true; P.glX = hdX; P.glY = hdY - 0.22 * u; P.glW = 0.08 * u; P.glH = 0.08 * u; P.glA = 0.8;
+        }
+      }
+      P.wFront = true;
+    }
+    P.hdX = hdX; P.hdY = hdY; P.wA = wA;
+    /* eyes */
+    eG += A.eye + (hurtT < 0.06 ? 0.6 : 0);
+    if (eyeRise >= 0) eG = eyeRise;
+    P.eG = eG; P.eCore = eG > 1.15;
+    if (an && player) {
+      var ed = eF * 0.02 * u + Math.max(-1, Math.min(1, (player.x - e.x) / 300)) * 0.03 * u;
+      P.eDX = Math.max(-0.04 * u, Math.min(0.04 * u, ed)) - eF * 0.02 * u;
+      P.eDY = Math.max(-1, Math.min(1, (player.y - e.y + 40) / 200)) * 0.025 * u;
+    } else { P.eDX = 0; P.eDY = 0; }
+    P.hot = e.flash > 0.076 ? 2 : e.flash > 0 ? 1 : 0;
+    P.shX = 0.15 * (Lt + hurt) + 0.3 * Lrig; P.shK = shK;
+    P.sm = A.sm && P.wShow === 1; P.smTX = A.smX; P.smTY = A.smY;
+    P.ck = A.ck; P.ckR = A.ckR; P.ckF = A.ckF; P.pkX = A.pkX; P.pkY = A.pkY;
+    P.thr = alive ? 1 : 0;
+    if (!alive) knightDeathPose(P, e, an, (e.deadMax || 1.2) - (e.deadT || 0), u, x, yt0, k);
+    return P;
+  }
+  /* KN-12 death: impact frame, eyes gutter, the sword clangs flat on TAKE,
+     pauldrons thud under YOUR, the helm tumbles off, the cuirass crashes on
+     the S of SHOT!, then the pile fades with drawEnemy's alpha. Pure in dieT;
+     blends from the frozen live pose (knightAnim stops the live layers). */
+  function knightDeathPose(P, e, an, dieT, u, x, yt0, k) {
+    var F = P.fa, D = -(an ? an.faceTo : P.fa), p, q;
+    if (dieT < 0.05) P.hot = 2;
+    P.rh = false;
+    var jolt = 1 - knightClamp01((dieT - 0.05) / 0.10);
+    P.tX += D * 0.06 * u * jolt; P.hX += D * 0.08 * u * jolt; P.mX += D * 0.08 * u * jolt;
+    var eg = dieT < 0.05 ? 1.5 : dieT < 0.09 ? 1.0 : dieT < 0.12 ? 0 : dieT < 0.14 ? 0.9 : dieT < 0.20 ? 0.9 * (1 - (dieT - 0.14) / 0.06) : 0;
+    P.eG = eg; P.eCore = eg > 1.15;
+    P.gl = false; P.sm = false; P.ck = false;
+    P.crA *= 1 - knightClamp01((dieT - 0.12) / 0.10);
+    /* buckle: the cuirass sinks 0.32u (cap bypassed) and tilts about the hip */
+    var bk = easeInCubic((dieT - 0.22) / 0.34);
+    var drop = 0.32 * u * bk - (dieT >= 0.56 && dieT < 0.64 ? 0.02 * u * Math.sin(Math.PI * (dieT - 0.56) / 0.08) : 0);
+    /* the tilt settles level after the crash, so the resting pile draws upright (no transform) */
+    var lvl = 1 - easeInOutQuad((dieT - 0.56) / 0.16);
+    P.tY += drop; P.tA = D * 0.12 * bk * lvl;
+    P.clY += 0.8 * drop; P.clH -= 0.8 * drop;
+    P.hY += drop + 0.10 * u * bk; P.hX += D * (0.04 + 0.06 * lvl) * u * bk;
+    P.lLX -= 0.10 * u * bk; P.lRX += 0.10 * u * bk;
+    if (e.disarm || P.wShow !== 1) { P.hdY += drop; P.hdX += D * 0.08 * u * bk; }
+    else if (dieT > 0.08) {
+      /* the sword falls flat, tip outward, and bounces once */
+      p = easeInCubic((dieT - 0.08) / 0.26);
+      var gx = x + F * 0.62 * u, gy = e.y - 0.06 * u, ga = F * Math.PI / 2, bo = 0;
+      if (dieT >= 0.34 && dieT < 0.42) { q = Math.sin(Math.PI * (dieT - 0.34) / 0.08); bo = -0.05 * u * q; }
+      P.wLeg = false; P.wLift = 0; P.wFront = false;
+      P.hdX += (gx - P.hdX) * p; P.hdY += (gy - P.hdY) * p + bo; P.wA += (ga - P.wA) * p;
+    }
+    /* helm pops, arcs away from the hero and lands on its side */
+    if (dieT >= 0.12) {
+      var my = -0.14 * u * easeOutCubic((dieT - 0.12) / 0.10), mx = 0, ma = 0;
+      if (dieT >= 0.22) {
+        p = knightClamp01((dieT - 0.22) / 0.28);
+        var cy0 = yt0 - 0.03 * u + P.mY - 0.14 * u;
+        var yT = e.y + 0.03 * u - (KNIGHT_HELM_LOW[k.helm] || 0.49) * u;
+        mx = D * 0.62 * u * knightEaseOutQuad(p);
+        my = -0.14 * u + (yT - cy0) * knightEaseInQuad(p);
+        ma = D * Math.PI / 2 * p;
+        if (dieT >= 0.50 && dieT < 0.62) {
+          q = (dieT - 0.50) / 0.12;
+          my -= 0.06 * u * Math.sin(Math.PI * q);
+          ma += D * 0.10 * Math.exp(-(dieT - 0.50) / 0.07) * Math.sin(2 * Math.PI * q);
+        }
+      }
+      P.mX += mx; P.mY += my; P.mA = ma;
+      if (dieT >= 0.82 && dieT < 0.86 && k.helm === "crest" && !S.fxLite) {
+        var hcx = x + P.mX, hcy = yt0 - 0.03 * u + P.mY;
+        P.gl = true; P.glX = hcx + Math.sin(ma) * 0.64 * u; P.glY = hcy - Math.cos(ma) * 0.64 * u;
+        P.glW = 0.07 * u; P.glH = 0.07 * u; P.glA = 0.9;
+      }
+    }
+    /* pauldrons: the sword side first, slide out, tip and land on the floor */
+    var ar = KNIGHT_ARMS[k.arms] || KNIGHT_ARMS.bramble, side, t0, t1, cy;
+    for (side = -1; side <= 1; side += 2) {
+      t0 = side === F ? 0.18 : 0.24; t1 = side === F ? 0.40 : 0.44;
+      if (dieT <= t0) continue;
+      p = knightEaseInQuad((dieT - t0) / (t1 - t0));
+      if (side < 0) {
+        cy = yt0 + P.pLY + (ar[1] + ar[3] / 2) * u;
+        P.pLX += -0.24 * u * knightClamp01((dieT - t0) / (t1 - t0));
+        P.pLY += (e.y + 0.03 * u - ar[2] / 2 * u - cy) * p; P.pLA = -Math.PI / 2 * p;
+      } else {
+        cy = yt0 + P.pRY + (ar[1] + ar[3] / 2) * u;
+        P.pRX += 0.24 * u * knightClamp01((dieT - t0) / (t1 - t0));
+        P.pRY += (e.y + 0.03 * u - ar[2] / 2 * u - cy) * p; P.pRA = Math.PI / 2 * p;
+      }
+    }
+  }
+  /* weapon: held (legacy call, upright, or rotated about the grip centre),
+     or the empty hand while the weapon is a shot */
+  function knightDrawWeapon(g, e, k, sh, P, u, body, GA) {
+    if (P.rh) cube(g, P.rhX - u * 0.12, P.rhY - u * 0.11, u * 0.22, u * 0.20, u * 0.10, body);
+    if (P.wAl <= 0.001) return;
+    if (P.wAl < 1) g.globalAlpha = GA * P.wAl;
+    if (P.wShow === 2) {
+      cube(g, P.hdX - u * 0.12, P.hdY - u * 0.11, u * 0.22, u * 0.20, u * 0.10, body);
+    } else if (P.wLeg) {
+      drawKnightWeapon(g, k, P.hdX, P.hdY - u * 1.09, u, P.fa, P.wLift, e.swing || 0, P.wPose, sh);
+    } else if (knightNoRot(P.wA)) {
+      drawKnightWeapon(g, k, P.hdX, P.hdY - u * 1.09, u, P.fa, 0, 0, "", sh);
+    } else {
+      g.save();
+      knightRot(g, P.hdX, P.hdY, P.wA);
+      drawKnightWeapon(g, k, P.hdX, P.hdY - u * 1.09, u, P.fa, 0, 0, "", sh);
+      g.restore();
+    }
+    if (P.wAl < 1) g.globalAlpha = GA;
+  }
+  /* blade smear: triangle grip / previous tip / tip */
+  function knightDrawSmear(g, P, u, col, a) {
+    var tx = P.hdX + Math.sin(P.wA) * 1.19 * u, ty = P.hdY - Math.cos(P.wA) * 1.19 * u;
+    g.globalAlpha = a;
+    g.fillStyle = col;
+    g.beginPath(); g.moveTo(P.hdX, P.hdY); g.lineTo(P.smTX, P.smTY); g.lineTo(tx, ty); g.closePath(); g.fill();
+  }
+  /* spire crack: from the plunged tip along the lane to the racing front */
+  function knightDrawCrack(g, e, P, GA) {
+    var vis = enemyVis(e), ax = e.aimX || 0, ay = e.aimY || 0, an0 = Math.sqrt(ax * ax + ay * ay) || 1;
+    ax /= an0; ay /= an0;
+    var d0 = Math.max(0, ((P.pkX - e.x) * ax + (P.pkY - e.y) * ay) * vis), R = P.ckR;
+    if (R <= d0) return;
+    var n = Math.max(1, Math.min(8, Math.ceil((R - d0) / 26))), bp = (e.bobPhase || 0) * 7.1, i, d, j;
+    var pts = KNIGHT_CK;
+    pts[0] = P.pkX; pts[1] = P.pkY;
+    for (i = 1; i <= n; i++) {
+      d = d0 + (R - d0) * i / n;
+      j = i === n ? 0 : 2.5 * Math.sin(i * 2.3 + bp);
+      pts[2 * i] = e.x + (ax * d - ay * j) / vis;
+      pts[2 * i + 1] = e.y + (ay * d + ax * j) / vis;
+    }
+    /* polish: one lit stroke in the lane's bone colour (the dark one never
+       showed on the floor); same single path and stroke as before */
+    g.lineWidth = 1.5; g.strokeStyle = "#d8cdb4"; g.globalAlpha = GA * 0.45 * P.ckF;
+    g.beginPath(); g.moveTo(pts[0], pts[1]);
+    for (i = 1; i <= n; i++) g.lineTo(pts[2 * i], pts[2 * i + 1]);
+    g.stroke();
+    g.globalAlpha = GA;
+  }
+  /* one shoulder group (side -1 left, +1 right), rotated about its cube centre in death */
+  function knightDrawArm(g, k, arms, ar, side, ox, oy, ang, u, x, yt0, trim, acc) {
+    var X = x + ox + (side < 0 ? ar[0] : -(ar[0] + ar[2])) * u, Y = yt0 + oy + ar[1] * u;
+    var rot = ang > 0.0005 || ang < -0.0005;
+    if (rot) { g.save(); knightRot(g, X + ar[2] * u / 2, Y + ar[3] * u / 2, ang); }
+    cube(g, X, Y, ar[2] * u, ar[3] * u, ar[4] * u, trim);
+    if (arms === "spike") cube(g, x + ox + (side < 0 ? -0.76 : 0.64) * u, yt0 + oy + u * 0.30, u * 0.12, u * 0.32, u * 0.06, acc);
+    else if (arms === "bramble") cube(g, x + ox + (side < 0 ? -0.92 : 0.76) * u, yt0 + oy + u * 0.38, u * 0.16, u * 0.20, u * 0.06, acc);
+    if (rot) g.restore();
+  }
+
   function drawKnight(g, e) {
     ensureKnight(e);
     var k = KNIGHT[e.type] || KNIGHT.minibone;
-    var body = e.flash > 0 ? "#ffffff" : k.body;
     var u = artR(e) * 1.35;
     var x = e.x;
     e.artH = u * 2.86;
@@ -9289,30 +10133,37 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     if (e.tell > 0) {
       tell = e.tellMax > 0 ? 1 - Math.max(0, e.tell) / e.tellMax : Math.min(1, e.tell);
     }
-    var liftPose = (e.bladeLift != null && e.bladeLift > 0) ? e.bladeLift : tell;
-    var bob = Math.sin(S.t * 2.0 + e.bobPhase) * u * 0.05 - liftPose * u * 0.08;
-    var crouch = (e.crouch || 0) * u;
-    var lean = (e.lean || 0) * u;
-    var yt = e.y - u * 2.05 + bob + crouch;
     var face = (e.aimX != null && e.atk) ? (e.aimX < 0 ? -1 : 1)
              : (e.x < player.x ? 1 : -1);
     var ghost = e.ghost != null ? e.ghost : 1;
     var pose = e.atk || "";
+    /* BB-V7.72 — the rig: every part reads its group offset from KNIGHT_P
+       (knightPose). Alpha root: every alpha below is GA-relative, so the
+       spawn and death fades reach the eyes, shadow, rings and trail too. */
+    var sh = knightShades(e.type, k);
+    var A0 = g.globalAlpha;
+    var GA = A0 * Math.max(0.12, ghost);
+    if (!(GA >= 0.004)) return;
+    var P = knightPose(e, u);
+    var yt0 = e.y - u * 2.05, vis = enemyVis(e);
+    var hot2 = KNIGHT_HOT_FLASH && P.hot === 2;
+    var body = P.hot > 0 ? "#ffffff" : k.body;
+    var i;
 
     g.save();
-    g.globalAlpha = (g.globalAlpha || 1) * Math.max(0.12, ghost);
+    g.globalAlpha = GA;
 
-    /* kit rings (slag slam / thorn briar) */
-    if (e.kitRing) {
+    /* kit rings (slag slam / thorn briar), drawn at the radius that hits */
+    if (P.thr > 0 && e.kitRing) {
       g.strokeStyle = e.kitRingCol || "#ff6030";
       g.lineWidth = 7;
-      g.globalAlpha = 0.85 * ghost;
-      g.beginPath(); g.arc(x, e.y, e.kitRingR, 0, 6.3); g.stroke();
-      g.globalAlpha = ghost;
+      g.globalAlpha = GA * 0.85;
+      g.beginPath(); g.arc(x, e.y, e.kitRingR / vis, 0, 6.3); g.stroke();
+      g.globalAlpha = GA;
     }
 
-    /* telegraphs */
-    if (e.tell > 0) {
+    /* telegraphs (raw sim facing; hidden once he is dead) */
+    if (P.thr > 0 && e.tell > 0) {
       if (pose === "charge") {
         g.strokeStyle = "rgba(192,224,112," + (0.35 + 0.4 * tell) + ")";
         g.lineWidth = 3;
@@ -9336,7 +10187,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
         g.strokeStyle = ringCol + (0.35 + 0.4 * tell) + ")";
         g.lineWidth = 2.5;
         g.beginPath();
-        g.arc(x, e.y, (e.kitRingMax || 120) * (0.35 + 0.65 * tell), 0, 6.3);
+        g.arc(x, e.y, (e.kitRingMax || 120) * (0.35 + 0.65 * tell) / vis, 0, 6.3);
         g.stroke();
       } else if (pose === "reap") {
         g.strokeStyle = "rgba(168,220,228," + (0.35 + 0.4 * tell) + ")";
@@ -9358,96 +10209,120 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
         g.stroke();
       }
     }
+    if (P.thr > 0 && P.ck) knightDrawCrack(g, e, P, GA);
 
     /* slash trail for reap / blink */
-    if (e.slashTrail && e.slashTrail.length) {
+    if (P.thr > 0 && e.slashTrail && e.slashTrail.length) {
+      g.fillStyle = k.accent;
       for (var ti = 0; ti < e.slashTrail.length; ti++) {
         var tr = e.slashTrail[ti];
-        g.globalAlpha = Math.max(0, tr.a) * 0.55 * ghost;
-        g.fillStyle = k.accent;
+        g.globalAlpha = GA * Math.max(0, tr.a) * 0.55;
         g.fillRect(tr.x - 3, tr.y - 3, 6, 6);
       }
-      g.globalAlpha = ghost;
+      g.globalAlpha = GA;
     }
 
-    g.save(); g.globalAlpha = 0.44 * ghost; g.fillStyle = "#0a0806";
-    g.beginPath(); g.ellipse(x + lean * 0.3, e.y + u * 0.22, u * 0.88, u * 0.27, 0, 0, 6.3); g.fill(); g.restore();
-    g.globalAlpha = ghost;
+    /* rise: the dark slot he climbs out of */
+    if (P.slotR > 0 && ellipseOk(P.slotR, P.slotR * 0.30)) {
+      g.globalAlpha = GA * 0.55; g.fillStyle = "#0a0806";
+      g.beginPath(); g.ellipse(x, e.y + u * 0.22, P.slotR, P.slotR * 0.30, 0, 0, 6.3); g.fill();
+      /* polish: a lit dust rim so the slot reads on the dark floor (same path) */
+      g.globalAlpha = GA * 0.5; g.strokeStyle = "#6a5a44"; g.lineWidth = 1.5; g.stroke();
+      g.globalAlpha = GA;
+    }
+    if (P.riseSkip) { g.restore(); return; }
 
-    x = x + lean;
+    var shRx = u * 0.88 * P.shK, shRy = u * 0.27 * P.shK;
+    if (ellipseOk(shRx, shRy)) {
+      g.globalAlpha = GA * 0.44; g.fillStyle = "#0a0806";
+      g.beginPath(); g.ellipse(x + P.shX, e.y + u * 0.22, shRx, shRy, 0, 0, 6.3); g.fill();
+      g.globalAlpha = GA;
+    }
+    if (P.clip) {
+      g.save();
+      g.beginPath(); g.rect(x - u * 2.5, yt0 - u * 1.6, u * 5, P.clipY - (yt0 - u * 1.6)); g.clip();
+    }
 
-    /* cloak behind everything */
-    cube(g, x - u * 0.60, yt + u * 0.60, u * 1.20, u * 1.02, u * 0.08, k.cloak);
-    /* legs */
-    cube(g, x - u * 0.46, yt + u * 1.52, u * 0.36, u * 0.38, u * 0.18, shade(k.body, 0.72));
-    cube(g, x + u * 0.10, yt + u * 1.52, u * 0.36, u * 0.38, u * 0.18, shade(k.body, 0.72));
+    /* cloak behind everything (top follows the torso, hem stays) */
+    cube(g, x + P.clX - u * 0.60, yt0 + P.clY + u * 0.60, u * 1.20, u * 1.02 + P.clH, u * 0.08, hot2 ? sh.hCloak : k.cloak);
+    /* legs, planted */
+    var legC = hot2 ? sh.hLeg : sh.b72;
+    cube(g, x + P.lLX - u * 0.46, yt0 + P.lLY + u * 1.52, u * 0.36, u * 0.38, u * 0.18, legC);
+    cube(g, x + P.lRX + u * 0.10, yt0 + P.lRY + u * 1.52, u * 0.36, u * 0.38, u * 0.18, legC);
     /* cuirass */
-    cube(g, x - u * 0.52, yt + u * 0.66, u * 1.04, u * 0.92, u * 0.26, body);
-    g.fillStyle = shade(body, 0.72);
-    for (var i = 0; i < 3; i++) g.fillRect(x - u * 0.44, yt + u * (0.86 + i * 0.22), u * 0.88, u * 0.07);
+    var cx = x + P.tX, cy = yt0 + P.tY, trot = P.tA > 0.0005 || P.tA < -0.0005;
+    if (trot) { g.save(); knightRot(g, cx, cy + u * 1.60, P.tA); }
+    cube(g, cx - u * 0.52, cy + u * 0.66, u * 1.04, u * 0.92, u * 0.26, body);
+    g.fillStyle = P.hot > 0 ? sh.w72 : sh.b72;
+    for (i = 0; i < 3; i++) g.fillRect(cx - u * 0.44, cy + u * (0.86 + i * 0.22), u * 0.88, u * 0.07);
+    if (trot) g.restore();
 
     /* shoulders — the silhouette break */
-    if (k.arms === "pauldron") {
-      cube(g, x - u * 0.86, yt + u * 0.56, u * 0.40, u * 0.34, u * 0.16, k.trim);
-      cube(g, x + u * 0.46, yt + u * 0.56, u * 0.40, u * 0.34, u * 0.16, k.trim);
-    } else if (k.arms === "slab") {
-      cube(g, x - u * 0.98, yt + u * 0.48, u * 0.50, u * 0.46, u * 0.22, k.trim);
-      cube(g, x + u * 0.48, yt + u * 0.48, u * 0.50, u * 0.46, u * 0.22, k.trim);
-    } else if (k.arms === "spike") {
-      cube(g, x - u * 0.82, yt + u * 0.58, u * 0.34, u * 0.30, u * 0.14, k.trim);
-      cube(g, x + u * 0.48, yt + u * 0.58, u * 0.34, u * 0.30, u * 0.14, k.trim);
-      cube(g, x - u * 0.76, yt + u * 0.30, u * 0.12, u * 0.32, u * 0.06, k.accent);
-      cube(g, x + u * 0.64, yt + u * 0.30, u * 0.12, u * 0.32, u * 0.06, k.accent);
-    } else {
-      cube(g, x - u * 0.84, yt + u * 0.54, u * 0.38, u * 0.32, u * 0.15, k.trim);
-      cube(g, x + u * 0.46, yt + u * 0.54, u * 0.38, u * 0.32, u * 0.15, k.trim);
-      cube(g, x - u * 0.92, yt + u * 0.38, u * 0.16, u * 0.20, u * 0.06, k.accent);
-      cube(g, x + u * 0.76, yt + u * 0.38, u * 0.16, u * 0.20, u * 0.06, k.accent);
-    }
+    var ar = KNIGHT_ARMS[k.arms] || KNIGHT_ARMS.bramble;
+    var trimC = hot2 ? sh.hTrim : k.trim, accC = hot2 ? sh.hAcc : k.accent;
+    knightDrawArm(g, k, k.arms, ar, -1, P.pLX, P.pLY, P.pLA, u, x, yt0, trimC, accC);
+    knightDrawArm(g, k, k.arms, ar, 1, P.pRX, P.pRY, P.pRA, u, x, yt0, trimC, accC);
 
-    /* weapon, on the side he is facing; empty hand while thrown */
-    var wx = x + face * u * 0.74, lift = liftPose * u * 0.42;
-    if (e.disarm) {
-      cube(g, wx - u * 0.12, yt + u * 0.98, u * 0.22, u * 0.20, u * 0.10, body);
-    } else {
-      drawKnightWeapon(g, k, wx, yt, u, face, lift, e.swing || 0, pose);
-    }
+    /* weapon; empty hand while it is a shot */
+    if (P.sm) { knightDrawSmear(g, P, u, k.trim, GA * 0.30); g.globalAlpha = GA; }
+    if (!P.wFront) knightDrawWeapon(g, e, k, sh, P, u, body, GA);
 
     /* head */
-    cube(g, x - u * 0.38, yt + u * 0.06, u * 0.76, u * 0.62, u * 0.22, body);
+    var hx = x + P.hX, hy = yt0 + P.hY;
+    cube(g, hx - u * 0.38, hy + u * 0.06, u * 0.76, u * 0.62, u * 0.22, body);
     g.fillStyle = "#120d09";
-    g.fillRect(x - u * 0.28, yt + u * 0.26, u * 0.22, u * 0.19);
-    g.fillRect(x + u * 0.06, yt + u * 0.26, u * 0.22, u * 0.19);
-    g.fillStyle = k.eye;
-    var glow = 0.6 + 0.4 * Math.sin(S.t * 3 + e.bobPhase) + liftPose * 0.6;
-    g.globalAlpha = Math.min(1, glow) * ghost;
-    g.fillRect(x - u * 0.24 + face * u * 0.02, yt + u * 0.31, u * 0.13, u * 0.09);
-    g.fillRect(x + u * 0.10 + face * u * 0.02, yt + u * 0.31, u * 0.13, u * 0.09);
-    g.globalAlpha = ghost;
+    g.fillRect(hx - u * 0.28, hy + u * 0.26, u * 0.22, u * 0.19);
+    g.fillRect(hx + u * 0.06, hy + u * 0.26, u * 0.22, u * 0.19);
+    if (P.eG > 0.01) {
+      var ex = hx + P.eF * u * 0.02 + P.eDX, ey = hy + u * 0.31 + P.eDY;
+      g.fillStyle = k.eye;
+      g.globalAlpha = GA * Math.min(1, P.eG);
+      g.fillRect(ex - u * 0.24, ey, u * 0.13, u * 0.09);
+      g.fillRect(ex + u * 0.10, ey, u * 0.13, u * 0.09);
+      if (P.eCore) {
+        g.fillStyle = "#fff4d0";
+        g.fillRect(ex - u * 0.2075, ey + u * 0.0225, u * 0.065, u * 0.045);
+        g.fillRect(ex + u * 0.1325, ey + u * 0.0225, u * 0.065, u * 0.045);
+      }
+      g.globalAlpha = GA;
+    }
 
     /* helm — the one silhouette a player reads from across the room */
-    cube(g, x - u * 0.44, yt - u * 0.18, u * 0.88, u * 0.30, u * 0.14, k.trim);
+    var mx = x + P.mX, my = yt0 + P.mY, mrot = P.mA > 0.0005 || P.mA < -0.0005;
+    if (mrot) { g.save(); knightRot(g, mx, my - u * 0.03, P.mA); }
+    cube(g, mx - u * 0.44, my - u * 0.18, u * 0.88, u * 0.30, u * 0.14, trimC);
+    var crot = k.helm !== "hood" && (P.crA > 0.02 || P.crA < -0.02);
+    if (crot) { g.save(); knightRot(g, mx, my - u * 0.18, P.crA); }
     if (k.helm === "crest") {
-      cube(g, x - u * 0.05, yt - u * 0.60, u * 0.10, u * 0.44, u * 0.05, k.accent);
-      cube(g, x - u * 0.20, yt - u * 0.72, u * 0.40, u * 0.16, u * 0.06, k.accent);
-      cube(g, x - u * 0.30, yt - u * 0.62, u * 0.18, u * 0.12, u * 0.05, shade(k.accent, 0.8));
+      cube(g, mx - u * 0.05, my - u * 0.60, u * 0.10, u * 0.44, u * 0.05, accC);
+      cube(g, mx - u * 0.20, my - u * 0.72, u * 0.40, u * 0.16, u * 0.06, accC);
+      cube(g, mx - u * 0.30, my - u * 0.62, u * 0.18, u * 0.12, u * 0.05, hot2 ? sh.hAcc : sh.a08);
     } else if (k.helm === "horn") {
-      cube(g, x - u * 0.62, yt - u * 0.44, u * 0.22, u * 0.30, u * 0.10, k.accent);
-      cube(g, x + u * 0.40, yt - u * 0.44, u * 0.22, u * 0.30, u * 0.10, k.accent);
-      cube(g, x - u * 0.72, yt - u * 0.26, u * 0.14, u * 0.18, u * 0.06, k.accent);
-      cube(g, x + u * 0.58, yt - u * 0.26, u * 0.14, u * 0.18, u * 0.06, k.accent);
+      cube(g, mx - u * 0.62, my - u * 0.44, u * 0.22, u * 0.30, u * 0.10, accC);
+      cube(g, mx + u * 0.40, my - u * 0.44, u * 0.22, u * 0.30, u * 0.10, accC);
+      cube(g, mx - u * 0.72, my - u * 0.26, u * 0.14, u * 0.18, u * 0.06, accC);
+      cube(g, mx + u * 0.58, my - u * 0.26, u * 0.14, u * 0.18, u * 0.06, accC);
     } else if (k.helm === "hood") {
-      cube(g, x - u * 0.52, yt - u * 0.30, u * 1.04, u * 0.34, u * 0.12, k.cloak);
-      cube(g, x - u * 0.42, yt - u * 0.46, u * 0.84, u * 0.20, u * 0.08, shade(k.cloak, 1.2));
+      cube(g, mx - u * 0.52, my - u * 0.30, u * 1.04, u * 0.34, u * 0.12, hot2 ? sh.hCloak : k.cloak);
+      cube(g, mx - u * 0.42, my - u * 0.46, u * 0.84, u * 0.20, u * 0.08, hot2 ? sh.hCloak : sh.c12);
     } else {
-      cube(g, x - u * 0.30, yt - u * 0.52, u * 0.12, u * 0.36, u * 0.05, k.accent);
-      cube(g, x + u * 0.18, yt - u * 0.52, u * 0.12, u * 0.36, u * 0.05, k.accent);
-      cube(g, x - u * 0.52, yt - u * 0.64, u * 0.26, u * 0.10, u * 0.04, k.accent);
-      cube(g, x + u * 0.26, yt - u * 0.64, u * 0.26, u * 0.10, u * 0.04, k.accent);
+      cube(g, mx - u * 0.30, my - u * 0.52, u * 0.12, u * 0.36, u * 0.05, accC);
+      cube(g, mx + u * 0.18, my - u * 0.52, u * 0.12, u * 0.36, u * 0.05, accC);
+      cube(g, mx - u * 0.52, my - u * 0.64, u * 0.26, u * 0.10, u * 0.04, accC);
+      cube(g, mx + u * 0.26, my - u * 0.64, u * 0.26, u * 0.10, u * 0.04, accC);
     }
+    if (crot) g.restore();
+    if (mrot) g.restore();
+    /* the salute holds the blade before the face */
+    if (P.wFront) knightDrawWeapon(g, e, k, sh, P, u, body, GA);
+    if (P.gl) {
+      g.globalAlpha = GA * P.glA; g.fillStyle = "#ffffff";
+      g.fillRect(P.glX - P.glW / 2, P.glY - P.glH / 2, P.glW, P.glH);
+      g.globalAlpha = GA;
+    }
+    if (P.clip) g.restore();
     g.restore();
   }
-
 
   /* BB-V7.72 — constant Skull Lord colours shaded once, not every frame.
      Hexes match drawSkullLord's PURPLE / EMBER / GOLD / STEEL locals. */
@@ -11188,14 +12063,14 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
 
   function drawEnemy(g, e) {
     if (!e.alive && e.deadT <= 0) return;
-    var a = !e.alive ? Math.max(0, e.deadT) : 1;
+    var a = !e.alive ? (e.boss === "mini" ? Math.min(1, e.deadT / 0.45) : Math.max(0, e.deadT)) : 1;
     drawSpawnRing(g, e);
     if (!e.boss && e.alive) drawMobTell(g, e);
     g.globalAlpha = a;
     /* BB-V7.15 — trash / knight / lord each have their own vis. Hurtboxes are
        fit to the painted torso in fitSilhouette (not a shared r*N halo). */
     g.save();
-    if (e.boss && e.spawnT > 0 && e.spawnMax) {
+    if (e.boss && e.boss !== "mini" && e.spawnT > 0 && e.spawnMax) {
       /* knights and bosses rise out of their ring the same way trash does */
       var su = 1 - e.spawnT / e.spawnMax;
       var rise = su < 0.3 ? 0.02 : Math.max(0.02, easeOutBack((su - 0.3) / 0.7));
