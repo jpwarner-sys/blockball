@@ -1133,6 +1133,9 @@
   var SLAG_VIS = 0.80;   /* Slag King: same band as Bone King */
   var ASH_VIS = 0.68;    /* Ash Titan: biggest floor-boss footprint */
   var THORN_VIS = 0.76;  /* Thorn Queen: between king and titan */
+  /* BB-V7.72 thorn: death length (deadT/deadMax are draw-only corpse clocks) and the Wrath Bloom HP marks */
+  var THORN_DIE = 1.9;
+  var THORN_WRATH = [2 / 3, 1 / 3];
   var BOSS_VIS = 0.76;   /* leftover fallback */
   function enemyVis(e) {
     if (!e || !e.boss) return MOB_VIS;
@@ -3705,6 +3708,7 @@
     if (en.boss === "lord") en.deadT = LORD_DIE;
     /* BB-V7.72 — the lord's threat telegraphs fade over 0.12 s of S.t from here */
     if (en.boss === "lord" && en.an) en.an.dieAtS = S.t;
+    if (en.boss === "thorn") en.deadT = THORN_DIE;  /* BB-V7.72 thorn: 1.9 s death (draw-only corpse clock) */
     S.score += 10 * S.floor * (trick ? 3 : 1);
     /* BB-V7.50 — no frag on every kill. Shards are an uncommon roll; a relic
        is a separate, much rarer roll that grants an upgrade rank immediately. */
@@ -4822,6 +4826,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       if (e.boss === "mini") knightAnim(e, dt); /* BB-V7.72 — cosmetic knight clock */
       if (e.boss === "slag") slagAnim(e, dt); /* BB-V7.72 */
       if (e.boss === "ash") ashAnim(e, dt); /* BB-V7.72 — Ash Titan cosmetic clock */
+      if (e.boss === "thorn") thornAnim(e, dt);  /* BB-V7.72 thorn: cosmetic animation clock (writes only e.thornAn) */
       if (!e.alive) {
         e.deadT -= dt;
         /* BB-V7.72 — SK-20: an add the lord's fall killed breaks up when the
@@ -10323,6 +10328,287 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       moveToward(e, dx / n * 0.42, dy / n * 0.42, e.spd, dt);
       if (e.cd <= 0) startThornAtk(e, pickThornAtk(e, dist), dx, dy, dist);
     }
+  }
+
+  /* BB-V7.72 thorn: Thorn Queen animation, sim side. thornAnim(e, dt) is her cosmetic clock,
+     ticked from one guarded line in updateEnemies on the fixed sim DT (so it freezes in hitStop,
+     pause, the shop and the floor card, and runs at the cine's scaled dt). It writes only
+     e.thornAn: never a sim field, never rnd()/irnd()/sfx()/ensureThornQueen(). Every particle
+     emitter fires here on a threshold crossing, rolling Math.random through prand(). The pose
+     itself is thornPose (draw side), a pure function of this state and the sim clocks. */
+  function thornC01(v) { return v < 0 ? 0 : v > 1 ? 1 : v; }
+  function thornSeg(t, a, b) { return thornC01((t - a) / (b - a)); }
+  function thornMix(a, b, k) { return a + (b - a) * k; }
+  function thornHash(n) { var s = Math.sin(n * 12.9898 + 78.233) * 43758.5453; return s - Math.floor(s); }
+  function thornFxN(n) { return S.fxLite ? Math.ceil(n / 2) : n; }
+  /* a closed-form flinch: snap out in 0.04 s, then a damped 18 rad/s wobble, gone by 0.40 s */
+  function thornKick(t) {
+    if (t < 0) return 0;
+    if (t < 0.04) return easeOutCubic(t / 0.04);
+    if (t <= 0.40) return Math.exp(-(t - 0.04) / 0.07) * Math.cos((t - 0.04) * 18);
+    return 0;
+  }
+  /* the hurt flinch's own, slower kick: the same 0.04 s snap, then tau 0.12 s and a 12 rad/s
+     wobble, so about 37 % is still out when the 0.11 s white flash ends and the settle reads in
+     colour; tapered to 0 over 0.45-0.55 s */
+  function thornHurtKick(t) {
+    if (t < 0) return 0;
+    if (t < 0.04) return easeOutCubic(t / 0.04);
+    if (t < 0.55) return Math.exp(-(t - 0.04) / 0.12) * Math.cos((t - 0.04) * 12) * thornC01((0.55 - t) / 0.10);
+    return 0;
+  }
+  /* the charge recover's sprung lean: 0.55 at 0, overshoot, crosses 0 at 0.18 s, settled by 0.42 s */
+  function thornSpr(t) { return Math.exp(-10 * t) * (0.55 * Math.cos(14.1 * t) + 0.80 * Math.sin(14.1 * t)); }
+  /* local (inside the 0.76 draw scale about the feet) to world */
+  function thornWX(e, lx) { return e.x + (lx - e.x) * THORN_VIS; }
+
+  function thornAnimNew(e) {
+    var hs = player ? (player.x < e.x ? -1 : 1) : (e.face || 1);
+    var f0 = e.atk ? (e.face || hs) : hs;
+    return {
+      t: 0, tick: 0, bPh: (e.bobPhase || 0) / 6.2832, hPh: 0,
+      faceFrom: f0, faceTo: f0, faceV: f0, turnP: -1, turnDur: 0.2, hold: 0, eyesTo: f0, liveN: 0,
+      hL: 0, cL: 0, hD: 0, cD: 0, fresh: true,
+      fl: e.flash || 0, hurtT: 9, hurtDir: 1, kickT: 9, kickAmp: 0, kickDir: 1,
+      px: [e.x, e.x, e.x, e.x, e.x], py: [e.y, e.y, e.y, e.y, e.y], pi: 0, v: 0, vx: 0, step: 0, gPh: 0, trailN: 0,
+      prevAtk: e.atk || null, prevAtkT: e.atkT || 0, prevRing: !!e.kitRing,
+      suPrev: e.spawnT > 0 && e.spawnMax ? 1 - e.spawnT / e.spawnMax : 1,
+      blinkAt: 3 + 2 * thornHash(1 + (e.bobPhase || 0)), blinkT0: -9, blinkN: 0,
+      d0: null, dPrev: 0,
+      hpR: e.maxHp ? e.hp / e.maxHp : 1, wrQ: 0, wrT: -1, wrOut: 0, wrLvl: 0,
+      ndSa: 1,
+      tapAt: 1.6 + thornHash(7 + (e.bobPhase || 0)), tapT0: -9, tapN: 0
+    };
+  }
+
+  /* TQ-04 facing: a blended turn with hysteresis, the eyes leading, and a pre-turn to the hero in
+     the last 0.20 s of any attack. e.face is only read. */
+  function thornFace(e, an, dt, spawning) {
+    var hs = player ? (player.x < e.x ? -1 : 1) : an.faceTo;
+    var T = (e.atkWind || 0) + (e.atkActive || 0) + (e.atkRecover || 0), t = e.atkT || 0;
+    var first = !spawning && an.liveN === 0;  /* e.face is still ensure's default until the first update */
+    var want = spawning || first ? hs : (e.atk && t >= T - 0.20 && player) ? hs : (e.face || hs);
+    var eyes = spawning || first ? hs : (e.atk && t >= T - 0.26 && player) ? hs : (e.face || hs);
+    if (!spawning) an.liveN++;
+    if (eyes !== an.eyesTo && (spawning || e.atk || !player || an.turnP >= 0 || Math.abs(player.x - e.x) > 8)) an.eyesTo = eyes;
+    if (want !== an.faceTo) {
+      an.hold += dt;
+      if (an.turnP >= 0 || spawning || e.atk || !player || Math.abs(player.x - e.x) > 24 || an.hold >= 0.15) {
+        an.faceFrom = an.faceV; an.faceTo = want; an.turnP = 0; an.hold = 0;
+        an.turnDur = e.atk && t < T - 0.20 ? 0.10 : 0.20;
+        an.kickT = 0; an.kickAmp = 0.05; an.kickDir = want;
+      }
+    } else an.hold = 0;
+    if (an.turnP >= 0) {
+      an.turnP += dt / an.turnDur;
+      if (an.turnP >= 1) { an.turnP = -1; an.faceFrom = an.faceTo; }
+    }
+    an.faceV = an.turnP >= 0 ? an.faceFrom + (an.faceTo - an.faceFrom) * easeInOutQuad(an.turnP) : an.faceTo;
+  }
+
+  /* head (tau 0.06 s) and crown (tau 0.10 s more) trail the torso's lean and drop */
+  function thornFollow(e, an, u, dt) {
+    var P = thornPose(e, u, false);
+    if (an.fresh) { an.hL = an.cL = P.lean; an.hD = an.cD = P.drop; an.fresh = false; return; }
+    var kH = 1 - Math.exp(-dt / 0.06), kC = 1 - Math.exp(-dt / 0.10);
+    an.hL += (P.lean - an.hL) * kH; an.cL += (an.hL - an.cL) * kC;
+    an.hD += (P.drop - an.hD) * kH; an.cD += (an.hD - an.cD) * kC;
+    an.hL = Math.max(P.lean - 0.20, Math.min(P.lean + 0.20, an.hL));
+    an.cL = Math.max(an.hL - 0.10, Math.min(an.hL + 0.10, an.cL));
+    an.hD = Math.max(P.drop - 0.10, Math.min(P.drop + 0.10, an.hD));
+    an.cD = Math.max(an.hD - 0.06, Math.min(an.hD + 0.06, an.cD));
+  }
+
+  /* cosmetic voxel chips (cube particles fall and bounce) */
+  function thornChips(x, y, z, n, col, dk, vxs, vz0, vz1, t0, t1) {
+    for (var i = 0; i < n; i++) {
+      pushPart({ k: "cube", x: x + (prand() - 0.5) * 8, y: y + (prand() - 0.5) * 4, z: z,
+        vx: (prand() - 0.5) * 2 * vxs, vy: (prand() - 0.5) * vxs * 0.5, vz: vz0 + prand() * (vz1 - vz0),
+        t: t0 + prand() * (t1 - t0), col: col, dk: dk, s: 2 + prand() * 1.6 });
+    }
+  }
+  /* pink spores (embers rise) from her chest / crown height band z0..z1 (in world units uW) */
+  function thornSpores(e, uW, n, z0, z1) {
+    for (var i = 0; i < n; i++) {
+      pushPart({ k: "ember", x: e.x + (prand() - 0.5) * 0.6 * uW, y: e.y + (prand() - 0.5) * 6,
+        z: (z0 + prand() * (z1 - z0)) * uW, vx: (prand() - 0.5) * 24, vy: 0, vz: 40 + prand() * 50,
+        t: 0.9 + prand() * 0.5, col: THORN_C.BLOOM, s: 2 + prand() });
+    }
+  }
+  /* the briar ring breaks into leaves on its true (hit) circle instead of just vanishing */
+  function thornShatter(e, R, n) {
+    n = thornFxN(n);
+    for (var i = 0; i < n; i++) {
+      var a = (i + prand() * 0.6) / n * Math.PI * 2, c = Math.cos(a), s = Math.sin(a);
+      pushPart({ k: "cube", x: e.x + c * R, y: e.y + s * R, z: 3, vx: c * 30, vy: s * 20,
+        vz: 70 + prand() * 70, t: 0.45 + prand() * 0.25, col: THORN_C.LEAF, dk: THORN_C.VINE_D, s: 3 + prand() * 1.5 });
+    }
+  }
+  /* world x of the lance's lowest point in the current pose */
+  function thornButtWX(e, u) {
+    var P = thornPose(e, u, false), s = Math.max(0.38 * u, P.slide + 0.08 * u);
+    return thornWX(e, P.hx - s * Math.sin(P.rot));
+  }
+
+  /* TQ-12: the dead branch. The first dead tick snapshots the live pose (a copy) so a kill in any
+     beat blends from where she was; events fire on crossings of the THORN_DIE-scaled clock. */
+  function thornAnimDead(e, an, u, uW, dt) {
+    var dm = e.deadMax || 1.2, sc = THORN_DIE / dm;
+    if (!an.d0) {
+      var P = thornPose(e, u, true);
+      an.d0 = { lean: P.lean, drop: P.drop, hx: P.hx - e.x, hy: P.hy - e.y, rot: P.rot, slide: P.slide,
+        face: P.faceTo, fv: P.faceV, h: P.h, skip: P.skipBody, kdir: an.hurtT < 0.15 ? an.hurtDir : -P.faceTo };
+      an.dPrev = (dm - e.deadT) * sc;
+      if (e.kitRing) thornShatter(e, e.kitRingR || 0, 14);
+    }
+    var d0 = an.d0, D = d0.face, p = an.dPrev, tN = (dm - (e.deadT - dt)) * sc;
+    /* the lance's lowest point sits sb below the grip (see thornPose); tL = butt to shaft end */
+    var sb = Math.max(0.38 * u, d0.slide + 0.08 * u), tL = sb - d0.slide;
+    var bxL = d0.hx - sb * Math.sin(d0.rot), sr = Math.sin(D * 1.50), lanceFx = d0.h >= 1;
+    if (p < 0.20 && tN >= 0.20) thornChips(e.x, e.y, 2.5 * uW, thornFxN(5), THORN_C.BLOOM, THORN_C.bloomDk, 40, 20, 60, 0.7, 1.0);
+    if (lanceFx && p < 0.30 && tN >= 0.30) dustPuff(e.x + bxL * THORN_VIS, e.y + 2, thornFxN(3));
+    if (lanceFx && p < 0.58 && tN >= 0.58) {
+      sparks(e.x + (bxL + (tL + 1.78 * u) * sr) * THORN_VIS, e.y, "#c0e070", thornFxN(5));
+      dustPuff(e.x + (bxL + (tL + 0.82 * u) * sr) * THORN_VIS, e.y + 2, thornFxN(3));
+    }
+    if (p < 0.62 && tN >= 0.62) thornSpores(e, uW, thornFxN(10), 1.1, 1.5);
+    if (p < 0.70 && tN >= 0.70) {
+      dustPuff(e.x - 0.4 * uW, e.y + 2, thornFxN(3));
+      dustPuff(e.x + 0.4 * uW, e.y + 2, thornFxN(3));
+    }
+    an.dPrev = tN;
+    thornFollow(e, an, u, dt);
+  }
+
+  /* TQ-14 Wrath Bloom: a 0.90 s regal beat queued when HP crosses 2/3 and 1/3. It only starts
+     between attacks and blends out within 0.10 s once an attack begins. */
+  function thornWrath(e, an, dt, uW) {
+    var r = e.maxHp ? e.hp / e.maxHp : 1, i;
+    for (i = 0; i < THORN_WRATH.length; i++) if (an.hpR > THORN_WRATH[i] && r <= THORN_WRATH[i]) an.wrQ = i + 1;
+    an.hpR = r;
+    if (an.wrT < 0) {
+      if (an.wrQ && !(e.spawnT > 0) && !e.atk && !(e.flash > 0) && !(e.stun > 0) && e.cd > 0.40) {
+        an.wrT = 0; an.wrLvl = an.wrQ; an.wrQ = 0; an.wrOut = 0;
+      }
+      return;
+    }
+    var p = an.wrT;
+    an.wrT += dt;
+    if (e.atk) an.wrOut += dt;
+    var w = an.wrT;
+    if (!an.wrOut) {
+      if (p < 0.18 && w >= 0.18) { an.kickT = 0; an.kickAmp = 0.12; an.kickDir = an.faceTo; }
+      /* no screen shake: nothing in the fight changes at these marks, and a shake on a regal pose
+         reads as a phase change / enrage */
+      if (p < 0.30 && w >= 0.30) thornSpores(e, uW, thornFxN(10), 1.1, 2.6);
+      if (an.wrLvl > 1 && p < 0.42 && w >= 0.42) thornSpores(e, uW, thornFxN(10), 1.1, 2.6);
+    }
+    if (w >= 0.90 || an.wrOut >= 0.10) an.wrT = -1;
+  }
+
+  /* attack beats: charge launch / trail / plant, the needles spark cone, the briar stamp and shatter */
+  function thornAtkEvents(e, an, u, uW) {
+    var k = e.atk, t = e.atkT || 0, p = an.prevAtkT;
+    if (k && (an.prevAtk !== k || t < p)) { an.trailN = 0; p = -1; }
+    if (!k) return;
+    var W = e.atkWind || 0, A = e.atkActive || 0, ax = e.aimX || 0, ay = e.aimY || 0;
+    if (k === "charge") {
+      if (p < W - 0.004 && t >= W - 0.004) dustPuff(e.x - ax * 0.3 * uW, e.y - ay * 0.3 * uW, thornFxN(6));
+      if (t >= W && t < W + A && an.step > 8 && an.trailN < 9 && an.tick % (S.fxLite ? 4 : 2) === 0) {
+        dustPuff(e.x - ax * 0.3 * uW, e.y + 2, 1);
+        an.trailN++;
+      }
+      if (p < W + A - 0.004 && t >= W + A - 0.004) {
+        dustPuff(e.x - 0.3 * uW, e.y + 2, thornFxN(4));
+        dustPuff(e.x + 0.3 * uW, e.y + 2, thornFxN(4));
+        an.kickT = 0; an.kickAmp = 0.08; an.kickDir = an.faceTo;
+      }
+    } else if (k === "needles") {
+      /* the whip's side, latched as it starts (atkT 0.345), so a hero crossing her x in the last
+         re-aim ticks cannot flip the lance mid-whip */
+      if (t < 0.345) an.ndSa = ax < 0 ? -1 : 1;
+      if (p < W - 0.004 && t >= W - 0.004) sparks(e.x + ax * 14, e.y + ay * 14, "#c0e070", thornFxN(6), Math.atan2(ay, ax), 0.9);
+    } else if (k === "briar") {
+      if (e.kitRing && !an.prevRing) {
+        var bx = thornButtWX(e, u);
+        dustPuff(bx, e.y + 2, thornFxN(6));
+        if (!S.fxLite) thornChips(bx, e.y + 2, 2, 4, THORN_C.TRIM, THORN_C.trimDk, 40, 60, 110, 0.5, 0.7);
+        an.kickT = 0; an.kickAmp = 0.10; an.kickDir = an.faceTo;
+      }
+      /* the ring ends by breaking into leaves (no ring tail: it stops drawing when it stops hitting) */
+      if (!e.kitRing && an.prevRing) thornShatter(e, e.kitRingR || 0, 20);
+    }
+  }
+
+  function thornAnim(e, dt) {
+    if ((!e.alive && !(e.deadT > 0)) || !(dt > 0)) return;
+    var an = e.thornAn || (e.thornAn = thornAnimNew(e));
+    var u = artR(e) * 1.38, uW = u * THORN_VIS, li = (an.pi + 4) % 5, i;
+    an.tick++;
+    /* a teleport (skipSpawn, placement, room load) resets the history instead of reading as speed */
+    if (Math.abs(e.x - an.px[li]) > 120 || Math.abs(e.y - an.py[li]) > 120) {
+      for (i = 0; i < 5; i++) { an.px[i] = e.x; an.py[i] = e.y; }
+      an.v = 0; an.step = 0; an.fresh = true;
+    }
+    /* TQ-09 hurt edge (updateBall ran first, so this is the hit tick) */
+    var fl = e.flash || 0;
+    if (fl > an.fl + 0.001) {
+      an.hurtDir = ball && Math.abs(ball.x - e.x) < 150 ? (e.x >= ball.x ? 1 : -1) : -an.faceTo;
+      an.hurtT = an.hurtT < 0.04 ? an.hurtT : (an.hurtT < 0.12 ? 0.04 : 0);
+      if (e.alive) thornChips(e.x, e.y, 2.6 * uW, thornFxN(2), THORN_C.LEAF, THORN_C.leafDk, 30, 40, 70, 0.9, 0.9);
+    }
+    an.fl = fl; an.hurtT += dt; an.kickT += dt;
+    if (!e.alive) {
+      thornAnimDead(e, an, u, uW, dt);
+      an.prevAtk = e.atk || null; an.prevAtkT = e.atkT || 0; an.prevRing = !!e.kitRing;
+      return;
+    }
+    var spawning = e.spawnT > 0 && e.spawnMax, su = 1;
+    an.t += dt;
+    an.bPh += dt / 3.8; if (an.bPh > 64) an.bPh -= 64;
+    an.hPh += dt / 1.85 * (e.atk && (e.atkT || 0) < (e.atkWind || 0) ? 2 : 1); if (an.hPh > 64) an.hPh -= 64;
+    if (an.t >= an.blinkAt) {
+      if (e.tell > 0 || e.atk || spawning || an.hurtT < 0.3) an.blinkAt = an.t + 0.4;
+      else { an.blinkT0 = an.t; an.blinkN++; an.blinkAt = an.t + 3 + 2 * thornHash(an.blinkN + 1 + (e.bobPhase || 0)); }
+    }
+    /* idle lance tap every 4-6 s: only at rest, well clear of the next attack (cd >= 0.6) */
+    if (an.t >= an.tapAt) {
+      if (e.tell > 0 || e.atk || spawning || !(e.cd >= 0.6) || an.hurtT < 0.3 || an.wrT >= 0 || an.v > 4) an.tapAt = an.t + 0.4;
+      else { an.tapT0 = an.t; an.tapN++; an.tapAt = an.t + 4 + 2 * thornHash(an.tapN * 3.7 + 11 + (e.bobPhase || 0)); }
+    }
+    var tq = an.t - an.tapT0;
+    if (tq >= 0.23 && tq - dt < 0.23 && an.kickT > 0.3) { an.kickT = 0; an.kickAmp = 0.04; an.kickDir = an.faceTo; }
+    if (spawning) {
+      /* TQ-10 rise events, on the spawn progress this tick lands on */
+      var sp = an.suPrev;
+      su = Math.min(1, 1 - (e.spawnT - dt) / e.spawnMax);
+      if (sp < 0.30 && su >= 0.30) {
+        dustPuff(e.x, e.y + 2, thornFxN(6));
+        if (!S.fxLite) thornChips(e.x, e.y + 2, 2, 4, THORN_C.CLOAK_D, THORN_C.cloakDk, 50, 60, 110, 0.5, 0.7);
+      }
+      if (su >= 0.30 && su < 0.78 && an.tick % (S.fxLite ? 8 : 4) === 0) dustPuff(e.x + (prand() - 0.5) * 1.6 * uW, e.y + 2, 1);
+      if (sp < 0.88 && su >= 0.88) {
+        var bx = thornButtWX(e, u);
+        dustPuff(bx, e.y + 2, thornFxN(6));
+        dustPuff(e.x - 0.3 * uW, e.y + 2, thornFxN(3));
+        dustPuff(e.x + 0.3 * uW, e.y + 2, thornFxN(3));
+        sparks(bx, e.y, "#c0e070", thornFxN(5), -Math.PI / 2, 1.4);
+        an.kickT = 0; an.kickAmp = 0.10; an.kickDir = an.faceTo;
+      }
+    }
+    thornFace(e, an, dt, spawning);
+    /* history, ground speed and gait phase (the hook runs before the boss update, so the newest
+       sample is the position the last tick left) */
+    var sx = e.x - an.px[li], sy = e.y - an.py[li], step = Math.sqrt(sx * sx + sy * sy);
+    an.px[an.pi] = e.x; an.py[an.pi] = e.y; an.pi = (an.pi + 1) % 5;
+    an.step = step;
+    if (step > 0.01) an.vx = sx;
+    an.v += (step / dt - an.v) * (1 - Math.exp(-dt / 0.10));
+    an.gPh += step / (0.18 * uW) * Math.PI; if (an.gPh > 6283.19) an.gPh -= 6283.19;
+    thornAtkEvents(e, an, u, uW);
+    thornWrath(e, an, dt, uW);
+    thornFollow(e, an, u, dt);
+    an.prevAtk = e.atk || null; an.prevAtkT = e.atkT || 0; an.prevRing = !!e.kitRing; an.suPrev = su;
   }
 
   function spawnSkullAdds(boss, types) {
@@ -17096,9 +17382,478 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     g.globalAlpha = A0;
   }
 
+  /* BB-V7.72 thorn: Thorn Queen animation, draw side. thornPose(e, u, forceLive) is a pure
+     function of the sim state (atkT, spawnT, deadT, face, aim, kitRingR) and of the cosmetic
+     clock e.thornAn that thornAnim ticks on the fixed sim DT. It fills the reused module object
+     THORN_P and writes nothing else; drawThornQueen only reads it. Poses never read S.fxLite,
+     so lite mode only drops particles, ghosts, smear, glint and chips. Channels marked (u) are
+     multiples of the art unit u = artR*1.38 (local px). */
+  var THORN_C = {
+    VINE: "#4e8c58", VINE_D: "#2a4a30", TRIM: "#24381f", BLOOM: "#d07090", LEAF: "#c0e070", CLOAK_D: "#162616",
+    stripe: shade("#4e8c58", 0.55), stripeW: shade("#ffffff", 0.55), bloomHi: shade("#d07090", 1.2),
+    leafHi: shade("#c0e070", 1.15), crownHi: shade("#d07090", 1.25),
+    leafDk: shade("#c0e070", 0.62), trimDk: shade("#24381f", 0.62), cloakDk: shade("#162616", 0.62),
+    bloomDk: shade("#d07090", 0.62)
+  };
+  /* the "no clock yet" state (first draw of a room): read, never written */
+  var THORN_AN0 = {
+    t: 0, tick: 0, bPh: 0, hPh: 0, faceFrom: 1, faceTo: 1, faceV: 1, turnP: -1, turnDur: 0.2, hold: 0, eyesTo: 1, liveN: 0,
+    hL: 0, cL: 0, hD: 0, cD: 0, fresh: true, fl: 0, hurtT: 9, hurtDir: 1, kickT: 9, kickAmp: 0, kickDir: 1,
+    px: [0, 0, 0, 0, 0], py: [0, 0, 0, 0, 0], pi: 0, v: 0, vx: 0, step: 0, gPh: 0, trailN: 0,
+    prevAtk: null, prevAtkT: 0, prevRing: false, suPrev: 1, blinkAt: 9, blinkT0: -9, blinkN: 0,
+    d0: null, dPrev: 0, hpR: 1, wrQ: 0, wrT: -1, wrOut: 0, wrLvl: 0,
+    ndSa: 1, tapAt: 9, tapT0: -9, tapN: 0
+  };
+  var THORN_P = {
+    faceV: 1, faceTo: 1, sa: 1, lean: 0, drop: 0, bT: 0, bP: 0, bH: 0, bK: 0, hL: 0, cL: 0, hD: 0, cD: 0,
+    hurtDx: 0, headDx: 0, headDy: 0, crownDx: 0, crownDy: 0, headRot: 0, crownRot: 0,
+    hx: 0, hy: 0, rot: 0, slide: 0, barbW: 0, smear: 0, smR0: 0, smR1: 0, glint: -1,
+    capeDx: 0, capeSy: 1, capeW1: 1, capeW2: 1, capeW3: 1, hemDx: 0, sw1: 0, sw2: 0, sw3: 0, rip1: 0, rip2: 0,
+    legLX: 0, legRX: 0, legLY: 0, legRY: 0, eyeA: 1, eyeCore: 0, lid: 0, lookX: 0, lookY: 0, bloomA: 1, white: false,
+    h: 1, clip: false, skipBody: false, shadowK: 1, shadowA: 1, thr: 1, ghostK: 0, ghostF: 0, lanceB: true
+  };
+  /* breath: inhale 0 -> 1 over the first 58 % of the 3.8 s cycle, exhale over the rest */
+  function thornInhale(ph) {
+    var f = ph - Math.floor(ph);
+    return f < 0.58 ? easeInOutQuad(f / 0.58) : 1 - easeInOutQuad((f - 0.58) / 0.42);
+  }
+  /* heartbeat: lub-dub of two 0.09-wide raised cosines per cycle */
+  function thornBump(d) {
+    d -= Math.round(d);
+    return d > -0.045 && d < 0.045 ? 0.5 + 0.5 * Math.cos(d * 69.8132) : 0;
+  }
+  function thornBeat(ph) { return Math.max(thornBump(ph), 0.6 * thornBump(ph - 0.14)); }
+  /* visible height while she rises through the floor (su = spawn progress 0..1) */
+  function thornRiseH(su) {
+    if (su < 0.30) return 0;
+    if (su < 0.55) return 0.45 * easeOutCubic((su - 0.30) / 0.25);
+    if (su < 0.60) return 0.45 - 0.02 * Math.sin(Math.PI * (su - 0.55) / 0.05);
+    if (su < 0.78) return 0.45 + 0.55 * easeOutCubic((su - 0.60) / 0.18);
+    return 1;
+  }
+  /* lance rotation r (shaft along (sin r, -cos r)) wrapped to (-PI, PI], |r| clamped to [lo, hi] on side sa */
+  function thornClampRot(r, sa, lo, hi) {
+    r = Math.atan2(Math.sin(r), Math.cos(r));
+    var m = r < 0 ? -r : r;
+    m = m < lo ? lo : m > hi ? hi : m;
+    return sa < 0 ? -m : m;
+  }
+  function thornAimRot(hx, hy, tx, ty, sa, lo, hi) {
+    return thornClampRot(Math.atan2(ty - hy, tx - hx) + Math.PI / 2, sa, lo, hi);
+  }
+  /* needles lance angle at any atkT (pure; the whip smear samples it one frame back). The whip is
+     a plain (unwrapped) lerp: from the cock behind her (-fs*0.45) to aim+0.15 can be more than PI
+     (aim clamps at 2.6), and it must always go forward over the top, never back down behind her. */
+  function thornNeedRot(t, rRot, rCock, aimRot, fs, sa) {
+    if (t < 0.345) return angLerp(rRot, rCock, easeOutCubic(t / 0.25));
+    if (t < 0.43) return thornMix(rCock, aimRot + sa * 0.15, easeInCubic(thornSeg(t, 0.345, 0.43)));
+    if (t < 0.47) return aimRot + sa * (0.15 + 0.13 * easeOutCubic(thornSeg(t, 0.43, 0.47)));
+    if (t < 0.52) return aimRot + sa * (0.28 - 0.22 * easeInOutQuad(thornSeg(t, 0.47, 0.52)));
+    return angLerp(aimRot + sa * 0.06, rRot, easeInOutQuad(thornSeg(t, 0.52, 0.80))) + fs * 0.04 * thornKick(t - 0.80);
+  }
+
+  function thornPose(e, u, forceLive) {
+    var P = THORN_P, an = e.thornAn || THORN_AN0, nul = an === THORN_AN0, PI = Math.PI;
+    var x = e.x, ytP = e.y - u * 2.24;
+    var hs = player ? (player.x < e.x ? -1 : 1) : (e.face || 1);
+    var fTo, fV;
+    if (nul) { fTo = fV = e.face || hs; }
+    else {
+      fTo = an.faceTo;
+      fV = an.turnP >= 0 ? an.faceFrom + (an.faceTo - an.faceFrom) * easeInOutQuad(an.turnP) : fTo;
+    }
+    var mt = 1 - fV * fV;  /* 1 mid-turn, 0 facing a side */
+    var bI = thornInhale(an.bPh);
+    P.bT = 0.04 * (1 - 2 * bI);
+    P.bP = 0.04 * (1 - 2 * thornInhale(an.bPh - 0.021));
+    P.bH = 0.04 * (1 - 2 * thornInhale(an.bPh - 0.0316));
+    P.bK = 0.04 * (1 - 2 * thornInhale(an.bPh - 0.0579));
+    P.hurtDx = 0; P.headDx = 0; P.headDy = 0; P.crownDx = 0; P.crownDy = 0; P.headRot = 0; P.crownRot = 0;
+    P.smear = 0; P.glint = -1; P.capeSy = 1; P.capeW1 = 1; P.capeW2 = 1; P.capeW3 = 1; P.hemDx = 0;
+    P.legLX = 0; P.legRX = 0; P.legLY = 0; P.legRY = 0; P.eyeCore = 0; P.lid = 0; P.white = false;
+    P.h = 1; P.clip = false; P.skipBody = false; P.shadowK = 1; P.shadowA = 1;
+    P.thr = e.alive ? 1 : 0; P.ghostK = 0; P.ghostF = 0;
+    P.sa = !nul && e.atk === "needles" && (e.atkT || 0) >= 0.345 ? an.ndSa : e.aimX < 0 ? -1 : 1;
+    P.lanceB = true;
+    var lean, drop, hdx = 0, hdy = 0, rot, slide = 0, plantK = 0, capeDx = 0, absHand = false, hxA = 0, hyA = 0, gHem = 0;
+    /* the planted lance (briar stamp and rise stamp): hand 1.10u out and the shaft leaning 0.30 rad
+       away, so the leaf head and both side leaves stay 0.1u+ clear of the pauldron */
+    var plX = 1.10, plR = 0.30;
+    var eyeA = e.tell > 0 ? 0.88 + 0.12 * Math.sin(S.t * 16) : 0.70 + 0.22 * bI;
+    var bloomA = 0.70 + 0.30 * thornBeat(an.hPh);
+    var lookX = (nul ? fTo : an.eyesTo) * 0.03;
+    var lookY = player ? 0.02 * Math.max(-1, Math.min(1, (player.y - e.y) / 200)) : 0;
+    var bt = an.t - an.blinkT0, deadPose = !e.alive && !forceLive && !!an.d0;
+    if (bt >= 0 && bt < 0.12) P.lid = bt < 0.05 ? bt / 0.05 : bt < 0.07 ? 1 : 1 - (bt - 0.07) / 0.05;
+
+    if (deadPose) {
+      /* TQ-12 death: recoil, eyes out, wilt over planted legs, the lance topples toward the hero,
+         last bloom, sink through the floor clip. td is the death clock scaled to THORN_DIE. */
+      var d0 = an.d0, dm = e.deadMax || 1.2, td = (dm - e.deadT) * (THORN_DIE / dm), D = d0.face;
+      /* a mid-turn kill finishes its turn over 0.15 s instead of snapping to the side */
+      fTo = D; fV = thornMix(d0.fv, D, easeInOutQuad(thornC01(td / 0.15))); mt = 1 - fV * fV;
+      capeDx = -D * 0.08 * mt;
+      var rk = Math.sin(PI * Math.min(1, td / 0.2));
+      P.hurtDx = d0.kdir * 0.10 * rk; P.headRot = d0.kdir * 0.08 * rk;
+      lean = d0.lean * (1 - easeInOutQuad(thornSeg(td, 0, 0.30)));
+      var wl = easeInOutQuad(thornSeg(td, 0.16, 0.60)), wS = easeInOutQuad(thornSeg(td, 0.60, 0.85));
+      /* wilt, then a slow settle (0.60-0.85) so there is no dead hold before the sink */
+      drop = thornMix(d0.drop, 0.30, wl) + 0.06 * wS;
+      P.headDy = 0.10 * wl + 0.04 * wS; P.crownDy = P.headDy; P.headRot += D * 0.18 * wl;
+      P.crownRot = D * 0.06 * easeInOutQuad(thornSeg(td, 0.22, 0.70));
+      P.white = td < 0.06; P.lid = 0; lookX = D * 0.03; lookY = 0;
+      if (td < 0.08) { eyeA = 1; P.eyeCore = 1; }
+      else if (td < 0.26) { var fe = (td - 0.08) / 0.18; eyeA = fe < 0.25 ? 0.2 : fe < 0.5 ? 0.9 : 1.8 * (1 - fe); }
+      else eyeA = 0;
+      if (td >= 0.58) bloomA = td < 0.66 ? thornMix(bloomA, 1, thornSeg(td, 0.58, 0.66)) : thornMix(1, 0.3, thornSeg(td, 0.66, 0.90));
+      /* the sink runs while she is still opaque (about 40 % down at td 1.0, where A0 is 0.9) */
+      /* a kill mid-rise keeps the height she had reached (and stays hidden below 0.30) */
+      var hh = Math.min(d0.h, 1 - easeInOutQuad(thornSeg(td, 0.62, 1.45)));
+      P.h = hh; P.clip = hh < 1; P.shadowK = hh; P.skipBody = d0.skip;
+      /* the lance: released (it drops rigidly until its lowest point, sb below the grip, meets
+         the floor; a planted lance is already there and does not move), then it topples about that
+         point toward the hero and clatters. The shaft keeps its slide through the grip, so it
+         never moves up. It stays in its live draw slot (behind the head) until the sink clip
+         starts, then draws outside the clip. Killed mid-rise, it stays in her hand and sinks. */
+      var r0 = d0.rot, sb = Math.max(0.38 * u, d0.slide + 0.08 * u);
+      var bxL = x + d0.hx - sb * Math.sin(r0), byL = Math.max(e.y - 0.04 * u, e.y + d0.hy + sb * Math.cos(r0));
+      if (d0.h < 1) {
+        rot = r0; hxA = x + d0.hx; hyA = e.y + d0.hy;
+      } else if (td < 0.30) {
+        rot = r0; hxA = x + d0.hx;
+        hyA = thornMix(e.y + d0.hy, byL - sb * Math.cos(r0), easeInCubic(thornSeg(td, 0.14, 0.30)));
+      } else {
+        rot = td < 0.58 ? angLerp(r0, D * 1.50, easeInCubic(thornSeg(td, 0.30, 0.58)))
+                        : D * (1.50 - 0.08 * Math.sin(PI * thornSeg(td, 0.58, 0.72)));
+        hxA = bxL + sb * Math.sin(rot); hyA = byL - sb * Math.cos(rot);
+      }
+      slide = d0.slide;
+      P.lanceB = d0.h < 1 || !P.clip;
+      absHand = true;
+    } else {
+      var swPh = 1.8 * an.t + (e.bobPhase || 0), sway = 0.08 * Math.sin(swPh);
+      var spawning = e.spawnT > 0 && e.spawnMax;
+      var k = spawning ? null : e.atk, t = e.atkT || 0;
+      var W = e.atkWind || 0, A = e.atkActive || 0, R = e.atkRecover || 0, T = W + A + R;
+      /* rest: idle sway over planted feet (faded out over the first 0.08 s of an attack), turn dip,
+         hand on her facing side; the lance swings through vertical as faceV crosses 0. The lance
+         tip trails the sway (+-0.05 rad, a quarter cycle behind) */
+      var rLean = k ? sway * (1 - thornSeg(t, 0, 0.08)) : sway;
+      var rDrop = 0.03 * mt, rHdx = fV * 0.72, rHdy = 0.95 - 0.12 * mt, rRot = fV * 0.28 - 0.05 * Math.cos(swPh);
+      /* idle lance tap (scheduled by thornAnim): lift 0.12u over 0.15 s with the tip tipping
+         forward, set down in 0.08 s, a small dip and settle */
+      var tq = an.t - an.tapT0;
+      if (tq >= 0 && tq < 0.36) {
+        var tapY = tq < 0.15 ? -0.12 * easeInOutQuad(tq / 0.15) : tq < 0.23 ? -0.12 * (1 - easeInCubic((tq - 0.15) / 0.08))
+          : 0.025 * Math.sin(PI * thornSeg(tq, 0.23, 0.36));
+        rHdy += tapY; rRot -= fV * 0.35 * tapY;
+      }
+      capeDx = -fTo * 0.08 * mt;
+      /* TQ-05 gait, driven by real ground speed (world px/s) */
+      var gA = thornC01((an.v - 2) / 10);
+      if (spawning || (k === "charge" && t >= W - 0.045)) gA = 0;
+      if (gA > 0) {
+        /* stride half-width 0.09u = v/(0.637*gait rate): the stance foot's mean slip is zero */
+        var gs = Math.sin(an.gPh), gd = an.vx < 0 ? -1 : 1, gc = 0.09 * Math.cos(an.gPh) * gA * gd;
+        P.legLY = 0.08 * Math.max(0, gs) * gA; P.legRY = 0.08 * Math.max(0, -gs) * gA;
+        P.legLX = -gc; P.legRX = gc;
+        /* the gait carried by the parts that show: body rises over the passing leg (head and crown
+           follow with their lag), the lance swings and the hand bobs with the stride, and the leaf
+           hem swings away from the lifting leg */
+        rDrop -= 0.035 * Math.abs(gs) * gA; rHdy += 0.04 * gs * gA;
+        rRot += 0.06 * Math.cos(an.gPh) * gA * gd; gHem = 0.05 * gs * gA;
+      }
+      lean = rLean; drop = rDrop; hdx = rHdx; hdy = rHdy; rot = rRot;
+      if (spawning) {
+        /* TQ-10 rise: through a floor clip at scale 1; lance raise, stamp, eyes last */
+        var su = 1 - e.spawnT / e.spawnMax, h = thornRiseH(su);
+        P.h = h; P.clip = h < 1; P.skipBody = su < 0.30;
+        if (su < 0.30) { P.shadowK = su / 0.30 * 0.35; P.shadowA = 0.5; }
+        else { P.shadowK = 0.35 + 0.65 * h; P.shadowA = 0.5 + 0.5 * h; }
+        if (su >= 0.78) {
+          if (su < 0.84) {
+            var kr = easeOutCubic(thornSeg(su, 0.78, 0.84));
+            hdy = rHdy - 0.30 * kr; rot = rRot * (1 - kr);
+          } else if (su < 0.93) {
+            var kd = easeInCubic(thornSeg(su, 0.84, 0.88));
+            hdx = thornMix(rHdx, fV * plX, kd); hdy = thornMix(rHdy - 0.30, 1.30, kd);
+            rot = fV * plR * kd; plantK = kd; drop = thornMix(rDrop, 0.08, kd);
+          } else {
+            var kq = easeInOutQuad(thornSeg(su, 0.93, 1));
+            hdx = thornMix(fV * plX, rHdx, kq); hdy = thornMix(1.30, rHdy, kq);
+            rot = thornMix(fV * plR, rRot, kq); plantK = 1 - kq; drop = thornMix(0.08, rDrop, kq);
+          }
+        }
+        if (su < 0.88) eyeA = 0;
+        else if (su < 0.92) { eyeA = 1; P.eyeCore = 1 - thornSeg(su, 0.88, 0.92); }
+        else eyeA = thornMix(1, eyeA, thornSeg(su, 0.92, 1));
+        P.lid = 0;
+      } else if (k) {
+        var fs = fV, sa = P.sa, ax = e.aimX || 0, ay = e.aimY || 0;
+        var aL = rLean, aD = rDrop, aHx = rHdx, aHy = rHdy, aR = rRot, aCape = 0, pk = 0;
+        if (k === "charge") {
+          /* TQ-06: present, coil back over planted feet, lock (tremble + glint), thrust down the
+             lane on the hit tick, dash, plant, sprung recover */
+          /* present: the lance comes to bear along a visible 0.18 s arc (eased both ends, one small
+             follow-through); coil: keeps compressing right up to the lock (ease-in-out to 0.70) */
+          var k1 = easeOutCubic(thornC01(t / 0.18)), k2 = easeInOutQuad(thornSeg(t, 0.12, 0.70));
+          var cHx = fs * 0.90, cHy = 1.05;
+          aL = thornMix(rLean, -0.15 * fs, k2); aD = thornMix(rDrop, 0.16, k2);
+          var rC = thornAimRot(x + (0.8 * aL + cHx) * u, ytP + (aD + P.bT + cHy) * u,
+            x + ax * 3.2 * u, e.y + (ay * 3.2 - 1.0) * u, sa, 1.25, 2.45);
+          aHx = thornMix(rHdx, cHx, k1) - ax * 0.25 * k2; aHy = thornMix(rHdy, cHy, k1) - ay * 0.25 * k2;
+          aR = angLerp(rRot, rC, easeInOutQuad(thornC01(t / 0.18))) + sa * 0.05 * thornKick(t - 0.18) - sa * 0.06 * k2;
+          aCape = fs * 0.05 * k2;
+          if (t >= 0.60 && t < W - 0.045) {
+            aR += sa * 0.03 * Math.sin(113.1 * t) * Math.sin(PI * thornSeg(t, 0.60, W - 0.045));
+            var gl = thornSeg(t, 0.60, 0.72);
+            if (gl > 0 && gl < 1) P.glint = gl;
+          }
+          if (t >= W - 0.045) {
+            var s = easeOutCubic(thornSeg(t, W - 0.045, W + 0.005));
+            var tHx = cHx + ax * 0.35, tHy = cHy + ay * 0.35, tL = 0.45 * fs, kSk = s;
+            var rT = thornAimRot(x + (0.8 * tL + tHx) * u, ytP + (0.08 + P.bT + tHy) * u,
+              x + ax * 2.8 * u, e.y + (ay * 2.8 - 0.6) * u, sa, 1.25, 2.45);
+            aR = angLerp(rC - sa * 0.06, rT, s);
+            aHx = thornMix(cHx - ax * 0.25, tHx, s); aHy = thornMix(cHy - ay * 0.25, tHy, s);
+            aL = thornMix(-0.15 * fs, tL, s); aD = thornMix(0.16, 0.08, s);
+            aCape = fs * 0.05 * (1 - s);
+            if (t >= W) aL = fs * (0.45 + 0.10 * easeInOutQuad(thornSeg((t - W) / (A || 1), 0.3, 1)));
+            if (e.alive && t >= W && t < W + A + 0.10) { P.ghostK = 1; P.ghostF = 1 - thornSeg(t, W + A, W + A + 0.10); }
+            if (t >= W + A) {
+              var tr = t - W - A;
+              aL = fs * thornSpr(tr);
+              aD = tr < 0.16 ? 0.08 + 0.06 * Math.sin(PI * tr / 0.16) : 0.08 * (1 - easeOutCubic(thornSeg(tr, 0.16, 0.40)));
+              var kR = easeInOutQuad(thornSeg(tr, 0.08, 0.30));
+              aHx = thornMix(tHx, rHdx, kR); aHy = thornMix(tHy, rHdy, kR);
+              aR = angLerp(rT, rRot, kR) + fs * 0.05 * thornKick(tr - 0.30);
+              kSk = 1 - thornSeg(tr, 0.10, 0.30);
+            }
+            /* skid stance: feet spread wide, planted */
+            P.legLX = -0.10 * kSk; P.legRX = 0.10 * kSk; P.legLY = 0; P.legRY = 0;
+          }
+          /* cloth streams back off the smoothed dash speed */
+          var kv = thornC01(an.v / 900);
+          aCape -= fs * 0.18 * kv;
+          if (fs > 0) P.capeW1 = 1 + 0.15 * kv; else P.capeW3 = 1 + 0.15 * kv;
+        } else if (k === "needles") {
+          /* TQ-07: cock, aim (tracks the live re-aim), whip down the aim on the fire tick, overshoot, settle */
+          var c = easeOutCubic(t / 0.25), wL = 0.14 * fs, wHx = fs * 0.35, wHy = 0.15;
+          var aimRot = thornAimRot(x + (0.8 * wL + wHx) * u, ytP + (0.04 + P.bT + wHy) * u,
+            x + ax * 2.4 * u, e.y + (ay * 2.4 - 0.25) * u, sa, 1.5, 2.6);
+          /* the cock: the grip goes behind her far shoulder (hidden by the head, which draws after
+             the lance) and the shaft leans back 0.45 rad, so the leaf head sits up and behind her,
+             clear of the crown and antlers, and the whip sweeps over the top */
+          var rCk = -fs * 0.45;
+          aR = thornNeedRot(t, rRot, rCk, aimRot, fs, sa);
+          /* the hand lifts first (0.16 s) and crosses behind her head after, so the leaf head
+             passes over the crown rather than through it */
+          var cHx2 = rHdx + (-fs * 0.30 - rHdx) * c, cHy2 = rHdy + (0.30 - rHdy) * easeOutCubic(t / 0.16);
+          aHx = cHx2; aHy = cHy2; aL = thornMix(rLean, -0.06 * fs, c); aD = thornMix(rDrop, 0.04, c);
+          if (t < 0.345) aR += fs * 0.025 * Math.sin(113.1 * t) * Math.sin(PI * thornSeg(t, 0.20, 0.345));
+          var lk = c * (1 - thornSeg(t, 0.52, 0.70));
+          lookX = thornMix(lookX, ax * 0.04, lk); lookY = thornMix(lookY, ay * 0.03, lk);
+          if (t >= 0.345) {
+            var w = easeInCubic(thornSeg(t, 0.345, 0.43));
+            aHx = thornMix(cHx2, wHx, w); aHy = thornMix(cHy2, wHy, w); aL = thornMix(-0.06 * fs, wL, w); aD = 0.04;
+            if (t >= 0.52) {
+              var ks = easeInOutQuad(thornSeg(t, 0.52, 0.80));
+              aHx = thornMix(wHx, rHdx, ks); aHy = thornMix(wHy, rHdy, ks); aL = thornMix(wL, 0, ks); aD = thornMix(0.04, rDrop, ks);
+            }
+          }
+          if (t > 0.38 && t < 0.465 && !(e.stun > 0)) {
+            /* whip smear, only on the fast frames (> 0.3 rad since the last frame) */
+            var sm0 = thornNeedRot(t - 1 / 30, rRot, rCk, aimRot, fs, sa);
+            if (Math.abs(aR - sm0) > 0.3) { P.smear = 1; P.smR0 = sm0; P.smR1 = aR; }
+          }
+          if (t >= W) {
+            var hf = 1 - thornSeg(t, W, W + 0.12);
+            P.hemDx += ax * 0.10 * hf;
+            if (fs > 0) P.capeW3 = 1 + 0.12 * hf; else P.capeW1 = 1 + 0.12 * hf;
+          }
+        } else if (k === "briar") {
+          /* TQ-08: up on her toes, lance overhead, hang, slam: the butt strikes the floor on the
+             ring tick (the shaft slides down through her grip), channel, pull free */
+          var kRi = easeOutCubic(t / 0.12), kLi = easeInOutQuad(thornSeg(t, 0.12, 0.55));
+          aD = thornMix(rDrop, -0.05, kRi);
+          aHx = thornMix(rHdx, fs * 0.50, kLi); aHy = thornMix(rHdy, 0.15, kLi); aR = angLerp(rRot, fs * 0.02, kLi);
+          if (t >= 0.55) {
+            aHx += 0.015 * Math.sin(125.7 * t) * Math.sin(PI * thornSeg(t, 0.55, 0.695));
+            aD = thornMix(-0.05, 0.10, easeInOutQuad(thornSeg(t, 0.55, 0.695)));
+          }
+          if (t >= 0.695) {
+            /* the plant sits outboard (hand 0.92u out) and leans away 0.20 rad, so the leaf head
+               stays clear of her pauldron and cape and still reads as a lance at phone scale */
+            var sl = easeInCubic(thornSeg(t, 0.695, W + 0.002));
+            aHx = thornMix(fs * 0.50, fs * plX, sl); aHy = thornMix(0.15, 1.30, sl); aR = thornMix(fs * 0.02, fs * plR, sl);
+            aD = thornMix(0.10, 0.18, sl); aL = 0.06 * fs * sl; pk = sl;
+          }
+          if (t >= W + 0.002) {
+            aD = thornMix(0.18, 0.10, easeOutCubic(thornSeg(t, W + 0.002, W + 0.25)));
+            if (t < W + A) { bloomA = 1; eyeA = 1; }
+            var cf = 1 - thornSeg(t, W, W + 0.20);
+            P.capeW1 = 1 + 0.12 * cf; P.capeW3 = P.capeW1;
+            if (e.kitRing) P.hemDx += 0.03 * Math.sin(2 * PI * (e.kitRingR || 0) / 50);
+          }
+          if (t >= W + A) {
+            var kp = thornSeg(t, W + A, W + A + 0.12), chK = 1 - thornSeg(t, W + A, W + A + 0.15);
+            pk = 1 - easeOutBack(kp);
+            aHy = 1.30 - 0.25 * Math.sin(PI * kp);
+            aL = thornMix(0.06 * fs, -0.05 * fs, easeInOutQuad(kp));
+            aD = thornMix(0.10, 0, easeInOutQuad(thornSeg(t, W + A, W + A + 0.31)));
+            bloomA = thornMix(bloomA, 1, chK); eyeA = thornMix(eyeA, 1, chK);
+            if (t >= W + A + 0.12) {
+              var kr3 = easeInOutQuad(thornSeg(t, W + A + 0.12, W + A + 0.31));
+              aHx = thornMix(fs * plX, rHdx, kr3); aHy = thornMix(1.30, rHdy, kr3);
+              aR = angLerp(fs * plR, rRot, kr3) + fs * 0.04 * thornKick(t - (W + A + 0.31));
+              aL = thornMix(-0.05 * fs, 0, kr3);
+            }
+          }
+        }
+        /* exit blend: every attack lands on the live rest pose over its last 0.20 s */
+        var ex = easeInOutQuad(thornSeg(t, T - 0.20, T));
+        lean = thornMix(aL, sway, ex); drop = thornMix(aD, rDrop, ex);
+        hdx = thornMix(aHx, rHdx, ex); hdy = thornMix(aHy, rHdy, ex);
+        rot = angLerp(aR, rRot, ex); plantK = pk * (1 - ex); capeDx += aCape * (1 - ex);
+      }
+      if (!e.alive && !forceLive) { P.white = true; eyeA = 1; P.eyeCore = 1; P.lid = 0; }
+    }
+
+    /* TQ-09 hurt flinch (additive; away from the ball) and the crown kick */
+    /* the flinch runs on its own slower kick and outlasts the 0.11 s white flash, so the reel and
+       the settle read in colour (rigid translates and a lance tilt; no squash) */
+    var hT = an.hurtT;
+    if (hT < 0.60) {
+      var hd = an.hurtDir, q0 = thornHurtKick(hT), q2 = thornHurtKick(hT - 0.02), q3 = thornHurtKick(hT - 0.03), q5 = thornHurtKick(hT - 0.05);
+      P.hurtDx += hd * 0.14 * q0; P.headDx += hd * 0.20 * q2; P.headDy -= 0.03 * Math.max(0, q2);
+      P.headRot += hd * 0.06 * q2; P.crownDx += hd * 0.24 * q5; rot += hd * 0.24 * q3;
+      drop += 0.03 * (1 - easeInOutQuad(thornSeg(hT, 0.12, 0.24)));
+      if (hT < 0.12) bloomA = 1;
+    }
+    /* the whip smear ends on the lance as drawn (flinch included) */
+    if (P.smear) P.smR1 = rot;
+    if (an.kickT < 0.45) {
+      var kq2 = thornKick(an.kickT) * an.kickAmp;
+      P.crownRot -= an.kickDir * 1.2 * kq2; P.crownDy += 0.5 * Math.max(0, kq2);
+    }
+    /* TQ-14 wrath bloom (alive, weighted out within 0.10 s once an attack starts) */
+    if (!nul && an.wrT >= 0 && e.alive) {
+      var ww = 1 - thornC01(an.wrOut / 0.10), wt = an.wrT;
+      var gk = easeInOutQuad(thornSeg(wt, 0, 0.18)), rk2 = easeOutBack(thornSeg(wt, 0.18, 0.30));
+      var sk = ww * (1 - easeInOutQuad(thornSeg(wt, 0.50, 0.90)));
+      drop += sk * thornMix(0.06 * gk, -0.08, rk2);
+      P.headRot += sk * thornMix(fV * 0.06 * gk, -fV * 0.14, rk2);
+      P.headDy += sk * thornMix(0.03 * gk, 0, rk2);
+      if (wt >= 0.30 && wt < 0.50) P.hurtDx += ww * 0.012 * Math.sin(113.1 * wt) * Math.sin(PI * thornSeg(wt, 0.30, 0.50));
+      if (wt >= 0.30 && wt < 0.75) bloomA = thornMix(bloomA, 1, ww * (1 - thornSeg(wt, 0.30, 0.75)));
+    }
+    if (!deadPose) drop = drop < -0.06 ? -0.06 : drop > 0.22 ? 0.22 : drop;
+
+    P.faceV = fV; P.faceTo = fTo; P.lean = lean; P.drop = drop; P.capeDx = capeDx;
+    P.bloomA = bloomA; P.eyeA = eyeA; P.lookX = lookX; P.lookY = lookY;
+    var L = lean * u;
+    if (absHand) { P.hx = hxA; P.hy = hyA; }
+    else { P.hx = x + 0.8 * L + hdx * u; P.hy = ytP + (drop + P.bT + hdy) * u; }
+    P.rot = rot;
+    if (plantK) {
+      /* the shaft slides through the grip so its butt meets the floor (e.y - 0.04u) at plantK 1 */
+      var cr = Math.cos(rot);
+      P.slide = plantK * (((e.y - 0.04 * u) - P.hy) / (cr > 0.2 ? cr : 0.2) - 0.08 * u);
+    } else P.slide = slide;
+    P.barbW = fV * 0.28 * u;
+    /* head and crown followers (ticked in thornAnim), clamped to the current pose so the head
+       cube always overlaps the torso top */
+    if (nul || an.fresh) { P.hL = lean; P.cL = lean; P.hD = drop; P.cD = drop; }
+    else {
+      P.hL = Math.max(lean - 0.20, Math.min(lean + 0.20, an.hL));
+      P.cL = Math.max(P.hL - 0.10, Math.min(P.hL + 0.10, an.cL));
+      P.hD = Math.max(drop - 0.10, Math.min(drop + 0.10, an.hD));
+      P.cD = Math.max(P.hD - 0.06, Math.min(P.hD + 0.06, an.cD));
+    }
+    /* cloth: per-panel sway lagging 0.15 s a panel, drag against the lean, hem ripple */
+    var ct = an.t;
+    P.sw1 = 0.08 * Math.sin(1.45 * ct) - 0.10 * lean;
+    P.sw2 = 0.5 * (0.08 * Math.sin(1.45 * (ct - 0.15)) - 0.10 * lean);
+    P.sw3 = 0.4 * (0.08 * Math.sin(1.45 * (ct - 0.30)) - 0.10 * lean);
+    P.rip1 = 0.03 * Math.sin(7.5 * ct) + gHem; P.rip2 = 0.03 * Math.sin(7.5 * ct + 4) + gHem;
+    return P;
+  }
+
+  /* the lance, drawn from THORN_P: grip at (hx, hy), rotated by rot. While P.slide is set the
+     shaft, head, leaves and barb slide down through the grip (a rigid translate in lance space)
+     and the grip is drawn last so her hand stays on her side. */
+  function thornLance(g, P, u, A0) {
+    var hx = P.hx, hy = P.hy, C = THORN_C;
+    if (P.smear > 0 && !S.fxLite) {
+      /* an annular band that traces only the leaf head's path (1.30u-1.85u from the grip) */
+      var a0 = P.smR0 - Math.PI / 2, a1 = P.smR1 - Math.PI / 2, ccw = a1 < a0;
+      g.globalAlpha = A0 * 0.22;
+      g.fillStyle = C.LEAF;
+      g.beginPath(); g.arc(hx, hy, u * 1.85, a0, a1, ccw); g.arc(hx, hy, u * 1.30, a1, a0, !ccw); g.closePath(); g.fill();
+      g.globalAlpha = A0;
+    }
+    g.save();
+    if (THORN_CUT.on) { g.beginPath(); g.rect(THORN_CUT.x, THORN_CUT.y - u * 4.42, THORN_CUT.w, u * 4.42); g.clip(); }
+    g.translate(hx, hy);
+    g.rotate(P.rot);
+    g.translate(-hx, -hy);
+    if (!P.slide) cube(g, hx - u * 0.10, hy - u * 0.04, u * 0.20, u * 0.32, u * 0.10, C.VINE_D);
+    else g.translate(0, P.slide);
+    cube(g, hx - u * 0.08, hy - u * 1.55, u * 0.16, u * 1.55, u * 0.08, C.TRIM);
+    cube(g, hx - u * 0.18, hy - u * 1.78, u * 0.36, u * 0.28, u * 0.10, C.LEAF);
+    cube(g, hx - u * 0.22, hy - u * 1.42, u * 0.12, u * 0.12, u * 0.05, C.LEAF);
+    cube(g, hx + u * 0.10, hy - u * 1.26, u * 0.12, u * 0.12, u * 0.05, C.LEAF);
+    g.fillStyle = C.leafHi;
+    g.beginPath();
+    g.moveTo(hx, hy - u * 1.78);
+    g.lineTo(hx + P.barbW, hy - u * 1.60);
+    g.lineTo(hx, hy - u * 1.48);
+    g.closePath();
+    g.fill();
+    if (P.glint > 0 && P.glint < 1 && !S.fxLite) {
+      g.globalAlpha = A0 * 0.8 * Math.sin(Math.PI * P.glint);
+      g.fillStyle = "#ffffff";
+      g.fillRect(hx - u * 0.06, hy - u * (0.10 + 1.60 * P.glint), u * 0.12, u * 0.10);
+      g.globalAlpha = A0;
+    }
+    if (P.slide) {
+      g.translate(0, -P.slide);
+      cube(g, hx - u * 0.10, hy - u * 0.04, u * 0.20, u * 0.32, u * 0.10, C.VINE_D);
+    }
+    g.restore();
+  }
+
+  /* rigid voxel tilt for the head and crown (see drawThornQueen): a part's centre is carried round
+     the crown band pivot (crown parts only), then round the neck; the part is drawn axis-aligned.
+     z < 0 draws a plain fillRect in the current fillStyle. */
+  var THORN_RP = { hc: 1, hs: 0, hx: 0, hy: 0, kc: 1, ks: 0, kx: 0, ky: 0 };
+  function thornCubeR(g, x, y, w, h, z, col, crown) {
+    var R = THORN_RP, cx = x + w * 0.5, cy = y + h * 0.5, x0 = cx, y0 = cy, ox, oy;
+    if (crown && R.ks) { ox = x0 - R.kx; oy = y0 - R.ky; x0 = R.kx + ox * R.kc - oy * R.ks; y0 = R.ky + ox * R.ks + oy * R.kc; }
+    if (R.hs) { ox = x0 - R.hx; oy = y0 - R.hy; x0 = R.hx + ox * R.hc - oy * R.hs; y0 = R.hy + ox * R.hs + oy * R.hc; }
+    thornBox(g, x + x0 - cx, y + y0 - cy, w, h, z, col);
+  }
+  /* a cube (z >= 0) or a plain fillRect (z < 0), cut at THORN_CUT.y while she rises or sinks
+     through the floor: an axis-aligned cut by hand is much cheaper than a canvas clip */
+  var THORN_CUT = { on: false, x: 0, y: 0, w: 0 };
+  function thornBox(g, x, y, w, h, z, col) {
+    var C = THORN_CUT;
+    if (C.on) {
+      if (y >= C.y) return;
+      if (y + h > C.y) { h = C.y - y; if (z > 0) z = 0; }
+      else if (z > 0 && y + h + z > C.y) z = C.y - y - h;
+    }
+    if (z < 0) g.fillRect(x, y, w, h);
+    else cube(g, x, y, w, h, z, col);
+  }
+
   /* BB-V7.44 — Thorn Queen rebuilt on cube(). Briar monarch: bloom crown,
      vine-wrapped torso, antlers, leaf cloak, barbed lance. Charge levels
-     the lance; briar wind-up lifts it. */
+     the lance; briar wind-up lifts it.
+     BB-V7.72 thorn — animation pass: a planted rig posed by thornPose (feet never skate, upper
+     body leans over them, head and crown follow), blended turns, breathing, blinks, a real-speed
+     gait, crafted charge / needles / briar beats, a directional flinch, a floor rise with a lance
+     stamp and a 1.9 s death. Rings are drawn at their true hit radius. */
   function drawThornQueen(g, e) {
     ensureThornQueen(e);
     var VINE = "#4e8c58", VINE_D = "#2a4a30", TRIM = "#24381f";
@@ -17108,40 +17863,47 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     e.artH = u * 3.22;
     var x = e.x;
     if (e.bobPhase == null) e.bobPhase = Math.random() * 6.3;
-    var face = e.face || (player && player.x < e.x ? -1 : 1);
-    var bob = Math.sin(S.t * 1.65 + e.bobPhase) * u * 0.04;
-    var crouch = (e.crouch || 0) * u;
-    var lean = (e.lean || 0) * u;
-    var yt = e.y - u * 2.24 + bob + crouch;
-    var body = e.flash > 0 ? "#ffffff" : VINE;
+    /* BB-V7.72 thorn: alpha root. Every alpha below is A0 * k, so the spawn fade-in and the death
+       fade cover every part. drawEnemy's globalAlpha = deadT is ignored by the canvas while
+       deadT > 1, so the corpse alpha is clamped here. */
+    var A0 = e.alive ? g.globalAlpha : thornC01(e.deadT);
+    g.globalAlpha = A0;
+    var P = thornPose(e, u, false), an = e.thornAn || THORN_AN0;
+    var faceT = e.face || (player && player.x < e.x ? -1 : 1);
+    var L = P.lean * u, ytP = e.y - u * 2.24;
+    var yT = ytP + (P.drop + P.bT) * u, xT = x + 0.7 * L + P.hurtDx * u;
+    var body = (e.flash > 0 || P.white) ? "#ffffff" : VINE;
     var tell = 0;
     if (e.tell > 0) {
       tell = e.tellMax > 0 ? 1 - Math.max(0, e.tell) / e.tellMax : Math.min(1, e.tell);
     }
 
-    if (e.kitRing) {
+    /* threats vanish on the kill frame (P.thr); rings drawn at the radius that hits (/THORN_VIS) */
+    if (e.kitRing && P.thr) {
       g.strokeStyle = e.kitRingCol || "#60c050";
       g.lineWidth = 7;
-      g.globalAlpha = 0.86;
-      g.beginPath(); g.arc(x, e.y, e.kitRingR, 0, 6.3); g.stroke();
-      g.globalAlpha = 1;
+      g.globalAlpha = A0 * 0.86;
+      g.beginPath(); g.arc(x, e.y, e.kitRingR / THORN_VIS, 0, 6.3); g.stroke();
+      g.globalAlpha = A0;
     }
-    if (tell > 0) {
+    if (tell > 0 && P.thr) {
       g.save();
       if (e.atk === "charge") {
         g.strokeStyle = "rgba(192,224,112," + (0.35 + 0.4 * tell) + ")";
         g.lineWidth = 3;
         g.setLineDash([8, 7]);
+        g.lineDashOffset = -e.atkT * 60;
         g.beginPath();
         g.moveTo(x, e.y);
-        g.lineTo(e.dashToX || (x + face * 180), e.dashToY || e.y);
+        /* drawn at its true (world) length inside the THORN_VIS draw scale, like the rings */
+        g.lineTo(x + ((e.dashToX || x + faceT * 180) - x) / THORN_VIS, e.y + ((e.dashToY || e.y) - e.y) / THORN_VIS);
         g.stroke();
         g.setLineDash([]);
       } else if (e.atk === "briar") {
         g.strokeStyle = "rgba(96,192,80," + (0.32 + 0.42 * tell) + ")";
         g.lineWidth = 2.6;
         g.beginPath();
-        g.arc(x, e.y, (e.kitRingMax || 148) * (0.34 + 0.66 * tell), 0, 6.3);
+        g.arc(x, e.y, (e.kitRingMax || 148) * (0.34 + 0.66 * tell) / THORN_VIS, 0, 6.3);
         g.stroke();
       } else {
         g.strokeStyle = "rgba(208,224,120," + (0.3 + 0.4 * tell) + ")";
@@ -17153,95 +17915,137 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       g.restore();
     }
 
-    g.save(); g.globalAlpha = 0.46; g.fillStyle = "#0a0806";
-    g.beginPath();
-    g.ellipse(x + lean * 0.12, e.y + u * 0.28, u * (1.14 + (e.crouch || 0) * 0.26), u * 0.30, 0, 0, 6.3);
-    g.fill(); g.restore();
+    var srx = u * (1.14 + Math.max(0, P.drop) * 0.26) * P.shadowK, sry = u * 0.30 * P.shadowK;
+    g.globalAlpha = A0 * 0.46 * P.shadowA;
+    g.fillStyle = "#0a0806";
+    if (ellipseOk(srx, sry)) {
+      g.beginPath();
+      g.ellipse(x + L * 0.12, e.y + u * 0.28, srx, sry, 0, 0, 6.3);
+      g.fill();
+    }
+    g.globalAlpha = A0;
 
-    g.save();
-    g.translate(lean, 0);
+    var yC = yT;
+    var xH = x + (0.9 * P.hL + P.headDx) * u, yH = ytP + (P.hD + P.bH + P.headDy) * u;
+    var xK = x + (P.cL + P.crownDx) * u, yK = ytP + (P.cD + P.bK + P.crownDy) * u;
+    /* charge afterimages 2 and 4 ticks back along the dash, in her silhouette: torso, head up to
+       the crown band, and the bloom (3 flat rects each, no cubes) */
+    if (P.ghostK > 0 && P.ghostF > 0 && !S.fxLite && an !== THORN_AN0) {
+      for (var gj = 2; gj <= 4; gj += 2) {
+        var gi = (an.pi + 5 - gj) % 5, gdx = an.px[gi] - e.x, gdy = an.py[gi] - e.y;
+        if (gdx * gdx + gdy * gdy < 16 * gj * gj) continue;
+        var gox = gdx / THORN_VIS, goy = gdy / THORN_VIS;
+        var gA0 = A0 * (gj === 2 ? 0.20 : 0.10) * P.ghostF;
+        g.globalAlpha = gA0;
+        g.fillStyle = VINE;
+        g.fillRect(xT + gox - u * 0.44, yT + goy + u * 0.70, u * 0.88, u * 0.98);
+        g.fillRect(xH + gox - u * 0.38, yK + goy - u * 0.16, u * 0.76, yH - yK + u * 0.80);
+        g.globalAlpha = gA0 * 1.5;
+        g.fillStyle = BLOOM;
+        g.fillRect(xK + gox - u * 0.16, yK + goy - u * 0.48, u * 0.32, u * 0.32);
+      }
+      g.globalAlpha = A0;
+    }
+    if (P.skipBody) return;
+    /* rise / sink: the body is lowered by (1 - h)*3.1u (her full height, lance tip included) and
+       cut at the floor line. The voxels are cut by hand (thornBox); only the rotated lance gets a
+       canvas clip, inside its own save. */
+    var CUT = THORN_CUT;
+    if (P.clip) {
+      var sinkDy = (1 - P.h) * u * 3.1;
+      CUT.on = true; CUT.y = e.y + u * 0.02 - sinkDy; CUT.x = x - u * 3; CUT.w = u * 6;
+      g.save();
+      g.translate(0, sinkDy);
+    }
 
-    var sway = Math.sin((e.capesway || 0) * 1.45) * u * 0.08 - lean * 0.1;
-    var capeDrop = (e.crouch || 0) * u * 0.18;
-    cube(g, x - u * 0.92 + sway, yt + u * 0.50, u * 0.36, u * 1.50 + capeDrop, u * 0.08, CLOAK_D);
-    cube(g, x - u * 0.36 + sway * 0.5, yt + u * 0.40, u * 0.72, u * 1.64 + capeDrop, u * 0.10, CLOAK);
-    cube(g, x + u * 0.36 + sway * 0.4, yt + u * 0.48, u * 0.44, u * 1.42 + capeDrop, u * 0.08, CLOAK_D);
+    /* cloth cape: tops ride the torso, panels sway with lag, and the hem pools on the floor */
+    var xC = x + 0.5 * L + P.capeDx * u, flC = ytP + u * 2.08;
+    var cw1 = u * 0.36 * P.capeW1, ch1 = u * 1.50 * P.capeSy, ct1 = yC + u * 0.50, co1 = Math.max(0, ct1 + ch1 - flC);
+    var cx1 = xC - u * 0.92 + P.sw1 * u - (cw1 - u * 0.36) - 0.25 * co1;
+    ch1 -= co1; cw1 += 0.5 * co1;
+    var cw2 = u * 0.72 * P.capeW2, ch2 = u * 1.64 * P.capeSy, ct2 = yC + u * 0.40, co2 = Math.max(0, ct2 + ch2 - flC);
+    var cx2 = xC - u * 0.36 + P.sw2 * u - 0.5 * (cw2 - u * 0.72) - 0.25 * co2;
+    ch2 -= co2; cw2 += 0.5 * co2;
+    var cw3 = u * 0.44 * P.capeW3, ch3 = u * 1.42 * P.capeSy, ct3 = yC + u * 0.48, co3 = Math.max(0, ct3 + ch3 - flC);
+    var cx3 = xC + u * 0.36 + P.sw3 * u - 0.25 * co3;
+    ch3 -= co3; cw3 += 0.5 * co3;
+    thornBox(g, cx1, ct1, cw1, ch1, u * 0.08, CLOAK_D);
+    thornBox(g, cx2, ct2, cw2, ch2, u * 0.10, CLOAK);
+    thornBox(g, cx3, ct3, cw3, ch3, u * 0.08, CLOAK_D);
     /* leaf hem */
     g.fillStyle = LEAF;
-    g.globalAlpha = 0.7;
-    g.fillRect(x - u * 0.70 + sway, yt + u * 1.92 + capeDrop, u * 0.16, u * 0.12);
-    g.fillRect(x + 0 + sway * 0.4, yt + u * 1.98 + capeDrop, u * 0.16, u * 0.12);
-    g.globalAlpha = 1;
+    g.globalAlpha = A0 * 0.7;
+    thornBox(g, xC - u * 0.70 + (P.sw1 + P.hemDx + P.rip1) * u, ct1 + ch1 - u * 0.08, u * 0.16, u * 0.12, -1);
+    thornBox(g, xC + (P.sw3 + P.hemDx + P.rip2) * u, ct2 + ch2 - u * 0.06, u * 0.16, u * 0.12, -1);
+    g.globalAlpha = A0;
 
-    var stride = (e.stride || 0) * u;
-    cube(g, x - u * 0.38, yt + u * 1.70 + stride, u * 0.28, u * 0.34, u * 0.14, VINE_D);
-    cube(g, x + u * 0.10, yt + u * 1.70 - stride, u * 0.28, u * 0.34, u * 0.14, VINE_D);
+    /* planted legs: they splay under a drop and only lift for real steps */
+    var spl = 0.5 * Math.max(0, P.drop) * u;
+    thornBox(g, x - u * 0.38 - spl + P.legLX * u, ytP + u * 1.70 - P.legLY * u, u * 0.28, u * 0.34, u * 0.14, VINE_D);
+    thornBox(g, x + u * 0.10 + spl + P.legRX * u, ytP + u * 1.70 - P.legRY * u, u * 0.28, u * 0.34, u * 0.14, VINE_D);
 
-    cube(g, x - u * 0.44, yt + u * 0.70, u * 0.88, u * 0.98, u * 0.24, body);
-    g.fillStyle = shade(body, 0.55);
+    thornBox(g, xT - u * 0.44, yT + u * 0.70, u * 0.88, u * 0.98, u * 0.24, body);
+    g.fillStyle = body === "#ffffff" ? THORN_C.stripeW : THORN_C.stripe;
     for (var vi = 0; vi < 4; vi++) {
-      g.fillRect(x - u * 0.36, yt + u * (0.84 + vi * 0.18), u * 0.72, u * 0.05);
+      thornBox(g, xT - u * 0.36, yT + u * (0.84 + vi * 0.18), u * 0.72, u * 0.05, -1);
     }
     g.fillStyle = BLOOM;
-    g.globalAlpha = 0.7 + 0.3 * Math.sin(S.t * 3.4 + e.bobPhase);
-    g.fillRect(x - u * 0.12, yt + u * 1.08, u * 0.24, u * 0.20);
-    g.globalAlpha = 1;
-    g.fillStyle = shade(BLOOM, 1.2);
-    g.fillRect(x - u * 0.06, yt + u * 1.13, u * 0.12, u * 0.09);
+    g.globalAlpha = A0 * P.bloomA;
+    thornBox(g, xT - u * 0.12, yT + u * 1.08, u * 0.24, u * 0.20, -1);
+    g.globalAlpha = A0;
+    g.fillStyle = THORN_C.bloomHi;
+    thornBox(g, xT - u * 0.06, yT + u * 1.13, u * 0.12, u * 0.09, -1);
 
-    cube(g, x - u * 0.86, yt + u * 0.58, u * 0.38, u * 0.32, u * 0.14, TRIM);
-    cube(g, x + u * 0.48, yt + u * 0.58, u * 0.38, u * 0.32, u * 0.14, TRIM);
-    cube(g, x - u * 0.94, yt + u * 0.40, u * 0.16, u * 0.22, u * 0.06, LEAF);
-    cube(g, x + u * 0.78, yt + u * 0.40, u * 0.16, u * 0.22, u * 0.06, LEAF);
+    var xP = x + 0.75 * L + 0.9 * P.hurtDx * u, yP = ytP + (P.drop + P.bP) * u;
+    thornBox(g, xP - u * 0.86, yP + u * 0.58, u * 0.38, u * 0.32, u * 0.14, TRIM);
+    thornBox(g, xP + u * 0.48, yP + u * 0.58, u * 0.38, u * 0.32, u * 0.14, TRIM);
+    thornBox(g, xP - u * 0.94, yP + u * 0.40, u * 0.16, u * 0.22, u * 0.06, LEAF);
+    thornBox(g, xP + u * 0.78, yP + u * 0.40, u * 0.16, u * 0.22, u * 0.06, LEAF);
 
-    var lift = (e.lanceLift || 0) * u;
-    var poseCharge = e.atk === "charge";
-    var hx = x + face * u * (0.72 + (poseCharge ? 0.18 : 0));
-    var hy = yt + u * (poseCharge ? 1.05 : 0.95) - lift * (poseCharge ? 0.15 : 0.45);
-    g.save();
-    g.translate(hx, hy);
-    g.rotate(face * (poseCharge ? 1.15 : 0.28));
-    g.translate(-hx, -hy);
-    cube(g, hx - u * 0.10, hy - u * 0.04, u * 0.20, u * 0.32, u * 0.10, VINE_D);
-    cube(g, hx - u * 0.08, hy - u * 1.55, u * 0.16, u * 1.55, u * 0.08, TRIM);
-    cube(g, hx - u * 0.18, hy - u * 1.78, u * 0.36, u * 0.28, u * 0.10, LEAF);
-    cube(g, hx - u * 0.22, hy - u * 1.42, u * 0.12, u * 0.12, u * 0.05, LEAF);
-    cube(g, hx + u * 0.10, hy - u * 1.26, u * 0.12, u * 0.12, u * 0.05, LEAF);
-    g.fillStyle = shade(LEAF, 1.15);
-    g.beginPath();
-    g.moveTo(hx, hy - u * 1.78);
-    g.lineTo(hx + face * u * 0.28, hy - u * 1.60);
-    g.lineTo(hx, hy - u * 1.48);
-    g.closePath();
-    g.fill();
-    g.restore();
+    if (P.lanceB) thornLance(g, P, u, A0);
 
-    cube(g, x - u * 0.38, yt + u * 0.06, u * 0.76, u * 0.58, u * 0.22, body);
+    /* head and crown tilt as rigid voxels: each part's centre is carried round the neck (and the
+       crown band) and drawn axis-aligned there, so a flinch or a bow costs no canvas rotate */
+    var RP = THORN_RP;
+    RP.hs = P.headRot > 0.002 || P.headRot < -0.002 ? Math.sin(P.headRot) : 0; RP.hc = Math.cos(P.headRot);
+    RP.hx = xH; RP.hy = yH + u * 0.64;
+    RP.ks = P.crownRot > 0.002 || P.crownRot < -0.002 ? Math.sin(P.crownRot) : 0; RP.kc = Math.cos(P.crownRot);
+    RP.kx = xK; RP.ky = yK - u * 0.03;
+    thornCubeR(g, xH - u * 0.38, yH + u * 0.06, u * 0.76, u * 0.58, u * 0.22, body, false);
     g.fillStyle = "#0c140c";
-    g.fillRect(x - u * 0.26, yt + u * 0.20, u * 0.20, u * 0.18);
-    g.fillRect(x + u * 0.06, yt + u * 0.20, u * 0.20, u * 0.18);
-    g.fillStyle = EYE;
-    var glow = 0.55 + 0.45 * Math.sin(S.t * 3.2 + e.bobPhase);
-    if (tell > 0) glow = 0.88 + 0.12 * Math.sin(S.t * 16);
-    g.globalAlpha = Math.min(1, glow);
-    g.fillRect(x - u * 0.20 + face * u * 0.03, yt + u * 0.25, u * 0.11, u * 0.09);
-    g.fillRect(x + u * 0.12 + face * u * 0.03, yt + u * 0.25, u * 0.11, u * 0.09);
-    g.globalAlpha = 1;
+    thornCubeR(g, xH - u * 0.26, yH + u * 0.20, u * 0.20, u * 0.18, -1, null, false);
+    thornCubeR(g, xH + u * 0.06, yH + u * 0.20, u * 0.20, u * 0.18, -1, null, false);
+    if (P.eyeA > 0.003 && P.lid < 1) {
+      var eX = xH + P.lookX * u, eY = yH + u * (0.25 + P.lookY), eH = u * 0.09, eL = eH * P.lid;
+      g.fillStyle = EYE;
+      g.globalAlpha = A0 * Math.min(1, P.eyeA);
+      thornCubeR(g, eX - u * 0.20, eY + eL, u * 0.11, eH - eL, -1, null, false);
+      thornCubeR(g, eX + u * 0.12, eY + eL, u * 0.11, eH - eL, -1, null, false);
+      if (P.eyeCore > 0) {
+        g.fillStyle = "#ffffff";
+        g.globalAlpha = A0 * P.eyeCore;
+        thornCubeR(g, eX - u * 0.1725, eY + u * 0.0225, u * 0.055, u * 0.045, -1, null, false);
+        thornCubeR(g, eX + u * 0.1475, eY + u * 0.0225, u * 0.055, u * 0.045, -1, null, false);
+      }
+      g.globalAlpha = A0;
+    }
 
     /* bloom crown + antlers */
-    cube(g, x - u * 0.46, yt - u * 0.16, u * 0.92, u * 0.26, u * 0.12, TRIM);
-    cube(g, x - u * 0.32, yt - u * 0.56, u * 0.14, u * 0.42, u * 0.06, LEAF);
-    cube(g, x + u * 0.18, yt - u * 0.56, u * 0.14, u * 0.42, u * 0.06, LEAF);
-    cube(g, x - u * 0.52, yt - u * 0.68, u * 0.26, u * 0.12, u * 0.05, LEAF);
-    cube(g, x + u * 0.26, yt - u * 0.68, u * 0.26, u * 0.12, u * 0.05, LEAF);
-    cube(g, x - u * 0.16, yt - u * 0.48, u * 0.32, u * 0.28, u * 0.12, BLOOM);
-    g.fillStyle = shade(BLOOM, 1.25);
-    g.fillRect(x - u * 0.08, yt - u * 0.38, u * 0.16, u * 0.12);
+    thornCubeR(g, xK - u * 0.46, yK - u * 0.16, u * 0.92, u * 0.26, u * 0.12, TRIM, true);
+    thornCubeR(g, xK - u * 0.32, yK - u * 0.56, u * 0.14, u * 0.42, u * 0.06, LEAF, true);
+    thornCubeR(g, xK + u * 0.18, yK - u * 0.56, u * 0.14, u * 0.42, u * 0.06, LEAF, true);
+    thornCubeR(g, xK - u * 0.52, yK - u * 0.68, u * 0.26, u * 0.12, u * 0.05, LEAF, true);
+    thornCubeR(g, xK + u * 0.26, yK - u * 0.68, u * 0.26, u * 0.12, u * 0.05, LEAF, true);
+    thornCubeR(g, xK - u * 0.16, yK - u * 0.48, u * 0.32, u * 0.28, u * 0.12, BLOOM, true);
+    g.fillStyle = THORN_C.crownHi;
+    thornCubeR(g, xK - u * 0.08, yK - u * 0.38, u * 0.16, u * 0.12, -1, null, true);
     g.fillStyle = LEAF;
-    g.fillRect(x - u * 0.22, yt - u * 0.28, u * 0.10, u * 0.08);
-    g.fillRect(x + u * 0.12, yt - u * 0.28, u * 0.10, u * 0.08);
+    thornCubeR(g, xK - u * 0.22, yK - u * 0.28, u * 0.10, u * 0.08, -1, null, true);
+    thornCubeR(g, xK + u * 0.12, yK - u * 0.28, u * 0.10, u * 0.08, -1, null, true);
 
-    g.restore();
+    if (P.clip) { g.restore(); CUT.on = false; }
+    /* the fallen lance lies on the floor in front of her, outside the sink */
+    if (!P.lanceB) thornLance(g, P, u, A0);
   }
 
   /* BB-V7.51 — splash court: same bone / purple / gold language as the lord,
@@ -18064,6 +18868,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       var rise = su < 0.3 ? 0.02 : Math.max(0.02, easeOutBack((su - 0.3) / 0.7));
       if (e.boss === "slag" && SLAG_ANIM) { rise = 1; su = 1; a = 1; } /* BB-V7.72 slag rises at scale 1 and owns its alpha */
       if (e.boss === "ash") rise = 1; /* BB-V7.72 — the Titan climbs out itself; the spawn fade stays (ASH-12) */
+      if (e.boss === "thorn") rise = 1; /* BB-V7.72 thorn: she rises unsquashed through her own floor clip */
       g.globalAlpha = a * Math.min(1, su * 2);
       g.translate(e.x, e.y);
       g.scale(1 + (1 - Math.min(1, rise)) * 0.3, rise);
