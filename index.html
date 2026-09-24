@@ -322,6 +322,16 @@
   @media (min-height: 900px) {
     .splashArt { max-height: 66vh; max-width: min(97vw, 1260px); }
   }
+  /* BB-V7.70 — in landscape Safari the Add to Home Screen bar sat right on
+     top of TAP TO START: a tap on the words hit the bar and did nothing
+     (portrait had room below them, so turning the phone "fixed" it). The
+     splash now keeps clear of the bar, and on short screens the art gives
+     up height so the BLOCKBALL title isn't clipped off the top either. */
+  #install.show ~ #splashPanel { padding-bottom: calc(60px + env(safe-area-inset-bottom)); }
+  @media (max-height: 560px) {
+    .splashArt { max-height: min(70vh, calc(100vh - 150px)); max-height: min(70vh, calc(100dvh - 150px)); }
+    #install.show ~ #splashPanel .splashArt { max-height: min(70vh, calc(100vh - 210px)); max-height: min(70vh, calc(100dvh - 210px)); }
+  }
   /* CHIEF FIX BB-V4.9 — portrait is now a first-class title screen, not a rejection.
      Width is the scarce axis here, so the words are sized off it and the art takes
      the width it can get; there is height to spare either side. */
@@ -3420,6 +3430,7 @@
     resetBallHome();
     /* BB-V7.69 — rooms fade up from black instead of hard-cutting in. */
     S.fade = { t0: S.t, dur: 0.32 };
+    S.particles = [];
     dustPuff(player.x, player.y + 4, 6);
     S.camFollow = { x: 0, y: 0, on: false, idle: 0, idleT: 0 };
     S.placeMode = false;
@@ -3443,6 +3454,7 @@
 
   function startRun(seed, custom) {
     S.seed = parseSeed(seed || makeSeed());
+    S.fxLite = false; S.slowT = 0; S.fdEma = 16.7;
     S.difficulty = store.difficulty || "easy";
     S.floor = 1;
     S.score = 0;
@@ -3883,6 +3895,7 @@
         if (tr === en || !tr.alive || (tr.boss && tr.boss !== "court")) continue;
         tr.alive = false;
         tr.deadT = 0.55;
+        tr.deadMax = 0.55;
         burst(tr.x, tr.y, tr.col, 8);
       }
     }
@@ -4624,7 +4637,7 @@
     }
     for (var i = 0; i < room.enemies.length; i++) {
       var e = room.enemies[i];
-      if (!e.alive) continue;
+      if (!e.alive || e.spawnT > 0) continue;
       var box = enemyHurtBox(e);
       var rad = box.r + ball.r;
       if (Math.hypot(box.x - ball.x, box.y - ball.y) < rad ||
@@ -4688,7 +4701,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       for (var j = 0; j < room.enemies.length; j++) {
         var e = room.enemies[j];
         var box = enemyHurtBox(e);
-        if (e.alive && Math.hypot(box.x - s.x, box.y - s.y) < box.r + s.r) hitEnemy(e, s, Math.floor(currentDmg() * 0.45), true);
+        if (e.alive && !(e.spawnT > 0) && Math.hypot(box.x - s.x, box.y - s.y) < box.r + s.r) hitEnemy(e, s, Math.floor(currentDmg() * 0.45), true);
       }
       if (room.props) {
         for (var pi = 0; pi < room.props.length; pi++) {
@@ -4730,6 +4743,10 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     var living = 0;
     for (var i = 0; i < room.enemies.length; i++) {
       var e = room.enemies[i];
+      /* flash / squash tick even on the dead, or a killing blow froze a
+         boss or knight solid white for its whole death fade */
+      if (e.flash > 0) e.flash -= dt;
+      if (e.hitT > 0) e.hitT -= dt;
       if (!e.alive) {
         e.deadT -= dt;
         continue;
@@ -4742,8 +4759,6 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
           if (e.hp <= 0) killEnemy(e, false);
         }
       }
-      if (e.flash > 0) e.flash -= dt;
-      if (e.hitT > 0) e.hitT -= dt;
       if (e.recoil > 0) e.recoil -= dt;
       if (e.spawnT > 0) { e.spawnT -= dt; continue; }
       if (e.stun > 0) { e.stun -= dt; continue; }
@@ -4967,7 +4982,9 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
         sfx("slam");
         return;
       }
-      if (sp < 70) { e.dashT = 0; e.cd = 1.4 + rnd() * 0.5; }
+      /* the 1.2s clock usually runs out before the speed floor on deep
+         floors (faster chargers), so the recovery is set on either exit */
+      if (sp < 70 || e.dashT <= 0) { e.dashT = 0; e.cd = 1.4 + rnd() * 0.5; }
       return;
     }
     if (e.windT > 0) {
@@ -6584,7 +6601,10 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       var grab = it.kind === "relic" ? 42 : 28;
       /* BB-V7.69 — close loot drifts to you, so a pickup is a swoop, not a pixel hunt */
       var ld = Math.hypot(it.x - player.x, it.y - player.y);
-      if (!it.taken && !S.downed && ld < (it.kind === "relic" ? 90 : 72) && it.life < (it.max || it.life) - 0.35) {
+      /* gear balls and fields swap out what you carry, so they still need a
+         deliberate step; a heart at full HP would only be wasted */
+      var magnet = it.kind === "frag" || it.kind === "relic" || (it.kind === "heart" && player.hp < player.maxHp);
+      if (magnet && !it.taken && !S.downed && ld < (it.kind === "relic" ? 90 : 72) && it.life < (it.max || it.life) - 0.35) {
         var pull = Math.min(1, dt * (5 + (72 - Math.min(72, ld)) * 0.12));
         it.x += (player.x - it.x) * pull;
         it.y += (player.y - 6 - it.y) * pull;
@@ -6700,7 +6720,12 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     updateHoop(dt);
     updateCine(dt);
     updateShotCall(dt);
+    S.simT = S.t;
   }
+  /* Draw-side cosmetic spawns (torch embers, cinder sparks, charger dust)
+     only fire on frames the sim ran; behind the floor card or shop update()
+     returns early, and those motes would pile up frozen. */
+  function fxLive() { return S.simT === S.t && S.mode === "play" && !S.pause; }
 
   function placeGhostCell() {
     if (!player || !room) return null;
@@ -6981,8 +7006,18 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      loot magnet; hero throw / hurt / catch poses; menus get lit block
      buttons; floor bosses get a bottom-centre boss bar; a DOWN no longer
      restocks opened chests or smashed piles; the upgrade card dims what
-     you can't buy. */
-  var BUILD = "v7.69";
+     you can't buy.
+     BB-V7.70 — landscape Safari: TAP TO START sat under the Add to Home
+     Screen bar (a tap on the words hit the bar), so the splash now keeps
+     clear of it and the title no longer clips. Review fixes: chargers get
+     their recovery after every dash (deep-floor chargers were chaining
+     charges back to back); the loot magnet only pulls shards, relics and
+     hearts you need, so it can't swap your ball or field; the hit flash
+     decays on the dead (bosses died solid white); boss-wipe trash fades
+     instead of vanishing; rising foes can't be hit; draw-side motes only
+     spawn while the sim runs; low-FX needs 3s of real slow frames and
+     resets each run. */
+  var BUILD = "v7.70";
   var FEEL_DEF = { spd: 250, accel: 2600, brake: 3600, throwSpd: 620, aimMode: "drag", aimDead: 2, aimHold: 64 };
   var FEEL = (function () {
     var f = {};
@@ -8212,7 +8247,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       g.fillRect(x - 1.5 - k * 0.6, y - 14 - f * 4, 3, 5);
       g.fillStyle = fl[2];
       g.fillRect(x - 1.5, y - 8 - f * 2, 3, 4);
-      if (Math.random() < 0.025 && S.mode === "play" && !S.pause) embers(x, y + 30, fl[1], 1);
+      if (Math.random() < 0.025 && fxLive()) embers(x, y + 30, fl[1], 1);
     }
   }
   /* Additive light: torch pools on the north stone, a lantern-warm halo on
@@ -10570,7 +10605,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     }
   }
   function drawSpawnRing(g, e) {
-    if (!(e.spawnT > 0) || !e.spawnMax) return;
+    if (!e.alive || !(e.spawnT > 0) || !e.spawnMax) return;
     var u = 1 - e.spawnT / e.spawnMax, r = artR(e) * enemyVis(e) * (e.boss ? 1.6 : 1.1);
     var col = e.col || "#c0a060";
     g.save();
@@ -10611,7 +10646,8 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     var col = e.col, u = mobWind(e);
     var flash = e.flash > 0, sx = 1, sy = 1, alpha = a, dead = !e.alive;
     if (dead) {
-      var el = (e.deadMax || 1.2) - e.deadT;
+      if (e.deadMax == null) e.deadMax = e.deadT;
+      var el = e.deadMax - e.deadT;
       if (el > 0.26) return;
       flash = flash || el < 0.07;
       var dk = el / 0.26;
@@ -10777,7 +10813,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       g.fillStyle = P("#3a1008");
       g.fillRect(x - r * 0.28 + lookX, cy2 + r * 0.02, r * 0.16, r * 0.16);
       g.fillRect(x + r * 0.12 + lookX, cy2 + r * 0.02, r * 0.16, r * 0.16);
-      if (!dead && Math.random() < 0.06 && !S.pause) embers(x, e.y + r * 0.4 * enemyVis(e), "#ffb040", 1);
+      if (!dead && Math.random() < 0.06 && fxLive()) embers(x, e.y + r * 0.4 * enemyVis(e), "#ffb040", 1);
     } else if (tp === "grunt") {
       var st = moving ? Math.abs(step) * r * 0.07 : 0;
       cube(g, x - r * 0.62, gy - r * 0.52 - Math.max(0, step) * r * 0.1, r * 0.46, r * 0.16, r * 0.36, P(dark));
@@ -10859,7 +10895,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       g.fillStyle = P("#ffb040");
       g.fillRect(x - r * 0.3 + lookX, ah + r * 0.42, r * 0.18, r * 0.12);
       g.fillRect(x + r * 0.1 + lookX, ah + r * 0.42, r * 0.18, r * 0.12);
-      if (!dead && Math.random() < 0.03 && !S.pause) embers(x, e.y, "#ff9a40", 1);
+      if (!dead && Math.random() < 0.03 && fxLive()) embers(x, e.y, "#ff9a40", 1);
     } else if (tp === "charger") {
       var dashing = e.dashT > 0;
       var shake = u > 0 ? Math.sin(t * 60) * r * 0.05 * u : 0;
@@ -10882,7 +10918,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       cube(g, hx2 + cf * r * 0.3 - r * 0.08, hy3 - r * 0.16, r * 0.16, r * 0.24, r * 0.06, P("#f0e4c8"));
       g.fillStyle = P(u > 0 || dashing ? "#ff3020" : "#1a0a06");
       g.fillRect(hx2 + cf * r * 0.12 - r * 0.07, hy3 + r * 0.44, r * 0.14, r * 0.12);
-      if ((u > 0.2 || dashing) && !S.pause && Math.random() < 0.3) dustPuff(x - cf * r * 0.9 * enemyVis(e), e.y + r * enemyVis(e), 1);
+      if ((u > 0.2 || dashing) && fxLive() && Math.random() < 0.3) dustPuff(x - cf * r * 0.9 * enemyVis(e), e.y + r * enemyVis(e), 1);
     } else if (tp === "voider") {
       var vy = gy - r * 1.35 + Math.sin(t * 2.5 + ph) * r * 0.12;
       var ring = r * (1.05 - 0.3 * u);
@@ -12365,7 +12401,7 @@ function endRunToMenu() {
       if (S.mode === "play" && !S.pause && !S.fxLite) {
         var fms = now - S.last;
         if (fms > 0 && fms < 250) S.fdEma = (S.fdEma || 16.7) * 0.95 + fms * 0.05;
-        if (S.fdEma > 30) { S.slowT = (S.slowT || 0) + fms / 1000; if (S.slowT > 3) S.fxLite = true; }
+        if (S.fdEma > 30) { S.slowT = (S.slowT || 0) + Math.min(fms, 100) / 1000; if (S.slowT > 3) S.fxLite = true; }
         else S.slowT = 0;
       }
       var d = Math.min(0.05, (now - S.last) / 1000);
@@ -12447,8 +12483,11 @@ function endRunToMenu() {
         p: player ? { x: player.x, y: player.y, r: player.r, hp: player.hp, maxHp: player.maxHp, inv: player.inv, frag: player.frag } : null,
         ballLive: !!(ball && ball.live), throwSpd: player ? throwSpeed() : 0,
         foes: room ? room.enemies.filter(function (e) { return e.alive; }).map(function (e) {
-          return { x: e.x, y: e.y, vx: e.vx || 0, vy: e.vy || 0, lift: e.hitLift || 0, r: bodyR(e), boss: e.boss || null, kind: e.kind, atk: e.atk || null, tell: e.tell || 0, ring: e.kitRing ? e.kitRingR : 0 };
+          return { x: e.x, y: e.y, vx: e.vx || 0, vy: e.vy || 0, lift: e.hitLift || 0, r: bodyR(e), boss: e.boss || null, kind: e.kind, atk: e.atk || null, tell: e.tell || 0, ring: e.kitRing ? e.kitRingR : 0,
+            hp: e.hp, cd: e.cd, wind: e.windT || 0, dash: e.dashT || 0, daze: e.daze || 0, spawn: e.spawnT || 0 };
         }) : [],
+        dead: room ? room.enemies.filter(function (e) { return !e.alive && e.deadT > 0; }).map(function (e) { return { flash: e.flash || 0, deadT: e.deadT, deadMax: e.deadMax }; }) : [],
+        parts: S.particles.length,
         shots: S.shots.filter(function (s) { return !s.inert; }).map(function (s) { return { x: s.x, y: s.y, vx: s.vx, vy: s.vy, r: s.r }; }),
         loot: S.loot.length, downed: !!S.downed,
         floorCard: shown("floorPanel"), splash: shown("splashPanel"), shop: shown("shopPanel")
