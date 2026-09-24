@@ -3550,6 +3550,7 @@
     n = Math.max(1, Math.round(n * diff().dmg));
     var soaked = soakField(n, src);
     var spill = n - soaked;
+    if (player.heroAn) heroAnHit(src, spill); /* BB-V7.72 hit / soak pose edge (cosmetic) */
     /* BB-V7.69 — no hit kills you from full health. A floor-1 Bone Knight
        weapon is 3 × HARD 1.55 = 5, exactly a fresh hero's 5 HP: one read too
        late and the run's first knight was an instant DOWN with nothing to
@@ -3607,6 +3608,7 @@
   function updateDowned(dt) {
     if (!S.downed) return;
     S.downed.t += dt;
+    if (player && player.heroAn) heroAnDown(dt); /* BB-V7.72 topple beats (cosmetic) */
     if (S.downed.t >= S.downed.dur) finishDowned();
   }
 
@@ -4575,7 +4577,7 @@
       } else if (moving) {
         var top = player.spd * (1 + player.spdLv * 0.05) || 1;
         var sp = Math.hypot(player.vx, player.vy);
-        var rate = 9.5 + (sp / top) * 4.5;
+        var rate = 9.5 + (sp / top) * 4.5; if (player.heroAn) rate = heroDribbleRate(rate, ball.dribble); /* BB-V7.72 */
         var prevPhase = ball.dribble;
         ball.dribble += dt * rate;
         /* sin² bounce: soft hang at the top, snappy floor contact */
@@ -4599,6 +4601,7 @@
       ball.groundY = groundY;
       ball.x = player.x + side;
       ball.y = groundY - lift;
+      if (player.heroAn) heroHeldBall(ball, moving); /* BB-V7.72 held-ball pose (draw-only) */
       return;
     }
     if (ball.squashT > 0) ball.squashT -= dt;
@@ -4611,7 +4614,7 @@
         ball.live = false; ball.ret = false;
         /* a catch you can feel: small squash, a snap of sparks at the hand */
         player.catchT = 0.16;
-        sparks(player.x + player.facing * 22, player.y - 14, "#f0d8a0", 3);
+        sparks(ball.x, ball.y, "#f0d8a0", 3); /* BB-V7.72 at the real contact point */
         sfx("dribble");
       }
       return;
@@ -7243,6 +7246,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
         if (nearExit) nextRoomOrFloor();
       }
     }
+    if (player) heroAnim(dt); /* BB-V7.72 hero animation clock (cosmetic) */
   }
 
   /* ---------- render ---------- */
@@ -8882,24 +8886,770 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     g.fillRect(Math.round(x), Math.round(y), Math.round(w), Math.round(h));
   }
 
+  /* BB-V7.72 — hero animation: a cosmetic clock on player.heroAn, ticked on the fixed
+     sim DT from one line at the end of updatePlayer (heroAnim), and a pure pose
+     (heroPose / heroHand) that fills the reused HERO_P for drawPlayer. Nothing here
+     writes gameplay state: only player.heroAn, the held ball's draw-only fields
+     (x, y, lift, squash while !ball.live), ball.rot and particles (Math.random via
+     prand). player.facing is read, never written: the body turns on its own
+     visual facing an.vf. Every cube keeps its size and colour; parts translate,
+     the whole body rotates about the feet, and any scale stays within 3 %. */
+  var HERO_P = { rot: 0, bx: 0, by: 0, sx: 1, sy: 1, lLx: 0, lLy: 0, lRx: 0, lRy: 0, liftL: 0, liftR: 0,
+    torX: 0, torY: 0, hdX: 0, hdY: 0, htX: 0, htY: 0, hx: 0, hy: 0, armHigh: false, eyeX: 0, eyeY: 0, eyeH: 1,
+    white: false, noBlink: false, dim: 1, hatFree: false, hatWX: 0, hatWY: 0, shK: 1, smear: 0, smX: 0, smY: 0,
+    tHX: 0, tHY: 0, tTX: 0, tTY: 0, vf: 1, hMode: 0, sX: 0, sY: 0, armBack: false };
+  var HERO_WHITE = { a: "#ffffff", b: "#ffffff", c: "#ffffff", skin: "#ffffff" };
+  var HERO_BODY = { /* stride, bob, lean, head lag tau (s), breath period (s), waddle px */
+    bloc:  { st: 1.00, bob: 1.0, ln: 1.0, lag: 0.04, br: 2.6, wad: 0 },
+    tall:  { st: 1.25, bob: 1.2, ln: 0.8, lag: 0.06, br: 3.0, wad: 0 },
+    round: { st: 0.80, bob: 0.8, ln: 0.9, lag: 0.04, br: 2.6, wad: 1.5 },
+    swift: { st: 0.85, bob: 0.7, ln: 1.4, lag: 0.03, br: 2.3, wad: 0 } };
+  var HERO_DEG = Math.PI / 180;
+  var HERO_SC = 22 * HS;
+
+  function heroClamp(v, a, b) { return v < a ? a : v > b ? b : v; }
+  function heroClamp01(v) { return v < 0 ? 0 : v > 1 ? 1 : v; }
+  function heroBW(cos) {
+    var b = cos && cos.body;
+    return b === "tall" ? 0.72 : b === "round" ? 0.98 : b === "swift" ? 0.7 : 0.84;
+  }
+  function heroTop() { return player.spd * (1 + player.spdLv * 0.05) || 1; }
+  /* same test drawPlayer / updateBall use: a wall tile directly south of the feet */
+  function heroNearSouth() {
+    if (!room || !room.grid || !player) return false;
+    var ptx = Math.floor(player.x / TILE), pty = Math.floor(player.y / TILE);
+    return !!(pty + 1 < playRows() && room.grid[pty + 1] && room.grid[pty + 1][ptx]);
+  }
+  function heroGB() { return heroNearSouth() ? -Math.round(TILE * WALL_Z) : 0; }
+  /* inhale 58 % of the cycle, exhale 42 %; 0 = empty, 1 = full */
+  function heroBreath(ph) {
+    var u = ph / (Math.PI * 2);
+    u -= Math.floor(u);
+    return u < 0.58 ? easeInOutQuad(u / 0.58) : 1 - easeInOutQuad((u - 0.58) / 0.42);
+  }
+
+  function heroAnNew() {
+    return { t: 0, vf: 1, vfFrom: 1, vfTo: 1, turnP: 1, turnDur: 0.12, pFace: 1,
+      gA: 0, dX: 1, dY: 0, plantT: 0, pSp: 0, pWalkN: 0, stillT: 1, fastT: 1, revS: 0, revT: 1,
+      lean: 0, leanV: 0, leanY: 0, leanYV: 0, hdX: 0, hdY: 0, htX: 0, htY: 0,
+      bA: 0, bPh: 0, blinkS: -9, nextBlink: 2, idleT: 0, lookT: -1, lookD: 1, nextLook: 2.5,
+      pAim: false, cock: 0, droop: 0, relT: -1, relA: 0, relRun: false, jumpT: -1,
+      callK: 0, sb: 1, catT: -1, catVX: 0, catVY: 0,
+      bbT: -1, bbDur: 0.1, bbE: 0, bbX: 0, bbY: 0, lastBX: 28, lastBY: -18, bApex: 0,
+      hitT: -1, hxd: -1, hyd: 0, soakT: -1, soakNB: false, shX: 0, shY: 0, shoveCd: 0,
+      fallA: 84, dnOn: false, dLive: false, dBX: 0, dL0: 0, entT: -1, entKind: 0,
+      armK: 0, plX: 0, plY: 0, plOk: false, plT: -1, pArmed: false, pStock: 0,
+      swT: -1, pSwish: false, pump: -1,
+      hOX: 0, hOY: 0, hMode: -1, hBT: 0, hFX: 0, hFY: 0,
+      pLive: false, pRet: false, lx: 0, ly: 0, roomRef: null, ballRef: null };
+  }
+
+  /* every follower to its target, every clock off: a placement, a new room or a new ball */
+  function heroSnap(an) {
+    var p = player, sp = Math.hypot(p.vx || 0, p.vy || 0), top = heroTop();
+    var B = HERO_BODY[(p.cos || {}).body] || HERO_BODY.bloc;
+    an.vf = an.vfFrom = an.vfTo = an.pFace = p.facing; an.turnP = 1; an.turnDur = 0.12;
+    an.gA = sp > 12 ? 1 : 0;
+    if (sp > 12) { an.dX = p.vx / sp; an.dY = p.vy / sp; }
+    an.pWalkN = Math.floor((p.walk || 0) / Math.PI); an.plantT = 0; an.pSp = sp;
+    an.stillT = sp < 12 ? 1 : 0; an.fastT = 1; an.revS = 0; an.revT = 1;
+    an.lean = heroClamp((p.vx || 0) / top, -1, 1) * B.ln; an.leanV = 0;
+    an.leanY = heroClamp((p.vy || 0) / top, -1, 1) * B.ln; an.leanYV = 0;
+    an.bA = sp > 12 ? 0 : 1; an.bPh = 0; an.blinkS = -9; an.nextBlink = an.t + 1.2 + Math.random() * 1.2;
+    an.idleT = 0; an.lookT = -1; an.nextLook = 2.5;
+    an.pAim = !!S.aim; an.cock = 0; an.droop = 0; an.relT = -1; an.jumpT = -1; an.relRun = false;
+    an.callK = 0; an.sb = p.facing; an.catT = -1;
+    an.bbT = -1; an.bApex = 0;
+    an.lastBX = ball ? ball.x - p.x : 28 * p.facing;
+    an.lastBY = ball ? ball.y - (p.y + heroGB()) : -18;
+    an.hitT = -1; an.soakT = -1; an.soakNB = false; an.shX = an.shY = 0; an.shoveCd = 0;
+    an.dnOn = false; an.entT = -1; an.entKind = 0;
+    an.armK = S.placeArmed ? 1 : 0; an.plT = -1; an.pArmed = !!S.placeArmed; an.pStock = p.blockStock; an.plOk = false;
+    an.swT = -1; an.pSwish = !!(room && room.hoop && room.hoop.swished); an.pump = -1;
+    an.pLive = !!(ball && ball.live); an.pRet = !!(ball && ball.ret);
+    an.lx = p.x; an.ly = p.y; an.roomRef = room; an.ballRef = ball;
+    /* followers sit on their targets, the hand starts where its mode puts it */
+    var sc = HERO_SC, cos = p.cos || defaultCos(), ns = heroNearSouth(), gb = ns ? -Math.round(TILE * WALL_Z) : 0;
+    var P = heroPose(an, sc, heroBW(cos), sp > 12, ns);
+    an.hdX = P.tHX; an.hdY = P.tHY; an.htX = P.tTX; an.htY = P.tTY;
+    an.hMode = heroHandMode(an); an.hBT = 0;
+    heroHand(an, sc, heroBW(cos), p.y - sc * 1.55 + gb, p.y + gb);
+    an.hOX = HERO_P.hx - p.x; an.hOY = HERO_P.hy - (p.y + gb);
+  }
+
+  /* a room entry: revive (inv from finishDowned), a door at a run, or standing */
+  function heroEntry(an) {
+    var p = player, sp = Math.hypot(p.vx || 0, p.vy || 0), i, n;
+    an.entKind = p.inv > 1.0 ? 3 : sp > 60 ? 2 : 1;
+    an.entT = 0;
+    /* a revive gets up from the side that has room at the spawn (no body in the door stone) */
+    if (an.entKind === 3 && room && room.grid) {
+      var s = an.fallA < 0 ? -1 : 1, ptx = Math.floor(p.x / TILE), pty = Math.floor(p.y / TILE);
+      if (heroSideBlocked(ptx, pty, s) && !heroSideBlocked(ptx, pty, -s)) an.fallA = -an.fallA;
+    }
+    if (an.entKind === 2) {
+      n = S.fxLite ? 2 : 3;
+      for (i = 0; i < n; i++) dustPuff(p.x - an.dX * 12 * (i + 1), p.y + 6, 1);
+    }
+  }
+
+  function heroSideBlocked(ptx, pty, s) {
+    var k, tx, row = room && room.grid ? room.grid[pty] : null;
+    for (k = 1; k <= 2; k++) {
+      tx = ptx + s * k;
+      if (tx <= 0 || tx >= playCols() - 1) return true;
+      if (row && row[tx]) return true;
+    }
+    return false;
+  }
+  /* DOWN: fall away from the blow unless two tiles that way are stone; signed degrees */
+  function heroFallSide(an) {
+    var p = player, s = an && an.hxd ? (an.hxd < 0 ? -1 : 1) : -p.facing;
+    if (!room || !room.grid) return s * 84;
+    var ptx = Math.floor(p.x / TILE), pty = Math.floor(p.y / TILE);
+    if (heroSideBlocked(ptx, pty, s)) {
+      if (!heroSideBlocked(ptx, pty, -s)) return -s * 84;
+      return s * 60;
+    }
+    return s * 84;
+  }
+  function heroDownRot(t, fa) {
+    var s = fa < 0 ? -1 : 1, dm = Math.abs(fa) * HERO_DEG, a;
+    if (t < 0.10) a = 12 * HERO_DEG;
+    else if (t < 0.34) a = 12 * HERO_DEG + (dm - 12 * HERO_DEG) * easeInCubic((t - 0.10) / 0.24);
+    else if (t < 0.40) a = dm - 6 * HERO_DEG * Math.sin((t - 0.34) / 0.06 * Math.PI / 2);
+    else if (t < 0.46) a = dm - 6 * HERO_DEG * (1 - easeInOutQuad((t - 0.40) / 0.06));
+    else a = dm;
+    if (t >= 1.30 && t < 1.35) a += 3 * HERO_DEG * Math.sin((t - 1.30) / 0.05 * Math.PI * 2);
+    else if (t >= 1.42 && t < 1.47) a += 3 * HERO_DEG * Math.sin((t - 1.42) / 0.05 * Math.PI * 2);
+    return a * s;
+  }
+  function heroRevRot(t, fa) {
+    var s = fa < 0 ? -1 : 1, dm = Math.abs(fa) * HERO_DEG, u;
+    if (t < 0.14) return dm * s;
+    if (t < 0.40) { u = easeOutCubic((t - 0.14) / 0.26); return s * (dm + (-4 * HERO_DEG - dm) * u); }
+    return s * -4 * HERO_DEG * (1 - easeInOutQuad((t - 0.40) / 0.22));
+  }
+
+  /* the tick: one call per sim step from updatePlayer (never during DOWN, hit-stop,
+     pause or a panel, which freeze the sim anyway) */
+  function heroAnim(dt) {
+    var p = player, an = p.heroAn;
+    if (!ball) return;
+    if (!an) { an = p.heroAn = heroAnNew(); heroSnap(an); if (S.fade) heroEntry(an); return; }
+    an.t += dt;
+    an.dnOn = false;
+    /* 1. identity edges */
+    if (room !== an.roomRef) { heroSnap(an); if (S.fade) heroEntry(an); return; }
+    if (ball !== an.ballRef || Math.hypot(p.x - an.lx, p.y - an.ly) > 40) { heroSnap(an); return; }
+    var lite = !!S.fxLite, sc = HERO_SC;
+    var cos = p.cos || defaultCos(), B = HERO_BODY[cos.body] || HERO_BODY.bloc;
+    var sp = Math.hypot(p.vx || 0, p.vy || 0), top = heroTop(), moving = sp > 12;
+    var ns = heroNearSouth(), gb = ns ? -Math.round(TILE * WALL_Z) : 0, gy = p.y + gb;
+    var t0, k;
+    /* count-up clocks (-1 = off) and their threshold beats */
+    if (an.relT >= 0) { an.relT += dt; if (an.relT >= 0.30) an.relT = -1; }
+    if (an.catT >= 0) { an.catT += dt; if (an.catT >= 0.28) an.catT = -1; }
+    if (an.hitT >= 0) { an.hitT += dt; if (an.hitT >= 0.36) an.hitT = -1; }
+    if (an.soakT >= 0) { an.soakT += dt; if (an.soakT >= 0.30) an.soakT = -1; }
+    if (an.lookT >= 0) { an.lookT += dt; if (an.lookT >= 0.8) an.lookT = -1; }
+    if (an.plT >= 0) { an.plT += dt; if (an.plT >= 0.24) an.plT = -1; }
+    if (an.jumpT >= 0) {
+      t0 = an.jumpT; an.jumpT += dt;
+      if (t0 < 0.28 && an.jumpT >= 0.28) { an.plantT = 0.05; dustPuff(p.x, p.y + 6, lite ? 1 : 2); an.jumpT = -1; }
+    }
+    if (an.entT >= 0) {
+      t0 = an.entT; an.entT += dt;
+      if (an.entKind === 1 && t0 < 0.12 && an.entT >= 0.12) floorRing(p.x, p.y + 4, null, 8, 30, 0.3);
+      if (an.entKind === 3 && t0 < 0.14 && an.entT >= 0.14) floorRing(p.x, p.y + 4, (PALETTES[cos.pal] || PALETTES.ember).c, 8, 30, 0.3);
+      if (an.entKind === 3 && t0 < 0.26 && an.entT >= 0.26) an.plantT = 0.05;
+      if (an.entT >= (an.entKind === 3 ? 0.62 : an.entKind === 2 ? 0.25 : 0.36)) { an.entT = -1; an.entKind = 0; }
+    }
+    if (an.swT >= 0) {
+      an.swT += dt;
+      if (an.swT > 2.4 || !(S.cine && S.cine.active)) an.swT = -1;
+      else {
+        k = Math.floor(an.swT / 0.5);
+        if (k !== an.pump) {
+          an.pump = k;
+          if (k < 2) embers(p.x + an.hOX, gy + an.hOY, "#f0c030", lite ? 1 : 3);
+        }
+      }
+    }
+    /* count-down clocks */
+    if (an.plantT > 0) an.plantT = Math.max(0, an.plantT - dt);
+    if (an.bbT > 0) { an.bbT -= dt; if (an.bbT <= 0) an.bbT = -1; }
+    if (an.hBT > 0) an.hBT = Math.max(0, an.hBT - dt);
+    if (an.shoveCd > 0) an.shoveCd -= dt;
+
+    /* 2. shove: whatever moved him that his own velocity did not (a body bump) */
+    var rx = p.x - an.lx - (p.vx || 0) * dt, ry = p.y - an.ly - (p.vy || 0) * dt, rl = Math.hypot(rx, ry);
+    if (rl >= 4 && rl <= 40) {
+      an.shX = heroClamp(an.shX - 0.45 * rx, -8, 8);
+      an.shY = heroClamp(an.shY - 0.45 * ry, -8, 8);
+      if (an.shoveCd <= 0) { dustPuff(p.x, p.y + 6, lite ? 1 : 2); an.shoveCd = 0.1; }
+    }
+    k = Math.exp(-dt / 0.045); an.shX *= k; an.shY *= k;
+    if (an.shX < 0.05 && an.shX > -0.05) an.shX = 0;
+    if (an.shY < 0.05 && an.shY > -0.05) an.shY = 0;
+
+    /* 3. visual facing: a 0.12 s turn, reversible from wherever it is */
+    if (p.facing !== an.pFace) {
+      an.vfFrom = an.vf; an.vfTo = p.facing; an.turnP = 0;
+      an.turnDur = 0.12 * Math.max(0.3, Math.abs(an.vfTo - an.vfFrom) / 2);
+      an.idleT = 0; an.lookT = -1;
+    }
+    if (an.turnP < 1) an.turnP = Math.min(1, an.turnP + dt / an.turnDur);
+    an.vf = an.vfFrom + (an.vfTo - an.vfFrom) * easeInOutQuad(an.turnP);
+
+    /* 4. gait blend, plant pulse, start / stop / reversal beats */
+    an.gA += ((moving ? 1 : 0) - an.gA) * (1 - Math.exp(-dt / (moving ? 0.02 : 0.033)));
+    if (moving) { an.dX = p.vx / sp; an.dY = p.vy / sp; }
+    k = Math.floor((p.walk || 0) / Math.PI);
+    if (k !== an.pWalkN && sp > 60) an.plantT = 0.05;
+    an.pWalkN = k;
+    if (an.pSp < 60 && sp >= 60 && an.stillT > 0.08) {
+      an.leanV += 3 * (p.vx > 0 ? 1 : p.vx < 0 ? -1 : 0);
+      dustPuff(p.x - an.dX * 10, p.y + 6, lite ? 1 : 2, "#7a6a54");
+    }
+    if (sp < 12) an.stillT += dt; else if (sp >= 60) an.stillT = 0;
+    if (sp > 180) an.fastT = 0; else an.fastT += dt;
+    if (an.pSp >= 40 && sp < 40 && an.fastT <= 0.1) {
+      dustPuff(p.x + an.dX * 10, p.y + 6, lite ? 1 : 2);
+      an.plantT = 0.05;
+    }
+    if (Math.abs(p.vx || 0) > 60) {
+      k = p.vx > 0 ? 1 : -1;
+      if (an.revS && k !== an.revS && an.revT < 0.2) dustPuff(p.x, p.y + 6, lite ? 2 : 3);
+      an.revS = k; an.revT = 0;
+    } else an.revT += dt;
+
+    /* 5. lean spring (w 16, zeta 0.44: ~20 % overshoot on a stop) */
+    k = S.aim ? 0.4 : 1;
+    var tg = heroClamp((p.vx || 0) / top, -1, 1) * B.ln * k;
+    an.leanV += (256 * (tg - an.lean) - 14 * an.leanV) * dt; an.lean += an.leanV * dt;
+    tg = heroClamp((p.vy || 0) / top, -1, 1) * B.ln * k;
+    an.leanYV += (256 * (tg - an.leanY) - 14 * an.leanYV) * dt; an.leanY += an.leanYV * dt;
+
+    /* 6. idle life: breath, blink, glance */
+    var idle = !moving && !S.aim && an.relT < 0 && an.hitT < 0;
+    an.bA += ((idle ? 1 : 0) - an.bA) * (1 - Math.exp(-dt / (idle ? 0.1 : 0.033)));
+    an.bPh += dt * Math.PI * 2 / B.br;
+    if (an.bPh > Math.PI * 200) an.bPh -= Math.PI * 200;
+    if (an.t >= an.nextBlink) { an.blinkS = an.t; an.nextBlink = an.t + 3 + Math.random() * 3; }
+    if (idle && an.turnP >= 1 && !S.placeArmed && an.plT < 0 && !ball.live && an.catT < 0) {
+      an.idleT += dt;
+      if (an.lookT < 0 && an.idleT >= an.nextLook) {
+        an.lookT = 0; an.lookD = Math.random() < 0.5 ? -1 : 1;
+        an.nextLook = an.idleT + 0.8 + 3 + Math.random() * 2;
+      }
+    } else { an.idleT = 0; an.lookT = -1; an.nextLook = 2.5; }
+
+    /* 7. aim: pick-up, cock-back, cancel droop, put-back */
+    var aimOn = !!S.aim;
+    if (aimOn && !an.pAim && !ball.live) { an.bbT = an.bbDur = 0.09; an.bbE = 1; an.bbX = an.lastBX; an.bbY = an.lastBY; }
+    if (!aimOn && an.pAim && !ball.live) { an.bbT = an.bbDur = 0.12; an.bbE = 0; an.bbX = an.lastBX; an.bbY = an.lastBY; }
+    tg = aimOn && !S.aim.cancel ? heroClamp01((S.aim.pow - 0.4) / 0.6) : 0;
+    an.cock += (tg - an.cock) * (1 - Math.exp(-dt / 0.05));
+    an.droop += ((aimOn && S.aim.cancel ? 1 : 0) - an.droop) * (1 - Math.exp(-dt / 0.033));
+    /* the release: the ball is out on this tick, the pose is drawn after the fact */
+    if (ball.live && !an.pLive) {
+      an.relA = p.throwT > 0.2 ? p.throwAng : Math.atan2(ball.vy, ball.vx);
+      an.relT = 0; an.relRun = sp > 120; an.sb = an.vf;
+      var hp = room && room.hoop;
+      if (S.hoopReady && hp && !hp.swished) {
+        var ha = Math.atan2(hp.y - p.y, hp.x - p.x);
+        if (Math.abs(Math.atan2(Math.sin(an.relA - ha), Math.cos(an.relA - ha))) < 0.6) an.jumpT = 0;
+      }
+    }
+    if (ball.live) {
+      tg = ball.x >= p.x ? 1 : -1;
+      an.sb += (tg - an.sb) * (1 - Math.exp(-dt / 0.06));
+    } else an.sb = an.vf;
+    an.callK = ball.live && ball.ret ? Math.min(1, an.callK + dt / 0.12) : Math.max(0, an.callK - dt / 0.12);
+    /* the catch: ball.x / y still hold the contact point (the held branch runs after us) */
+    if (!ball.live && an.pLive) {
+      k = Math.hypot(ball.vx, ball.vy) || 1;
+      an.catT = 0; an.catVX = ball.vx / k; an.catVY = ball.vy / k;
+      an.bbX = ball.x - p.x; an.bbY = ball.y - gy; an.bbT = an.bbDur = 0.18; an.bbE = 0;
+    }
+
+    /* 8. swish celebration; place gesture */
+    k = !!(room && room.hoop && room.hoop.swished);
+    if (k && !an.pSwish) { an.swT = 0; an.pump = -1; }
+    an.pSwish = k;
+    var armed = !!S.placeArmed;
+    if (armed && (!an.pArmed || p.facing !== an.pFace)) {
+      var cell = placeGhostCell();
+      an.plOk = !!cell;
+      if (cell) { an.plX = (cell.tx + 0.5) * TILE; an.plY = (cell.ty + 0.5) * TILE; }
+    }
+    an.armK = armed ? Math.min(1, an.armK + dt / 0.12) : Math.max(0, an.armK - dt / 0.1);
+    if (p.blockStock < an.pStock) {
+      var bl = room && room.blocks && room.blocks.length ? room.blocks[room.blocks.length - 1] : null;
+      if (bl) { an.plX = (bl.tx + 0.5) * TILE; an.plY = (bl.ty + 0.5) * TILE; an.plOk = true; }
+      an.plT = 0;
+      dustPuff(an.plX, an.plY, lite ? 2 : 3);
+      floorRing(an.plX, an.plY, "#f0d070", 8, 26, 0.24);
+    }
+    if (p.inv <= 0) an.soakNB = false;
+
+    /* 10. ball spin on the sim clock (drawBallObj no longer integrates it) */
+    k = ball.live ? Math.hypot(ball.vx, ball.vy) * 0.0006 : ((ball.lift || 0) > 6 ? 0.035 : 0.004);
+    ball.rot = ((ball.rot || 0) + k) % 6.283185307179586;
+
+    /* 11. followers, hand memory, edge memory */
+    var bw = heroBW(cos), P = heroPose(an, sc, bw, moving, ns);
+    k = 1 - Math.exp(-dt / B.lag);
+    an.hdX += (P.tHX - an.hdX) * k; an.hdY += (P.tHY - an.hdY) * k;
+    k = 1 - Math.exp(-dt / (B.lag + 0.03));
+    an.htX += (P.tTX - an.htX) * k; an.htY += (P.tTY - an.htY) * k;
+    k = heroHandMode(an);
+    /* the release is the one switch that snaps: its first frame IS the whip */
+    if (k !== an.hMode) { an.hFX = an.hOX; an.hFY = an.hOY; an.hBT = k === 5 ? 0 : 0.10; an.hMode = k; }
+    heroHand(an, sc, bw, p.y - sc * 1.55 + gb, gy);
+    an.hOX = HERO_P.hx - p.x; an.hOY = HERO_P.hy - gy;
+    an.lx = p.x; an.ly = p.y; an.pFace = p.facing; an.pSp = sp;
+    an.pLive = !!ball.live; an.pRet = !!ball.ret; an.pAim = aimOn; an.pArmed = armed; an.pStock = p.blockStock;
+  }
+
+  /* hurtPlayer, after the field soak and before the knock-back / DOWN: a hit or a soak */
+  function heroAnHit(src, spill) {
+    var p = player, an = p && p.heroAn;
+    if (!an) return;
+    var dx, dy;
+    if (src && isFinite(src.x) && isFinite(src.y)) { dx = p.x - src.x; dy = p.y - src.y; }
+    else { dx = -p.facing; dy = 0; }
+    var d = Math.hypot(dx, dy) || 1;
+    an.hxd = Math.abs(dx) < 0.3 * d ? -p.facing : (dx < 0 ? -1 : 1);
+    an.hyd = dy / d;
+    if (spill > 0) {
+      an.hitT = 0; an.soakT = -1; an.soakNB = false;
+      sparks(p.x - an.hxd * 10, p.y - 30, "#fff2c0", S.fxLite ? 2 : 4);
+    } else { an.soakT = 0; an.soakNB = true; }
+  }
+
+  /* updateDowned, every DOWN tick: fall side, the dropped ball, dust on the beats */
+  function heroAnDown(dt) {
+    var p = player, an = p.heroAn, D = S.downed;
+    if (!an || !D) return;
+    var t = D.t, t0 = t - dt, lite = !!S.fxLite;
+    if (!an.dnOn) {
+      an.dnOn = true; an.fallA = heroFallSide(an); an.dLive = an.pLive;
+      if (ball) {
+        an.dBX = ball.x; an.dL0 = ball.lift || 0;
+        if (an.dLive) { ball.groundY = ball.y; ball.lift = 0; ball.squash = 0; }
+      }
+    }
+    var s = an.fallA < 0 ? -1 : 1;
+    if (t0 < 0.34 && t >= 0.34) dustPuff(p.x + s * 50, p.y, lite ? 2 : 3);
+    if (t0 < 0.42 && t >= 0.42) dustPuff(p.x + s * (HERO_SC * 1.34 * Math.sin(Math.abs(an.fallA) * HERO_DEG) + 12), p.y, 1);
+    if (ball && !ball.live && !an.dLive) {
+      var L = 0;
+      if (t < 0.18) L = an.dL0 * (1 - t / 0.18);
+      else if (t < 0.42) L = 8 * Math.sin(Math.PI * (t - 0.18) / 0.24);
+      else if (t < 0.60) L = 3 * Math.sin(Math.PI * (t - 0.42) / 0.18);
+      ball.lift = L;
+      ball.squash = L < 1 && t < 0.62 ? 0.18 * (1 - L) : 0;
+      ball.x = an.dBX - s * 26 * easeOutCubic(t / 0.9);
+      ball.y = ball.groundY - L;
+    }
+  }
+
+  /* updateBall's run branch: lock the floor kiss to the footfall (one bounce per step) */
+  function heroDribbleRate(rate, ph) {
+    var p = player, sp = Math.hypot(p.vx || 0, p.vy || 0);
+    var wr = 4 + 8 * sp / heroTop();
+    var d = (p.walk || 0) - ph;
+    d -= Math.PI * Math.round(d / Math.PI);
+    return Math.max(wr * 0.5, wr + 6 * d);
+  }
+
+  /* updateBall's held branch, before its return: where the held ball is drawn.
+     Offsets are from the feet (player.x, player.y + ground bias). */
+  function heroHeldBall(b, moving) {
+    var p = player, an = p.heroAn;
+    if (!an || b !== ball || b.live) return;
+    var f = an.vf, gy = b.groundY, fy = gy + 8, ox, oy, sq = 0, bounce, lift, k;
+    if (S.aim) {
+      var v = Math.sin(S.aim.ang), wS = heroClamp01((v - 0.2) / 0.4), wN = heroClamp01((-v - 0.2) / 0.4), wSd = 1 - wS - wN;
+      ox = (14 * wS + 22 * wSd + 21 * wN) * f;
+      oy = -(16 * wS + 26 * wSd + 50 * wN);
+      ox -= an.cock * 9 * Math.cos(S.aim.ang);
+      oy -= an.cock * 9 * 0.6 * Math.sin(S.aim.ang);
+      an.bApex = 0;
+    } else if (an.swT >= 0 && S.cine && S.cine.active && !(an.catT >= 0 && an.catT < 0.18)) {
+      /* ball raised on the pumping fist */
+      ox = 12 * f;
+      oy = -63 - 7 * Math.cos(Math.PI * 2 * (an.swT / 0.5)) - (BALL_R + 4);
+      an.bApex = 0;
+    } else {
+      var s = (b.x - p.x) * p.facing;
+      bounce = Math.sin(b.dribble || 0); bounce *= bounce;
+      lift = moving ? 2 + 17 * bounce : 1 + 13 * bounce;
+      an.bApex = moving ? 19 : 14;
+      sq = bounce < 0.08 ? (1 - bounce / 0.08) * 0.22 : 0;
+      if (an.turnP < 1) { k = 1 - 0.85 * Math.sin(Math.PI * an.turnP); lift *= k; an.bApex *= k; }
+      ox = s * f;
+      oy = -8 - lift;
+    }
+    if (an.bbT > 0) {
+      k = 1 - an.bbT / an.bbDur;
+      k = an.bbE ? easeOutBack(heroClamp01(k)) : easeOutCubic(k);
+      ox = an.bbX + (ox - an.bbX) * k;
+      oy = an.bbY + (oy - an.bbY) * k;
+      sq *= heroClamp01(k);
+    }
+    b.x = p.x + ox; b.y = fy + oy;
+    b.lift = Math.max(0, gy - b.y);
+    b.squash = sq;
+    an.lastBX = ox; an.lastBY = oy;
+  }
+
+  function heroHandMode(an) {
+    if (S.downed) return 1;
+    if (an.entKind === 3 && an.entT >= 0) return 1;
+    if (an.hitT >= 0 && an.hitT < 0.16 && !S.aim) return 2;
+    if (an.soakT >= 0 && !S.aim) return 3;
+    if (S.placeArmed || an.plT >= 0) return 4;
+    if (an.relT >= 0 && an.relT < 0.20) return 5;
+    if (an.swT >= 0 && S.cine && S.cine.active) return 6;
+    if (!ball || !ball.live) return 7;
+    return 8;
+  }
+
+  /* pure: the gauntlet centre (world, body-local) into HERO_P.hx / hy. Reads HERO_P's
+     torso offsets, so it runs after heroPose. gy = the feet (y + ground bias). */
+  function heroHand(an, sc, bw, pyt, gy) {
+    var P = HERO_P, p = player, x = p.x, hx, hy, k, dx, dy, d, c, s;
+    if (!an) {
+      var f0 = p.facing, thk = p.throwT > 0 ? p.throwT / 0.24 : 0;
+      var armA = S.aim ? S.aim.ang : (f0 > 0 ? -0.15 : Math.PI + 0.15);
+      if (thk > 0) armA = (p.throwAng || 0) + (f0 > 0 ? 1 : -1) * 0.5 * thk;
+      if (!S.aim && ball && !ball.live && !S.downed && thk <= 0) armA = (f0 > 0 ? 1.05 : Math.PI - 1.05) + Math.sin(ball.dribble || 0) * 0.55;
+      P.hx = x + Math.cos(armA) * sc * (bw * 0.5 + 0.14);
+      P.hy = pyt + P.torY + sc * 0.7 + Math.sin(armA) * sc * 0.2 + sc * 0.36;
+      P.sX = P.hx; P.sY = P.hy - sc * 0.36;
+      P.armHigh = false; P.armBack = false;
+      return;
+    }
+    var f = an.vf, mode = heroHandMode(an);
+    var sX = x + f * 0.28 * sc + P.torX * 0.5, sY = pyt + 0.62 * sc + P.torY;
+    var R = 0.62 * sc, clampIt = true;
+    if (mode === 1) {
+      var t, r0, r1;
+      if (S.downed) { t = S.downed.t; k = an.dnOn ? an.fallA : heroFallSide(an); r0 = heroDownRot(t, k); r1 = heroDownRot(Math.max(0, t - 0.06), k); }
+      else { t = an.entT; r0 = heroRevRot(t, an.fallA); r1 = heroRevRot(Math.max(0, t - 0.06), an.fallA); }
+      /* the arm hangs, and trails the body's swing by 0.06 s */
+      d = r1 - r0; c = Math.cos(d); s = Math.sin(d);
+      dx = f * 0.12 * sc; dy = 0.55 * sc;
+      hx = sX + dx * c - dy * s; hy = sY + dx * s + dy * c;
+      if (!S.downed && t >= 0.50) {
+        k = t < 0.56 ? easeOutCubic((t - 0.50) / 0.06) : 1 - easeInOutQuad((t - 0.56) / 0.06);
+        hx += (x + 10 * f - hx) * k; hy += (gy - 66 - hy) * k;
+      }
+    } else if (mode === 2) {
+      /* BB-V7.72: flung out past the torso edge (and clear of the head) so the gauntlet
+         stays readable in front of the body through the hurt flash */
+      hx = x + P.torX * 0.5 + an.hxd * (bw * 0.5 + 0.2) * sc; hy = sY - 0.30 * sc;
+      clampIt = false;
+    } else if (mode === 3) {
+      hx = sX - an.hxd * 0.5 * sc; hy = sY - 0.35 * sc;
+    } else if (mode === 4) {
+      if (an.plOk) {
+        hx = an.plX; hy = an.plY - 10 + (an.plT >= 0 ? 0 : Math.sin(an.t * 9));
+        if (an.plT >= 0) {
+          k = an.plT < 0.05 ? an.plT / 0.05 : 1 - easeOutBack((an.plT - 0.05) / 0.19);
+          hy += 8 * k;
+        }
+      } else { hx = x + f * 20; hy = gy - 30; }
+    } else if (mode === 5) {
+      var ra = an.relA, rc = Math.cos(ra), rv = Math.sin(ra);
+      var ff = Math.abs(rc) < 0.2 ? (f < 0 ? -1 : 1) : (rc < 0 ? -1 : 1);
+      var wS = heroClamp01((rv - 0.2) / 0.4), wN = heroClamp01((-rv - 0.2) / 0.4), wSd = 1 - wS - wN;
+      hx = x + (6 * wS + 26 * wSd + 12 * wN) * ff;
+      hy = gy - (6 * wS + 14 * wSd + 66 * wN);
+      /* follow-through: the arm keeps swinging 0.45 rad past the line (a side-arm
+         release carries on forward and up, an overhead one comes over and down) */
+      dx = hx - sX; dy = hy - sY; d = Math.hypot(dx, dy);
+      if (d > R) { dx = dx / d * R; dy = dy / d * R; }
+      k = 0.45 * ff * (wN - wSd) * easeOutCubic(an.relT / 0.10);
+      c = Math.cos(k); s = Math.sin(k);
+      hx = sX + dx * c - dy * s; hy = sY + dx * s + dy * c;
+      clampIt = false;
+    } else if (mode === 6) {
+      hx = x + 12 * f; hy = gy - 63 - 7 * Math.cos(Math.PI * 2 * (an.swT / 0.5));
+      clampIt = false;
+    } else if (mode === 7) {
+      var bx = ball.x, by = ball.y, top = by - BALL_R - 0.10 * sc + 3;
+      if (S.aim) {
+        var v = Math.sin(S.aim.ang), aS = heroClamp01((v - 0.2) / 0.4), aN = heroClamp01((-v - 0.2) / 0.4), aSd = 1 - aS - aN;
+        hx = aS * (bx - f * 5) + aSd * (bx - f * 9) + aN * (bx - f * 3);
+        hy = aS * top + aSd * (by + 6) + aN * (by + BALL_R + 2) + 6 * an.droop;
+      } else if (an.catT >= 0 && an.catT < 0.28) {
+        k = 6 * (1 - easeOutCubic(an.catT / 0.12));
+        hx = bx - f * 5 + an.catVX * k; hy = top + an.catVY * k;
+      } else if (an.bApex > 0) {
+        /* on the ball through the top of the bounce, waiting 5 px under the apex otherwise */
+        hx = bx - f * 5;
+        hy = Math.min(top, (ball.groundY - an.bApex) - BALL_R - 0.10 * sc + 3 + 5);
+      } else { hx = bx - f * 5; hy = top; }
+    } else {
+      var sb = an.sb;
+      hx = x + 15 * sb + 4 * Math.sin(p.walk || 0) * an.gA; hy = gy - 24;
+      if (an.callK > 0) {
+        k = easeOutCubic(an.callK);
+        hx += (x + 14 * sb - hx) * k;
+        hy += (gy - 50 + 1.5 * Math.sin(an.t * 18.8) - hy) * k;
+      }
+      if (ball.ret) {
+        d = Math.hypot(ball.x - x, ball.y - (p.y - 18));
+        k = heroClamp01(1 - ((d - 30) / 520) / 0.15) * 0.8;
+        hx += (ball.x - hx) * k; hy += (ball.y - hy) * k;
+      }
+    }
+    if (clampIt) {
+      dx = hx - sX; dy = hy - sY; d = Math.hypot(dx, dy);
+      if (d > R) { hx = sX + dx / d * R; hy = sY + dy / d * R; }
+    }
+    /* a mode switch blends from the last drawn hand for 0.10 s; a switch the tick has
+       not seen yet (the catch happens in updateBall) holds the last hand */
+    if (mode !== an.hMode) { hx = x + an.hOX; hy = gy + an.hOY; }
+    else if (an.hBT > 0) {
+      k = easeOutCubic(1 - an.hBT / 0.10);
+      hx = x + an.hFX + (hx - x - an.hFX) * k;
+      hy = gy + an.hFY + (hy - gy - an.hFY) * k;
+    }
+    P.hx = hx; P.hy = hy; P.hMode = mode; P.sX = sX; P.sY = sY;
+    P.armHigh = hy < pyt + 0.15 * sc;
+    /* mid-crossover the dribbling hand is behind the back with the ball */
+    P.armBack = mode === 7 && !S.aim && an.turnP < 1 && f < 0.6 && f > -0.6;
+  }
+
+  /* pure: the whole pose into HERO_P (no randomness, no integration) */
+  function heroPose(an, sc, bw, moving, nearSouth) {
+    var P = HERO_P, p = player, k, u, t;
+    P.rot = 0; P.bx = 0; P.by = 0; P.sx = 1; P.sy = 1;
+    P.lLx = 0; P.lLy = 0; P.lRx = 0; P.lRy = 0; P.liftL = 0; P.liftR = 0;
+    P.torX = 0; P.torY = 0; P.hdX = 0; P.hdY = 0; P.htX = 0; P.htY = 0;
+    P.eyeX = 0; P.eyeY = 0; P.eyeH = 1; P.white = false; P.noBlink = false; P.dim = 1;
+    P.hatFree = false; P.shK = 1; P.smear = 0; P.tHX = 0; P.tHY = 0; P.tTX = 0; P.tTY = 0; P.vf = p.facing;
+    var e = Math.max(3, sc * 0.08);
+    if (!an) {
+      /* legacy (the priming frame before the first tick) */
+      var bobAmp = moving ? (nearSouth ? 0.5 : 1.4) : (nearSouth ? 0.2 : 0.45);
+      var bob = Math.sin(S.t * 7) * bobAmp, step = moving ? Math.sin(p.walk) : 0;
+      var lf = Math.abs(step) * sc * (nearSouth ? 0.04 : 0.09);
+      P.liftL = step > 0 ? lf : 0; P.liftR = step < 0 ? lf : 0;
+      P.torY = P.hdY = P.htY = P.lLy = P.lRy = bob;
+      P.eyeX = p.facing >= 0 ? e * 0.5 : -e * 0.5;
+      P.white = p.hurtT > 0 && p.hurtT / 0.26 > 0.62;
+      if (S.downed) P.dim = 0.75;
+      return P;
+    }
+    var f = an.vf, cos = p.cos || defaultCos(), B = HERO_BODY[cos.body] || HERO_BODY.bloc;
+    var gy = p.y + (nearSouth ? -Math.round(TILE * WALL_Z) : 0);
+    P.vf = f;
+    P.eyeX = e * 0.5 * heroClamp(2 * f, -1, 1);
+    if (S.downed) {
+      /* DOWN: a rigid topple about the feet; the hat flies off and lands upright */
+      t = S.downed.t;
+      var fa = an.dnOn ? an.fallA : heroFallSide(an), fs = fa < 0 ? -1 : 1, dm = Math.abs(fa) * HERO_DEG;
+      P.rot = heroDownRot(t, fa);
+      P.white = t < 0.10; P.noBlink = true; P.dim = 0.9;
+      if (t >= 0.34 && t < 0.39) { P.sx = 1.03; P.sy = 0.97; }
+      if (t > 0.46) P.torY = -0.6 * heroBreath(t * Math.PI * 2 / 2.6);
+      P.hdY = P.htY = P.torY;
+      if (t >= 0.08) {
+        var H = sc * 1.63, sY0 = p.y + sc * 0.08 + (gy - p.y);
+        var a0 = 12 * HERO_DEG * fs;
+        var x0 = p.x + H * Math.sin(a0), y0 = sY0 - H * Math.cos(a0);
+        var xl = p.x + fs * (sc * 1.34 * Math.sin(dm) + 12), yl = sY0 - sc * 0.1;
+        var hx, hy;
+        if (t < 0.42) {
+          u = (t - 0.08) / 0.34;
+          hx = x0 + (xl - x0) * easeOutCubic(u);
+          if (t < 0.25) hy = y0 - 22 * easeOutCubic((t - 0.08) / 0.17);
+          else hy = (y0 - 22) + (yl - (y0 - 22)) * easeInCubic((t - 0.25) / 0.17);
+        } else {
+          hx = xl; hy = yl;
+          if (t < 0.50) hy -= 4 * Math.sin(Math.PI * (t - 0.42) / 0.08);
+        }
+        P.hatFree = true; P.hatWX = hx; P.hatWY = hy;
+      }
+      return P;
+    }
+    var gA = an.gA, w = p.walk || 0, sw = Math.sin(w), cw = Math.cos(w);
+    /* stride: the feet travel with the swing, lifting on the way forward */
+    var A = 0.10 * sc * B.st * gA;
+    P.lLx = -cw * A * an.dX; P.lLy = -cw * 0.06 * sc * B.st * gA * an.dY;
+    P.lRx = -P.lLx; P.lRy = -P.lLy;
+    k = sc * (nearSouth ? 0.04 : 0.09) * gA;
+    P.liftL = sw > 0 ? sw * k : 0; P.liftR = sw < 0 ? -sw * k : 0;
+    /* shove: the feet skid behind the push, the body a little */
+    P.lLx += an.shX; P.lRx += an.shX; P.lLy += an.shY; P.lRy += an.shY;
+    var L = an.lean * sc * 0.1, LY = an.leanY;
+    /* the lagged part of the torso: the head and hat followers chase these */
+    var tX = an.shX * 0.3 + B.wad * sw * gA;
+    var tY = -2.0 * Math.abs(sw) * B.bob * gA * (nearSouth ? 0.36 : 1) + an.shY * 0.3;
+    var hX = 0, hY = 0, aX = 0, aY = 0;   /* head / hat extras on top of their lag */
+    var rY = 0;                           /* rigid y: torso, head and hat together */
+    if (an.plantT > 0) {
+      k = an.plantT / 0.05; tY += k;
+      P.sx = 1 + 0.02 * k; P.sy = 1 - 0.02 * k;
+    }
+    /* aim: cock back against the pull */
+    if (S.aim) {
+      k = -an.cock * 2.5 * Math.cos(S.aim.ang);
+      tX += k * 0.8; hX += k * 0.2; aX += k * 0.4;
+      if (an.cock > 0.9) rY -= 1;
+    }
+    /* release: the lunge along the throw, the hat trailing, the skip on the run */
+    if (an.relT >= 0) {
+      k = 1 - easeInOutQuad(an.relT / 0.30);
+      var lx = Math.cos(an.relA), ly = 0.5 * Math.sin(an.relA);
+      tX += 3 * k * lx; tY += 3 * k * ly;
+      P.tHX += 2 * k * lx; P.tHY += 2 * k * ly; P.tTX += 3 * k * lx; P.tTY += 3 * k * ly;
+      if (an.relRun) {
+        if (an.relT < 0.14) P.by -= 3 * Math.sin(Math.PI * an.relT / 0.14);
+        if (lx * (p.vx || 0) < 0) tX -= 2 * k * (p.vx > 0 ? 1 : -1);
+      }
+      if (an.relT < 0.033) P.smear = 1 - an.relT / 0.033;
+    }
+    /* catch: absorb the ball (rigid dip), a 3-tick squash */
+    if (an.catT >= 0) {
+      t = an.catT;
+      rY += 2.5 * (t < 0.04 ? t / 0.04 : 1 - easeOutCubic((t - 0.04) / 0.14));
+      if (t < 0.05) { P.sx = Math.max(P.sx, 1.02); P.sy = Math.min(P.sy, 0.98); }
+    }
+    /* dribble contact: the shoulder dips while the hand rides the ball down */
+    if (ball && !ball.live && !S.aim && an.bApex > 0 && (ball.lift || 0) >= an.bApex - 5 && Math.sin(2 * (ball.dribble || 0)) < 0) tY += 1;
+    /* hurt: solid white impact frame, tip away from the blow, head whips, hat pops */
+    if (an.hitT >= 0) {
+      t = an.hitT;
+      if (t < 0.05) k = 1;
+      else if (t < 0.22) k = 1 - 1.25 * easeOutCubic((t - 0.05) / 0.17);
+      else k = -0.25 * (1 - easeInOutQuad((t - 0.22) / 0.14));
+      P.rot += 12 * HERO_DEG * an.hxd * k;
+      tX += 3 * an.hxd * k; aX += 0.6 * an.hxd * k;
+      if (t < 0.09) { hX += 2 * an.hxd * (1 - t / 0.10); P.white = true; P.noBlink = true; }
+      if (t < 0.06) aY -= 3 * t / 0.06; else if (t < 0.14) aY -= 3 * (1 - (t - 0.06) / 0.08);
+      if (t < 0.15) P.eyeH = 0.34;
+    }
+    /* soak: brace into the blow; the body stays solid, the shell blinks */
+    if (an.soakT >= 0) {
+      t = an.soakT;
+      P.rot += -4 * HERO_DEG * an.hxd * easeOutCubic(t / 0.05) * (1 - t / 0.30);
+    }
+    if (an.soakNB && p.inv > 0) P.noBlink = true;
+    P.rot += -0.10 * (an.shX / 8);
+    /* place: lean toward the cell, stamp */
+    if (an.armK > 0 && an.plOk) tX += (an.plX >= p.x ? 1 : -1) * 1.5 * easeOutCubic(an.armK);
+    if (an.plT >= 0) {
+      t = an.plT;
+      rY += 2 * (t < 0.05 ? t / 0.05 : 1 - easeOutBack((t - 0.05) / 0.19));
+      if (t < 0.034) { P.sx = Math.max(P.sx, 1.02); P.sy = Math.min(P.sy, 0.98); }
+    }
+    /* swish: the jump shot and the fist-pump hop */
+    if (an.jumpT >= 0) {
+      t = an.jumpT;
+      k = t < 0.10 ? easeOutCubic(t / 0.10) : t < 0.16 ? 1 : 1 - easeInCubic((t - 0.16) / 0.12);
+      P.by -= 6 * k; P.shK = 1 - 0.12 * k;
+    }
+    if (an.swT >= 0 && S.cine && S.cine.active) P.by -= 3 * Math.max(0, -Math.cos(Math.PI * 2 * an.swT / 0.5));
+    /* room entry */
+    if (an.entT >= 0) {
+      t = an.entT;
+      if (an.entKind === 1) {
+        k = t < 0.12 ? Math.sin(t / 0.12 * Math.PI / 2) : t < 0.24 ? 1 - easeOutCubic((t - 0.12) / 0.12) : 0;
+        rY += 2 * k; hY += 2 * k;
+        if (t >= 0.12) P.by -= 1.5 * Math.sin(Math.PI * Math.min(1, (t - 0.12) / 0.24));
+      } else if (an.entKind === 2) {
+        aX += -3 * an.dX * (1 - easeOutBack(Math.min(1, t / 0.25)));
+      } else if (an.entKind === 3) {
+        P.rot += heroRevRot(t, an.fallA);
+        if (t < 0.50) aY -= 10 * (t < 0.40 ? 1 : 1 - easeInCubic((t - 0.40) / 0.10));
+        if (t >= 0.50 && t < 0.534) { P.sx = 1.03; P.sy = 0.97; }
+      }
+    }
+    /* turn: the head leads into the new facing */
+    if (an.turnP < 1) hX += (1 - Math.abs(f)) * (an.vfTo < 0 ? -1 : 1);
+    /* idle: breath (torso, then head, then hat), glance, blink */
+    var br = an.bA, brT = 0, brH = 0, brA = 0;
+    if (br > 0.001) {
+      brT = -0.9 * br * heroBreath(an.bPh);
+      brH = -1.5 * br * heroBreath(an.bPh - 0.29);
+      brA = -1.8 * br * heroBreath(an.bPh - 0.435);
+    }
+    if (an.lookT >= 0) {
+      t = an.lookT;
+      k = t < 0.2 ? easeInOutQuad(t / 0.2) : t > 0.6 ? easeInOutQuad((0.8 - t) / 0.2) : 1;
+      P.eyeX += an.lookD * 1.5 * k; hX += 0.5 * an.lookD * k;
+    }
+    if (ball && ball.live) P.eyeX += heroClamp((ball.x - p.x) / 120, -1, 1) * 1.5;
+    if (an.hitT < 0 && an.t - an.blinkS < 0.10) P.eyeH = 0.34;
+    /* assemble: torso, then the lagged head and hat with their own extras */
+    P.torX = tX + L * 0.45;
+    P.torY = tY + rY + brT;
+    P.tHX += tX; P.tHY += tY; P.tTX += tX; P.tTY += tY;
+    P.hdX = an.hdX + L * 0.9 + hX;
+    P.hdY = an.hdY + LY + hY + rY + brH;
+    /* the hat rides the head: it takes the head's extras plus its own */
+    P.htX = an.htX + L * 1.0 + hX + aX;
+    P.htY = an.htY + LY + hY + aY + rY + brA;
+    P.sx = heroClamp(P.sx, 0.97, 1.03); P.sy = heroClamp(P.sy, 0.97, 1.03);
+    /* under a quarter degree the body is drawn upright (an unrotated draw is cheaper) */
+    if (P.rot < 0.004 && P.rot > -0.004) P.rot = 0;
+    return P;
+  }
+
+  /* the two arm cubes of the original, placed from the gauntlet centre. The sleeve
+     (cloth) stays an axis-aligned cube but stretches from the gauntlet toward the
+     shoulder along the arm's main axis, so a raised or reaching hand never leaves a
+     sleeve hanging in the air. No rotation: the same cost as the original cube. */
+  function heroDrawArm(g, hx, hy, pal, sc, white) {
+    var P = HERO_P, dx = P.sX - hx, dy = P.sY - hy, t = sc * 0.24, m = sc * 0.1, a, b;
+    if (Math.abs(dy) >= Math.abs(dx) * 0.8) {
+      a = dy < 0 ? hy + Math.min(dy, -sc * 0.3) : hy;
+      b = dy < 0 ? hy : hy + Math.max(dy, sc * 0.3);
+      cube(g, hx + heroClamp(dx * 0.5, -m, m) - t * 0.5, a, t, b - a, sc * 0.1, pal.a);
+    } else {
+      a = dx < 0 ? hx + Math.min(dx, -sc * 0.3) : hx;
+      b = dx < 0 ? hx : hx + Math.max(dx, sc * 0.3);
+      cube(g, a, hy + heroClamp(dy * 0.5, -m, m) - t * 0.5, b - a, t, sc * 0.1, pal.a);
+    }
+    cube(g, hx - sc * 0.16, hy - sc * 0.10, sc * 0.32, sc * 0.2, sc * 0.09, white ? "#ffffff" : "#4a80c8");
+  }
+
+  /* the release smear: one tapered quad from the hand to the ball, 1-2 ticks */
+  function heroSmear(g, x0, y0, x1, y1, k) {
+    var dx = x1 - x0, dy = y1 - y0, d = Math.hypot(dx, dy);
+    if (!(d > 4)) return;
+    var nx = -dy / d, ny = dx / d, a = g.globalAlpha;
+    g.globalAlpha = a * 0.5 * k;
+    g.fillStyle = ballCols().hi;
+    g.beginPath();
+    g.moveTo(x0 + nx * 3, y0 + ny * 3);
+    g.lineTo(x1 + nx * BALL_R, y1 + ny * BALL_R);
+    g.lineTo(x1 - nx * BALL_R, y1 - ny * BALL_R);
+    g.lineTo(x0 - nx * 3, y0 - ny * 3);
+    g.closePath();
+    g.fill();
+    g.globalAlpha = a;
+  }
+
   /* CHIEF BB-V6.1 — the hero rebuilt on Joe's own `drawKid`: legs, body, head and
      hat each their own cube, and the idle bob (`sin(t*7)`) that made him feel alive
      standing still. Sized off HS so he keeps the scale Joe asked for, and coloured
      from the profile palette so EMBER, QUILL, NOVA and RIFT stay different people. */
   function drawPlayer(g) {
+    /* BB-V7.72 — one transform for every pose (the DOWN flatten is now a topple in the
+       same save), alpha relative to the incoming alpha, bob and pose offsets from
+       heroPose, the arm from heroHand. Same cubes, same colours, same order, plus an
+       optional high arm slot (after the hat) and a world-space hat while DOWN. */
+    var a0 = g.globalAlpha, an = player.heroAn;
     var cos = player.cos || defaultCos();
     var pal = PALETTES[cos.pal] || PALETTES.ember;
-    if (player.inv > 0 && Math.floor(player.inv * 12) % 2 === 0) g.globalAlpha = 0.45;
-    /* BB-V7.21 — flatten + dim while DOWN so the beat reads on the body, not only
-       as a screen tint. */
-    if (S.downed) {
-      var du = Math.min(1, S.downed.t / 0.22);
-      g.globalAlpha = Math.min(g.globalAlpha, 0.55 + 0.2 * (1 - du));
-      g.save();
-      g.translate(player.x, player.y);
-      g.scale(1, 0.55 + 0.45 * (1 - du));
-      g.translate(-player.x, -player.y);
-    }
 
     /* Joe's own offsets, unchanged: head at 0, body at 0.55, legs at 1.15, all
        measured down from py = y - s*1.55. Only `sc` is ours, so he is the size
@@ -8911,73 +9661,52 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
        the soles clear the overhang without changing the hitbox. */
     var sc = 22 * HS;
     var moving = Math.hypot(player.vx || 0, player.vy || 0) > 12;
-    var nearSouth = false;
-    if (room && room.grid) {
-      var ptx = Math.floor(player.x / TILE), pty = Math.floor(player.y / TILE);
-      if (pty + 1 < playRows() && room.grid[pty + 1] && room.grid[pty + 1][ptx]) nearSouth = true;
-    }
-    var bobAmp = moving ? (nearSouth ? 0.5 : 1.4) : (nearSouth ? 0.2 : 0.45);
-    var bob = Math.sin(S.t * 7) * bobAmp;
-    var step = moving ? Math.sin(player.walk) : 0;
-    var lift = Math.abs(step) * sc * (nearSouth ? 0.04 : 0.09);
+    var nearSouth = heroNearSouth();
     /* Full WALL_Z: the cube top overhangs exactly that far onto the floor. */
     var groundBias = nearSouth ? -Math.round(TILE * WALL_Z) : 0;
-
-    /* BB-V7.69 — transient poses only; Joe's proportions and offsets stay.
-       throw: lean into the release and follow the arm through; hurt: a white
-       flash and a jolt away; catch: a small squash. */
-    var thk = player.throwT > 0 ? player.throwT / 0.24 : 0;
-    var huk = player.hurtT > 0 ? player.hurtT / 0.26 : 0;
-    var cak = player.catchT > 0 ? player.catchT / 0.16 : 0;
-    if (huk > 0.62) pal = { a: "#ffffff", b: "#ffffff", c: "#ffffff", skin: "#ffffff" };
-    var poseLean = thk > 0 ? Math.cos(player.throwAng || 0) * sc * 0.1 * Math.sin(thk * Math.PI) : 0;
-    if (huk > 0) poseLean += Math.sin(S.t * 60) * sc * 0.05 * huk;
-    var poseSy = 1 - 0.07 * cak - (thk > 0 ? 0.05 * Math.sin(thk * Math.PI) : 0);
-    var poseSx = 1 + 0.06 * cak + (thk > 0 ? 0.04 * Math.sin(thk * Math.PI) : 0);
     var bw = cos.body === "tall" ? 0.72 : cos.body === "round" ? 0.98 : cos.body === "swift" ? 0.7 : 0.84;
     var bh = cos.body === "tall" ? 0.86 : cos.body === "round" ? 0.56 : cos.body === "swift" ? 0.64 : 0.7;
+    var P = heroPose(an, sc, bw, moving, nearSouth);
+    if (P.white) pal = HERO_WHITE;
+    var blink = player.inv > 0 && Math.floor(player.inv * 12) % 2 === 0 && !S.downed;
+    g.globalAlpha = a0 * (blink && !P.noBlink ? 0.45 : 1) * P.dim;
 
-    var x = player.x, f = player.facing;
-    var pxl = x - sc * 0.5, pyt = player.y - sc * 1.55 + bob + groundBias;
+    var x = player.x;
+    var pxl = x - sc * 0.5, pyt = player.y - sc * 1.55 + groundBias;
     var shadowY = player.y + sc * 0.08 + groundBias;
+    var srx = sc * 0.42 * P.shK, sry = sc * 0.13 * P.shK;
 
     g.fillStyle = "rgba(10,8,6,0.34)";
-    g.beginPath(); g.ellipse(x, shadowY, sc * 0.42, sc * 0.13, 0, 0, 6.3); g.fill();
+    if (ellipseOk(srx, sry)) { g.beginPath(); g.ellipse(x, shadowY, srx, sry, 0, 0, 6.3); g.fill(); }
     g.save();
     g.translate(x, shadowY);
-    g.scale(poseSx, poseSy);
-    g.translate(-x + poseLean, -shadowY);
+    if (P.rot) g.rotate(P.rot);
+    if (P.sx !== 1 || P.sy !== 1) g.scale(P.sx, P.sy);
+    g.translate(-x + P.bx, -shadowY + P.by);
 
-    cube(g, pxl + sc * 0.12, pyt + sc * 1.15 - (step > 0 ? lift : 0), sc * 0.28, sc * 0.28, sc * 0.18, pal.b);
-    cube(g, pxl + sc * 0.58, pyt + sc * 1.15 - (step < 0 ? lift : 0), sc * 0.28, sc * 0.28, sc * 0.18, pal.b);
+    cube(g, pxl + sc * 0.12 + P.lLx, pyt + sc * 1.15 + P.lLy - P.liftL, sc * 0.28, sc * 0.28, sc * 0.18, pal.b);
+    cube(g, pxl + sc * 0.58 + P.lRx, pyt + sc * 1.15 + P.lRy - P.liftR, sc * 0.28, sc * 0.28, sc * 0.18, pal.b);
 
-    cube(g, pxl + sc * (0.5 - bw / 2), pyt + sc * (1.25 - bh), sc * bw, sc * bh, sc * 0.22, pal.a);
+    heroHand(an, sc, bw, pyt, player.y + groundBias);
+    if (P.armBack) heroDrawArm(g, P.hx, P.hy, pal, sc, P.white);
+    cube(g, pxl + sc * (0.5 - bw / 2) + P.torX, pyt + sc * (1.25 - bh) + P.torY, sc * bw, sc * bh, sc * 0.22, pal.a);
+    if (!P.armHigh && !P.armBack) heroDrawArm(g, P.hx, P.hy, pal, sc, P.white);
 
-    var armA = S.aim ? S.aim.ang : (f > 0 ? -0.15 : Math.PI + 0.15);
-    if (thk > 0) armA = (player.throwAng || 0) + (f > 0 ? 1 : -1) * 0.5 * thk;
-    /* BB-V7.23 — while dribbling, the gauntlet taps toward the bounce instead of
-       hanging in a static throw pose. */
-    if (!S.aim && ball && !ball.live && !S.downed && thk <= 0) {
-      var tap = Math.sin(ball.dribble || 0);
-      var base = f > 0 ? 1.05 : Math.PI - 1.05;
-      armA = base + tap * 0.55;
-    }
-    var ax = x + Math.cos(armA) * sc * (bw * 0.5 + 0.14);
-    var ay = pyt + sc * 0.7 + Math.sin(armA) * sc * 0.2;
-    cube(g, ax - sc * 0.12, ay, sc * 0.24, sc * 0.3, sc * 0.1, pal.a);
-    cube(g, ax - sc * 0.16, ay + sc * 0.26, sc * 0.32, sc * 0.2, sc * 0.09, "#4a80c8");
-
-    cube(g, pxl + sc * 0.18, pyt, sc * 0.64, sc * 0.58, sc * 0.2, pal.skin);
+    cube(g, pxl + sc * 0.18 + P.hdX, pyt + P.hdY, sc * 0.64, sc * 0.58, sc * 0.2, pal.skin);
     g.fillStyle = "#1a1a1a";
-    var e = Math.max(3, sc * 0.08), ex = f >= 0 ? e * 0.5 : -e * 0.5;
-    g.fillRect(pxl + sc * 0.32 + ex, pyt + sc * 0.2, e, e);
-    g.fillRect(pxl + sc * 0.52 + ex, pyt + sc * 0.2, e, e);
+    var e = Math.max(3, sc * 0.08), eh = e * P.eyeH, ey = pyt + sc * 0.2 + P.hdY + P.eyeY + (e - eh) * 0.5;
+    g.fillRect(pxl + sc * 0.32 + P.eyeX + P.hdX, ey, e, eh);
+    g.fillRect(pxl + sc * 0.52 + P.eyeX + P.hdX, ey, e, eh);
 
-    drawHat(g, x, pyt, cos.hat, pal, sc);
+    if (!P.hatFree) drawHat(g, x + P.htX, pyt + P.htY, cos.hat, pal, sc);
+    if (P.armHigh) heroDrawArm(g, P.hx, P.hy, pal, sc, P.white);
     g.restore();
+    if (P.smear > 0 && !S.fxLite && ball && ball.live) heroSmear(g, P.hx + P.bx, P.hy + P.by, ball.x, ball.y, P.smear);
+    if (P.hatFree) drawHat(g, P.hatWX, P.hatWY, cos.hat, pal, sc);
+    /* the shell keeps the plain inv blink (a soaked hit leaves the body solid) */
+    g.globalAlpha = a0 * (blink ? 0.45 : 1) * P.dim;
     drawField(g, sc);
-    if (S.downed) g.restore();
-    g.globalAlpha = 1;
+    g.globalAlpha = a0;
   }
 
   function strokeHex(g, cx, cy, rad) {
@@ -9051,15 +9780,18 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     var baseA = g.globalAlpha;
     var fillU = f.max > 0 ? Math.max(0, Math.min(1, f.pool / f.max)) : 0;
     var breath = 0.5 + 0.5 * Math.sin(S.t * (def.id === "pulse" ? 10 : def.id === "briar" ? 5 : 3.2));
-    var flash = f.flash > 0 ? Math.min(1, f.flash / 0.24) : 0;
-    var i, seg, have, rad;
+    /* BB-V7.72 — a soak ripples out ring by ring (inner first) instead of every ring
+       flashing at once; fe = time since the soak */
+    var fe = f.flash > 0 ? 0.24 - f.flash : -1;
+    var i, seg, have, rad, fk, lj = g.lineJoin;
     g.lineJoin = "miter";
     for (i = 0; i < def.pips; i++) {
       seg = 1 / def.pips;
       have = Math.max(0, Math.min(1, (fillU - i * seg) / seg));
-      rad = sc * (0.78 + i * 0.16);
-      g.globalAlpha = baseA * (0.12 + have * (0.5 + breath * 0.22) + flash * 0.35);
-      g.strokeStyle = flash > 0.45 ? "#fff4d0" : def.col;
+      fk = fe >= 0 ? Math.max(0, 1 - Math.abs(fe - (0.03 + 0.035 * i)) / 0.09) : 0;
+      rad = sc * (0.78 + i * 0.16) + 2.5 * fk;
+      g.globalAlpha = baseA * (0.12 + have * (0.5 + breath * 0.22) + fk * 0.35);
+      g.strokeStyle = fk > 0.45 ? "#fff4d0" : def.col;
       g.lineWidth = def.id === "bulwark" ? 3.4 : def.id === "pulse" ? 1.7 : 2.3;
       strokeHex(g, cx, cy, rad);
       if (i === def.pips - 1 && have > 0.3 && def.id === "bulwark") {
@@ -9079,6 +9811,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     }
     if (f.zap && f.zap.t > 0) drawThornZap(g, f, cx, cy, baseA);
     g.globalAlpha = baseA;
+    g.lineJoin = lj;
   }
 
   /* CHIEF BB-V6.1 — hats as cubes on top of the head cube, Joe's own placement. */
@@ -9179,7 +9912,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     var squash = (!b.live && b.squash) ? b.squash : 0;
     if (b.live && b.squashT > 0) squash = (b.squashT / 0.1) * 0.35;
     var spin = b.live ? Math.hypot(b.vx, b.vy) * 0.0006 : (lift > 6 ? 0.035 : 0.004);
-    b.rot = (b.rot || 0) + spin;
+    if (!(b === ball && player && player.heroAn)) b.rot = (b.rot || 0) + spin; /* BB-V7.72 heroAnim spins it per tick */
     var shadowY = b.y + b.r * 0.78 + lift;
     var shadowS = 1 - Math.min(0.5, lift / 36);
     g.fillStyle = "rgba(0,0,0," + (0.22 + 0.18 * shadowS) + ")";
