@@ -9581,6 +9581,8 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     spike: [-0.82, 0.58, 0.34, 0.30, 0.14],
     bramble: [-0.84, 0.54, 0.38, 0.32, 0.15]
   };
+  /* flat weapon on the floor: grip to its lowest edge (u) */
+  var KNIGHT_REST_W = { sword: 0.25, hammer: 0.34, scythe: 0.18, lance: 0.28 };
   /* lowest point of each helm below its band centre once on its side (a quarter turn) */
   var KNIGHT_HELM_LOW = { crest: 0.44, horn: 0.72, hood: 0.52, antler: 0.52 };
   var KNIGHT_CK = [];
@@ -9595,6 +9597,13 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       c = q === 0 ? 1 : q === 2 ? -1 : 0; s = q === 1 ? 1 : q === 3 ? -1 : 0;
     } else { c = Math.cos(a); s = Math.sin(a); }
     g.transform(c, s, -s, c, cx - c * cx + s * cy, cy - s * cx - c * cy);
+  }
+  /* helm topper cube (x0, y0, w, h, d in u, from the helm centre) moved by the
+     small-angle offset of a rotation a about the band top (mx, my - 0.18u) */
+  function knightTopCube(g, mx, my, u, a, x0, y0, w, h, d, col) {
+    var dx = 0, dy = 0;
+    if (a > 0.004 || a < -0.004) { dx = -a * (y0 + h / 2 + 0.18) * u; dy = a * (x0 + w / 2) * u; }
+    cube(g, mx + x0 * u + dx, my + y0 * u + dy, w * u, h * u, d * u, col);
   }
   function knightNoRot(a) { return a < 0.012 && a > -0.012; }
   /* the torso may sink at most 0.14u over the planted legs (0.24u of leg shows) */
@@ -9891,7 +9900,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     }
     /* rise (KN-13): whole rig slides up through a floor clip, hop, salute */
     var rigY = 0, swY = 0, shK = 1, eyeRise = -1, sal = 0, snap = -1;
-    P.clip = false; P.riseSkip = false; P.slotR = 0; P.clipY = e.y + 0.05 * u;
+    P.clip = false; P.riseSkip = false; P.slotR = 0; P.slotRim = 0; P.clipY = e.y + 0.05 * u;
     if (spawning && KNIGHT_OWN_RISE) {
       var su = e.spawnMax ? knightClamp01(1 - e.spawnT / e.spawnMax) : 1;
       var h = knightRiseH(su), hs = knightRiseH(su - 0.03);
@@ -9899,6 +9908,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       P.clip = h < 1 || hs < 1; P.riseSkip = su < 0.22;
       P.slotR = 0.95 * u * easeOutCubic(su / 0.22) * (1 - easeInOutQuad((su - 0.68) / 0.14));
       shK = 0.3 + 0.7 * h;
+      P.slotRim = 1 - knightClamp01((su - 0.22) / 0.10);   /* review: rim only while the slot opens */
       if (su >= 0.68 && su < 0.74) {
         var hop = -0.07 * u * Math.sin(PI * (su - 0.68) / 0.06);
         rigY += hop; swY += hop; shK *= 1 + 0.15 * hop / (0.07 * u);
@@ -9913,7 +9923,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     var Lt = fS * A.L * u + Llive, Lh = fS * A.Lh * u + Llive;
     var yB = bounce + liftUp + A.ty * u;
     var tyUp = Dc + bT + yB;
-    P.fS = fS; P.fa = fa; P.eF = eF;
+    P.fS = fS; P.fa = fa; P.eF = eF; P.Dc = Dc; P.wSw = 0; P.tSq = sq;
     P.lLX = lLX - splay + Lrig; P.lLY = lLY + rigY;
     P.lRX = lRX + splay + Lrig; P.lRY = lRY + rigY;
     P.tX = Lt + hurt + Lrig; P.tY = tyUp + rigY + Math.abs(hurt) * (0.02 / 0.12); P.tA = 0;
@@ -9922,15 +9932,17 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     var rattle = (an && hurtT < 0.12) ? (((an.n >> 1) & 1) ? 0.02 : -0.02) * u * (1 - hurtT / 0.12) : 0;
     var pBase = 1.05 * (Lt + hurt) + rattle + Lrig, pYb = Dc + bP + yB + A.pY * u + rigY;
     var pSx = fS * A.pSX * u, pSy = A.pSY * u;
-    P.pLX = pBase + pinch + (fa < 0 ? pSx : 0); P.pLY = pYb + pG + (fa < 0 ? pSy : 0); P.pLA = 0;
-    P.pRX = pBase - pinch + (fa > 0 ? pSx : 0); P.pRY = pYb - pG + (fa > 0 ? pSy : 0); P.pRA = 0;
+    /* review: the sword-side raise crosses over with the turn (no one-frame swap) */
+    var pWL = knightClamp01((1 - fS) / 2), pWR = 1 - pWL;
+    P.pLX = pBase + pinch + pSx * pWL; P.pLY = pYb + pG + pSy * pWL; P.pLA = 0;
+    P.pRX = pBase - pinch + pSx * pWR; P.pRY = pYb - pG + pSy * pWR; P.pRA = 0;
     P.hX = 1.15 * Lh + 1.25 * hurtH + Lrig; P.hY = Dhc + bD + yB + rigY;
     P.mX = P.hX; P.mY = P.hY; P.mA = 0; P.crA = an ? an.crA : 0;
     /* hand + weapon */
     var unlock = 1 - A.lock, hdX, hdY, wA;
     if (A.abs) { hdX = A.ax; hdY = A.ay; wA = A.aw; }
     else { hdX = x + fS * A.hx * u; hdY = yt0 + A.hy * u; wA = fS * A.th; }
-    hdX += unlock * 0.9 * Llive + 0.9 * hurt + Lrig;
+    hdX += unlock * (0.9 * Llive + 0.9 * hurt) + Lrig;
     hdY += unlock * (bH + 0.9 * bounce + gripG) + (authored ? 0 : 0.9 * Dc + liftUp) + swY;
     hdY -= 0.20 * u * sq;
     wA += fTo * 0.30 * sq;
@@ -9969,7 +9981,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
           P.gl = true; P.glX = hdX; P.glY = hdY - 0.22 * u; P.glW = 0.08 * u; P.glH = 0.08 * u; P.glA = 0.8;
         }
       }
-      P.wFront = true;
+      P.wFront = k.weap !== "hammer";   /* review: the maul head would hide the eyes */
     }
     P.hdX = hdX; P.hdY = hdY; P.wA = wA;
     /* eyes */
@@ -9996,7 +10008,9 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
   function knightDeathPose(P, e, an, dieT, u, x, yt0, k) {
     var F = P.fa, D = -(an ? an.faceTo : P.fa), p, q;
     if (dieT < 0.05) P.hot = 2;
-    P.rh = false;
+    /* review: a kill inside the re-arm catch froze the sword's fade-in; finish it */
+    if (!e.disarm && P.wShow === 1 && P.wAl < 1) P.wAl = Math.max(P.wAl, knightClamp01(dieT / 0.08));
+    P.rh = P.rh && P.wAl < 1;
     var jolt = 1 - knightClamp01((dieT - 0.05) / 0.10);
     P.tX += D * 0.06 * u * jolt; P.hX += D * 0.08 * u * jolt; P.mX += D * 0.08 * u * jolt;
     var eg = dieT < 0.05 ? 1.5 : dieT < 0.09 ? 1.0 : dieT < 0.12 ? 0 : dieT < 0.14 ? 0.9 : dieT < 0.20 ? 0.9 * (1 - (dieT - 0.14) / 0.06) : 0;
@@ -10005,7 +10019,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     P.crA *= 1 - knightClamp01((dieT - 0.12) / 0.10);
     /* buckle: the cuirass sinks 0.32u (cap bypassed) and tilts about the hip */
     var bk = easeInCubic((dieT - 0.22) / 0.34);
-    var drop = 0.32 * u * bk - (dieT >= 0.56 && dieT < 0.64 ? 0.02 * u * Math.sin(Math.PI * (dieT - 0.56) / 0.08) : 0);
+    var drop = Math.max(0, 0.32 * u - (P.Dc || 0)) * bk - (dieT >= 0.56 && dieT < 0.64 ? 0.02 * u * Math.sin(Math.PI * (dieT - 0.56) / 0.08) : 0);
     /* the tilt settles level after the crash, so the resting pile draws upright (no transform) */
     var lvl = 1 - easeInOutQuad((dieT - 0.56) / 0.16);
     P.tY += drop; P.tA = D * 0.12 * bk * lvl;
@@ -10013,13 +10027,42 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     P.hY += drop + 0.10 * u * bk; P.hX += D * (0.04 + 0.06 * lvl) * u * bk;
     P.lLX -= 0.10 * u * bk; P.lRX += 0.10 * u * bk;
     if (e.disarm || P.wShow !== 1) { P.hdY += drop; P.hdX += D * 0.08 * u * bk; }
-    else if (dieT > 0.08) {
+    else {
+      /* killed mid-turn: the grip finishes the turn over 0.10 s, so the blade
+         does not stay parked behind the head */
+      if (P.fS !== F && !KNIGHT_A.abs) {
+        var ts = knightEaseOutQuad(knightClamp01(dieT / 0.10));
+        P.hdX += (F - P.fS) * KNIGHT_A.hx * u * ts; P.hdY += 0.20 * u * P.tSq * ts;
+        P.wA -= (an ? an.faceTo : F) * 0.30 * P.tSq * ts;
+      }
+    }
+    if (!e.disarm && P.wShow === 1 && dieT > 0.08) {
       /* the sword falls flat, tip outward, and bounces once */
       p = easeInCubic((dieT - 0.08) / 0.26);
-      var gx = x + F * 0.62 * u, gy = e.y - 0.06 * u, ga = F * Math.PI / 2, bo = 0;
+      var gx = x + F * 0.62 * u, gy = e.y + (0.03 - (KNIGHT_REST_W[k.weap] || 0.25)) * u, ga = F * Math.PI / 2, bo = 0;
       if (dieT >= 0.34 && dieT < 0.42) { q = Math.sin(Math.PI * (dieT - 0.34) / 0.08); bo = -0.05 * u * q; }
-      P.wLeg = false; P.wLift = 0; P.wFront = false;
-      P.hdX += (gx - P.hdX) * p; P.hdY += (gy - P.hdY) * p + bo; P.wA += (ga - P.wA) * p;
+      var a0 = P.wA;
+      if (P.wLeg) {
+        /* legacy kit weapon: fold the bridge's lift / pose offsets into the
+           grip and keep the scythe hook's swing, so the handoff is seamless */
+        var L = P.wLift, ps = P.wPose;
+        if (ps === "charge" && k.weap === "lance") { P.hdX += P.fa * u * (0.2 + L * 0.4); P.hdY += 0.15 * u - L * 0.2; }
+        else if (ps === "spire" && k.weap === "sword") { P.hdX -= P.fa * u * 0.1; P.hdY -= L; }
+        else P.hdY -= ps === "slam" && k.weap === "hammer" ? L * 1.15 : L;
+        P.wSw = (e.swing || 0) * (1 - p);
+        a0 = 0;
+        P.wLeg = false; P.wLift = 0; P.wPose = "";
+      }
+      P.wFront = false;
+      /* the short way round (the knives carry leaves wA past a full turn) */
+      var da = ga - a0;
+      da -= 2 * Math.PI * Math.round(da / (2 * Math.PI));
+      P.hdX += (gx - P.hdX) * p; P.hdY += (gy - P.hdY) * p + bo; P.wA = a0 + da * p;
+      /* keep the blade tip above the floor while it swings out of a plunge */
+      if (k.weap === "sword") {
+        var tb = e.y + 0.03 * u + Math.cos(P.wA) * 1.19 * u;
+        if (P.hdY > tb) P.hdY -= (P.hdY - tb) * knightClamp01(3 * p);
+      }
     }
     /* helm pops, arcs away from the hero and lands on its side */
     if (dieT >= 0.12) {
@@ -10072,11 +10115,11 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     } else if (P.wLeg) {
       drawKnightWeapon(g, k, P.hdX, P.hdY - u * 1.09, u, P.fa, P.wLift, e.swing || 0, P.wPose, sh);
     } else if (knightNoRot(P.wA)) {
-      drawKnightWeapon(g, k, P.hdX, P.hdY - u * 1.09, u, P.fa, 0, 0, "", sh);
+      drawKnightWeapon(g, k, P.hdX, P.hdY - u * 1.09, u, P.fa, 0, P.wSw, "", sh);
     } else {
       g.save();
       knightRot(g, P.hdX, P.hdY, P.wA);
-      drawKnightWeapon(g, k, P.hdX, P.hdY - u * 1.09, u, P.fa, 0, 0, "", sh);
+      drawKnightWeapon(g, k, P.hdX, P.hdY - u * 1.09, u, P.fa, 0, P.wSw, "", sh);
       g.restore();
     }
     if (P.wAl < 1) g.globalAlpha = GA;
@@ -10227,7 +10270,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       g.globalAlpha = GA * 0.55; g.fillStyle = "#0a0806";
       g.beginPath(); g.ellipse(x, e.y + u * 0.22, P.slotR, P.slotR * 0.30, 0, 0, 6.3); g.fill();
       /* polish: a lit dust rim so the slot reads on the dark floor (same path) */
-      g.globalAlpha = GA * 0.5; g.strokeStyle = "#6a5a44"; g.lineWidth = 1.5; g.stroke();
+      if (P.slotRim > 0) { g.globalAlpha = GA * 0.5 * P.slotRim; g.strokeStyle = "#6a5a44"; g.lineWidth = 1.5; g.stroke(); }
       g.globalAlpha = GA;
     }
     if (P.riseSkip) { g.restore(); return; }
@@ -10291,27 +10334,27 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     var mx = x + P.mX, my = yt0 + P.mY, mrot = P.mA > 0.0005 || P.mA < -0.0005;
     if (mrot) { g.save(); knightRot(g, mx, my - u * 0.03, P.mA); }
     cube(g, mx - u * 0.44, my - u * 0.18, u * 0.88, u * 0.30, u * 0.14, trimC);
-    var crot = k.helm !== "hood" && (P.crA > 0.02 || P.crA < -0.02);
-    if (crot) { g.save(); knightRot(g, mx, my - u * 0.18, P.crA); }
+    /* topper spring (review): each cube slides by its small-angle offset about
+       the band top instead of a rotated transform, so it stays axis-aligned */
+    var cA = P.crA;
     if (k.helm === "crest") {
-      cube(g, mx - u * 0.05, my - u * 0.60, u * 0.10, u * 0.44, u * 0.05, accC);
-      cube(g, mx - u * 0.20, my - u * 0.72, u * 0.40, u * 0.16, u * 0.06, accC);
-      cube(g, mx - u * 0.30, my - u * 0.62, u * 0.18, u * 0.12, u * 0.05, hot2 ? sh.hAcc : sh.a08);
+      knightTopCube(g, mx, my, u, cA, -0.05, -0.60, 0.10, 0.44, 0.05, accC);
+      knightTopCube(g, mx, my, u, cA, -0.20, -0.72, 0.40, 0.16, 0.06, accC);
+      knightTopCube(g, mx, my, u, cA, -0.30, -0.62, 0.18, 0.12, 0.05, hot2 ? sh.hAcc : sh.a08);
     } else if (k.helm === "horn") {
-      cube(g, mx - u * 0.62, my - u * 0.44, u * 0.22, u * 0.30, u * 0.10, accC);
-      cube(g, mx + u * 0.40, my - u * 0.44, u * 0.22, u * 0.30, u * 0.10, accC);
-      cube(g, mx - u * 0.72, my - u * 0.26, u * 0.14, u * 0.18, u * 0.06, accC);
-      cube(g, mx + u * 0.58, my - u * 0.26, u * 0.14, u * 0.18, u * 0.06, accC);
+      knightTopCube(g, mx, my, u, cA, -0.62, -0.44, 0.22, 0.30, 0.10, accC);
+      knightTopCube(g, mx, my, u, cA, 0.40, -0.44, 0.22, 0.30, 0.10, accC);
+      knightTopCube(g, mx, my, u, cA, -0.72, -0.26, 0.14, 0.18, 0.06, accC);
+      knightTopCube(g, mx, my, u, cA, 0.58, -0.26, 0.14, 0.18, 0.06, accC);
     } else if (k.helm === "hood") {
       cube(g, mx - u * 0.52, my - u * 0.30, u * 1.04, u * 0.34, u * 0.12, hot2 ? sh.hCloak : k.cloak);
       cube(g, mx - u * 0.42, my - u * 0.46, u * 0.84, u * 0.20, u * 0.08, hot2 ? sh.hCloak : sh.c12);
     } else {
-      cube(g, mx - u * 0.30, my - u * 0.52, u * 0.12, u * 0.36, u * 0.05, accC);
-      cube(g, mx + u * 0.18, my - u * 0.52, u * 0.12, u * 0.36, u * 0.05, accC);
-      cube(g, mx - u * 0.52, my - u * 0.64, u * 0.26, u * 0.10, u * 0.04, accC);
-      cube(g, mx + u * 0.26, my - u * 0.64, u * 0.26, u * 0.10, u * 0.04, accC);
+      knightTopCube(g, mx, my, u, cA, -0.30, -0.52, 0.12, 0.36, 0.05, accC);
+      knightTopCube(g, mx, my, u, cA, 0.18, -0.52, 0.12, 0.36, 0.05, accC);
+      knightTopCube(g, mx, my, u, cA, -0.52, -0.64, 0.26, 0.10, 0.04, accC);
+      knightTopCube(g, mx, my, u, cA, 0.26, -0.64, 0.26, 0.10, 0.04, accC);
     }
-    if (crot) g.restore();
     if (mrot) g.restore();
     /* the salute holds the blade before the face */
     if (P.wFront) knightDrawWeapon(g, e, k, sh, P, u, body, GA);
@@ -12070,7 +12113,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     /* BB-V7.15 — trash / knight / lord each have their own vis. Hurtboxes are
        fit to the painted torso in fitSilhouette (not a shared r*N halo). */
     g.save();
-    if (e.boss && e.boss !== "mini" && e.spawnT > 0 && e.spawnMax) {
+    if (e.boss && !(e.boss === "mini" && KNIGHT_OWN_RISE) && e.spawnT > 0 && e.spawnMax) {
       /* knights and bosses rise out of their ring the same way trash does */
       var su = 1 - e.spawnT / e.spawnMax;
       var rise = su < 0.3 ? 0.02 : Math.max(0.02, easeOutBack((su - 0.3) / 0.7));
