@@ -8897,7 +8897,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
   var HERO_P = { rot: 0, bx: 0, by: 0, sx: 1, sy: 1, lLx: 0, lLy: 0, lRx: 0, lRy: 0, liftL: 0, liftR: 0,
     torX: 0, torY: 0, hdX: 0, hdY: 0, htX: 0, htY: 0, hx: 0, hy: 0, armHigh: false, eyeX: 0, eyeY: 0, eyeH: 1,
     white: false, noBlink: false, dim: 1, hatFree: false, hatWX: 0, hatWY: 0, shK: 1, smear: 0, smX: 0, smY: 0,
-    tHX: 0, tHY: 0, tTX: 0, tTY: 0, vf: 1, hMode: 0, sX: 0, sY: 0, armBack: false };
+    tHX: 0, tHY: 0, tTX: 0, tTY: 0, vf: 1, hMode: 0, sX: 0, sY: 0 };
   var HERO_WHITE = { a: "#ffffff", b: "#ffffff", c: "#ffffff", skin: "#ffffff" };
   var HERO_BODY = { /* stride, bob, lean, head lag tau (s), breath period (s), waddle px */
     bloc:  { st: 1.00, bob: 1.0, ln: 1.0, lag: 0.04, br: 2.6, wad: 0 },
@@ -9236,11 +9236,14 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     var t = D.t, t0 = t - dt, lite = !!S.fxLite;
     if (!an.dnOn) {
       an.dnOn = true; an.fallA = heroFallSide(an); an.dLive = an.pLive;
+      /* heroAnim is skipped while DOWN: the hand's mode switch (and its 0.10 s blend) runs here */
+      an.hFX = an.hOX; an.hFY = an.hOY; an.hBT = 0.10; an.hMode = 1;
       if (ball) {
         an.dBX = ball.x; an.dL0 = ball.lift || 0;
         if (an.dLive) { ball.groundY = ball.y; ball.lift = 0; ball.squash = 0; }
       }
     }
+    else if (an.hBT > 0) an.hBT = Math.max(0, an.hBT - dt);
     var s = an.fallA < 0 ? -1 : 1;
     if (t0 < 0.34 && t >= 0.34) dustPuff(p.x + s * 50, p.y, lite ? 2 : 3);
     if (t0 < 0.42 && t >= 0.42) dustPuff(p.x + s * (HERO_SC * 1.34 * Math.sin(Math.abs(an.fallA) * HERO_DEG) + 12), p.y, 1);
@@ -9330,7 +9333,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       P.hx = x + Math.cos(armA) * sc * (bw * 0.5 + 0.14);
       P.hy = pyt + P.torY + sc * 0.7 + Math.sin(armA) * sc * 0.2 + sc * 0.36;
       P.sX = P.hx; P.sY = P.hy - sc * 0.36;
-      P.armHigh = false; P.armBack = false;
+      P.armHigh = false;
       return;
     }
     var f = an.vf, mode = heroHandMode(an);
@@ -9371,8 +9374,9 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       hy = gy - (6 * wS + 14 * wSd + 66 * wN);
       /* follow-through: the arm keeps swinging 0.45 rad past the line (a side-arm
          release carries on forward and up, an overhead one comes over and down) */
-      dx = hx - sX; dy = hy - sY; d = Math.hypot(dx, dy);
-      if (d > R) { dx = dx / d * R; dy = dy / d * R; }
+      /* the overhead class reaches past the normal clamp so the hand clears the hat */
+      dx = hx - sX; dy = hy - sY; d = Math.hypot(dx, dy); k = R * (1 + 0.4 * wN);
+      if (d > k) { dx = dx / d * k; dy = dy / d * k; }
       k = 0.45 * ff * (wN - wSd) * easeOutCubic(an.relT / 0.10);
       c = Math.cos(k); s = Math.sin(k);
       hx = sX + dx * c - dy * s; hy = sY + dx * s + dy * c;
@@ -9421,9 +9425,9 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       hy = gy + an.hFY + (hy - gy - an.hFY) * k;
     }
     P.hx = hx; P.hy = hy; P.hMode = mode; P.sX = sX; P.sY = sY;
+    /* the crossover hand stays in front of the body (the ball alone passes behind the legs),
+       so the gauntlet never vanishes for a frame mid-turn */
     P.armHigh = hy < pyt + 0.15 * sc;
-    /* mid-crossover the dribbling hand is behind the back with the ball */
-    P.armBack = mode === 7 && !S.aim && an.turnP < 1 && f < 0.6 && f > -0.6;
   }
 
   /* pure: the whole pose into HERO_P (no randomness, no integration) */
@@ -9608,16 +9612,15 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      shoulder along the arm's main axis, so a raised or reaching hand never leaves a
      sleeve hanging in the air. No rotation: the same cost as the original cube. */
   function heroDrawArm(g, hx, hy, pal, sc, white) {
-    var P = HERO_P, dx = P.sX - hx, dy = P.sY - hy, t = sc * 0.24, m = sc * 0.1, a, b;
-    if (Math.abs(dy) >= Math.abs(dx) * 0.8) {
-      a = dy < 0 ? hy + Math.min(dy, -sc * 0.3) : hy;
-      b = dy < 0 ? hy : hy + Math.max(dy, sc * 0.3);
-      cube(g, hx + heroClamp(dx * 0.5, -m, m) - t * 0.5, a, t, b - a, sc * 0.1, pal.a);
-    } else {
-      a = dx < 0 ? hx + Math.min(dx, -sc * 0.3) : hx;
-      b = dx < 0 ? hx : hx + Math.max(dx, sc * 0.3);
-      cube(g, a, hy + heroClamp(dy * 0.5, -m, m) - t * 0.5, b - a, t, sc * 0.1, pal.a);
-    }
+    var P = HERO_P, dx = P.sX - hx, dy = P.sY - hy, t = sc * 0.24, m = sc * 0.1, l = sc * 0.3, a, b, c, d;
+    var ax = Math.abs(dx), w = heroClamp01((Math.abs(dy) - 0.6 * ax) / (0.4 * ax + 0.001));
+    /* the upright (w 1) and the level (w 0) sleeve, blended so the box never flips axis */
+    a = dy < 0 ? hy + Math.min(dy, -l) : hy;
+    b = dy < 0 ? hy : hy + Math.max(dy, l);
+    c = dx < 0 ? hx + Math.min(dx, -l) : hx;
+    d = dx < 0 ? hx : hx + Math.max(dx, l);
+    var vx = hx + heroClamp(dx * 0.5, -m, m) - t * 0.5, hy0 = hy + heroClamp(dy * 0.5, -m, m) - t * 0.5;
+    cube(g, c + (vx - c) * w, hy0 + (a - hy0) * w, (d - c) + (t - (d - c)) * w, t + (b - a - t) * w, sc * 0.1, pal.a);
     cube(g, hx - sc * 0.16, hy - sc * 0.10, sc * 0.32, sc * 0.2, sc * 0.09, white ? "#ffffff" : "#4a80c8");
   }
 
@@ -9688,9 +9691,8 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     cube(g, pxl + sc * 0.58 + P.lRx, pyt + sc * 1.15 + P.lRy - P.liftR, sc * 0.28, sc * 0.28, sc * 0.18, pal.b);
 
     heroHand(an, sc, bw, pyt, player.y + groundBias);
-    if (P.armBack) heroDrawArm(g, P.hx, P.hy, pal, sc, P.white);
     cube(g, pxl + sc * (0.5 - bw / 2) + P.torX, pyt + sc * (1.25 - bh) + P.torY, sc * bw, sc * bh, sc * 0.22, pal.a);
-    if (!P.armHigh && !P.armBack) heroDrawArm(g, P.hx, P.hy, pal, sc, P.white);
+    if (!P.armHigh) heroDrawArm(g, P.hx, P.hy, pal, sc, P.white);
 
     cube(g, pxl + sc * 0.18 + P.hdX, pyt + P.hdY, sc * 0.64, sc * 0.58, sc * 0.2, pal.skin);
     g.fillStyle = "#1a1a1a";
@@ -9701,7 +9703,11 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     if (!P.hatFree) drawHat(g, x + P.htX, pyt + P.htY, cos.hat, pal, sc);
     if (P.armHigh) heroDrawArm(g, P.hx, P.hy, pal, sc, P.white);
     g.restore();
-    if (P.smear > 0 && !S.fxLite && ball && ball.live) heroSmear(g, P.hx + P.bx, P.hy + P.by, ball.x, ball.y, P.smear);
+    if (P.smear > 0 && !S.fxLite && ball && ball.live) {
+      /* the hand through the body's transform (a hurt tip can overlap the release) */
+      var qx = (P.hx - x + P.bx) * P.sx, qy = (P.hy - shadowY + P.by) * P.sy, qc = Math.cos(P.rot), qs = Math.sin(P.rot);
+      heroSmear(g, x + qx * qc - qy * qs, shadowY + qx * qs + qy * qc, ball.x, ball.y, P.smear);
+    }
     if (P.hatFree) drawHat(g, P.hatWX, P.hatWY, cos.hat, pal, sc);
     /* the shell keeps the plain inv blink (a soaked hit leaves the body solid) */
     g.globalAlpha = a0 * (blink ? 0.45 : 1) * P.dim;
