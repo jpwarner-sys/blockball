@@ -1013,12 +1013,13 @@
   button.bb.on { box-shadow: 0 0 0 1px #f0a050, 0 0 12px rgba(240, 160, 80, 0.32), inset 0 1px 0 rgba(255, 228, 184, 0.18), 0 2px 0 #120d09; }
   #menuCard h2.fold, #pauseCard h2.fold { background: linear-gradient(180deg, #45392b, #372c20); box-shadow: inset 0 1px 0 rgba(255, 228, 184, 0.12), 0 2px 0 #120d09; }
   #menuCard h2 { color: #d4c4a8; }
-  #btnPlay { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: clamp(4px, 1cqi, 10px); font-size: clamp(16px, 3.4cqi, 26px); letter-spacing: 0.12em; }
+  #btnPlay { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: clamp(4px, 1cqi, 10px); letter-spacing: 0.12em; }
+  #menuCard .menuBrand #btnPlay { font-size: clamp(16px, 3.4cqi, 26px); }
   #btnPlay .playBall { width: clamp(26px, 7cqi, 60px); height: auto; filter: drop-shadow(0 3px 0 rgba(90, 30, 0, 0.45)); animation: playBob 1.5s ease-in-out infinite; }
   @keyframes playBob { 0%, 100% { transform: translateY(0); } 45% { transform: translateY(-5px); } 55% { transform: translateY(-5px) scaleY(1); } 80% { transform: translateY(1px) scale(1.06, 0.92); } }
   /* The difficulty blurb sat half under SOUND on a 390px-tall phone. */
   @media (max-height: 430px) { #menuCard .menuBlurb { display: none; } }
-  @media (prefers-reduced-motion: reduce) { #btnPlay .playBall, .splashGo { animation: none; } .toast { animation: none; } }
+  @media (prefers-reduced-motion: reduce) { #btnPlay .playBall, .splashGo { animation: none; } .toast, .toast.again, .toast.out { animation: none; } }
 </style>
 </head>
 <body>
@@ -3438,7 +3439,7 @@
     S.placeArmed = false;
     S.shots = []; S.splits = [];
     room.clearWait = 0;
-    room.flow = null;
+    room.flow = null; room.flowBig = null;
     /* BB-V7.69 — foes used to act on frame one: an archer could loose before
        the hero had finished appearing. Each rises out of a summoning ring
        over ~0.75s (staggered so a room assembles), and neither moves, shoots
@@ -3455,7 +3456,7 @@
 
   function startRun(seed, custom) {
     S.seed = parseSeed(seed || makeSeed());
-    S.fxLite = false; S.slowT = 0; S.fdEma = 16.7;
+    S.fxLite = false; S.slowT = 0; S.fdEma = 4; S.gapEma = 16.7;
     S.difficulty = store.difficulty || "easy";
     S.floor = 1;
     S.score = 0;
@@ -3585,6 +3586,9 @@
      penalty. */
   function startDowned() {
     if (S.downed) return;
+    /* update() skips updatePlayer while DOWN, so a killing blow froze the
+       white hurt flash (and any throw / catch pose) for the whole beat */
+    player.hurtT = player.throwT = player.catchT = 0;
     clearSticks();
     S.aim = null;
     S.placeArmed = false;
@@ -4533,7 +4537,7 @@
     if (player.swishHeavy > 0 && ball.affix.indexOf("Heavy") < 0) ball.affix.push("Heavy");
     ball.trail = [];
     ball.propSplit = false;
-    ball.lift = 0; ball.squash = 0; ball.dribble = 0;
+    ball.lift = 0; ball.squash = 0; ball.dribble = 0; ball.squashT = 0;
     /* BB-V7.69 — the release has a body: arm whips through, torso leans in */
     player.throwT = 0.24; player.throwAng = ang;
     dustPuff(player.x - Math.cos(ang) * 8, player.y + 6, 3);
@@ -4597,6 +4601,7 @@
       ball.y = groundY - lift;
       return;
     }
+    if (ball.squashT > 0) ball.squashT -= dt;
     if (ball.ret) {
       var dx = player.x - ball.x, dy = player.y - 18 - ball.y;
       var d = Math.hypot(dx, dy) || 1;
@@ -4622,7 +4627,6 @@
       }
     }
     var prevX = ball.x, prevY = ball.y;
-    if (ball.squashT > 0) ball.squashT -= dt;
     ball.x += ball.vx * dt; ball.y += ball.vy * dt;
     ball.life -= dt;
     checkHoopSwish(prevX, prevY);
@@ -4773,13 +4777,13 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       else {
         var ex0 = e.x, ey0 = e.y;
         var nav = navDir(e, dx, dy, dist, dt);
-        if (e.kind === "chase") moveToward(e, nav.x, nav.y, e.spd, dt);
+        if (e.kind === "chase") stepFoe(e, nav.x, nav.y, e.spd, dt);
         else if (e.kind === "swoop") {
           e.phase += dt;
-          moveToward(e, Math.cos(e.phase * 3) * 0.6 + nav.x, Math.sin(e.phase * 2) * 0.6 + nav.y, e.spd, dt);
+          stepFoe(e, Math.cos(e.phase * 3) * 0.6 + nav.x, Math.sin(e.phase * 2) * 0.6 + nav.y, e.spd, dt);
         } else if (e.kind === "orbit") {
           e.phase += dt;
-          if (e.nav) moveToward(e, nav.x, nav.y, e.spd, dt);
+          if (e.nav) stepFoe(e, nav.x, nav.y, e.spd, dt);
           else {
             /* BB-V7.69 — the orbit pull was unclamped: from across a big room
                (400px ÷ 40) it ran at ~10× its speed and teleported in. */
@@ -4792,7 +4796,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
         } else if (e.kind === "charge") updateCharger(e, dt, dx, dy, dist, nav);
         else if (e.kind === "range") {
           if (dist < 90) moveToward(e, -dx / dist, -dy / dist, e.spd, dt);
-          else if (!e.los) moveToward(e, nav.x, nav.y, e.spd * 1.6, dt);
+          else if (!e.los) stepFoe(e, nav.x, nav.y, e.spd * 1.6, dt);
           /* BB-V7.69 — every shot is drawn first: bow pulled, maw lit, orb
              swelling, for RANGE_WIND before it flies. Same cadence as before
              (cooldown trimmed by the wind), but it is never a surprise. */
@@ -4812,6 +4816,10 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
         var moved = Math.hypot(e.x - ex0, e.y - ey0);
         e.walkT = (e.walkT || 0) + moved * 0.09;
         e.moving = moved > 0.15;
+        if (e.nav && moved < 0.2 && !(e.windT > 0) && !(e.dashT > 0)) {
+          e.navStall = (e.navStall || 0) + dt;
+          if (e.navStall > 0.3) { freeFoe(e); e.navT = 0.25; e.nav = null; e.navStall = 0; }
+        } else e.navStall = 0;
       }
       /* Skull Lord / knight authored melee owns damage during active frames —
          body bump would stack and muddy the animation read.
@@ -4855,12 +4863,24 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      still walk into your cover and chew it. */
   var RANGE_WIND = 0.42;
   var CHARGE_WIND = 0.55;
-  function roomFlow() {
+  /* big=true: a second field for bodies wider than a tile's slack (grunts,
+     golems). One-tile-wide gaps are closed to them — a 32px golem cannot
+     fit a 30px slot, and routing it there pinned it for good. */
+  function roomFlow(big) {
     if (!room || !room.grid || !player) return null;
     var cols = playCols(), rows = playRows();
     var ptx = Math.floor(player.x / TILE), pty = Math.floor(player.y / TILE);
-    var f = room.flow;
+    var key = big ? "flowBig" : "flow";
+    var f = room[key];
     if (f && f.tx === ptx && f.ty === pty && f.cols === cols) return f;
+    var G = room.grid;
+    function shut(x, y) {
+      if (G[y][x]) return true;
+      if (!big) return false;
+      var wn = y <= 0 || G[y - 1][x], ws = y >= rows - 1 || G[y + 1][x];
+      var ww = x <= 0 || G[y][x - 1], we = x >= cols - 1 || G[y][x + 1];
+      return (wn && ws) || (ww && we);
+    }
     var d = (f && f.d && f.d.length === cols * rows) ? f.d : new Int16Array(cols * rows);
     d.fill(-1);
     var q = new Int32Array(cols * rows), head = 0, tail = 0, k, x, y, n, nx, ny, i;
@@ -4875,13 +4895,13 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
         nx = x + DX[i]; ny = y + DY[i];
         if (nx < 0 || ny < 0 || nx >= cols || ny >= rows) continue;
         n = ny * cols + nx;
-        if (d[n] >= 0 || room.grid[ny][nx]) continue;
+        if (d[n] >= 0 || shut(nx, ny)) continue;
         d[n] = d[k] + 1;
         q[tail++] = n;
       }
     }
-    room.flow = { tx: ptx, ty: pty, cols: cols, rows: rows, d: d };
-    return room.flow;
+    room[key] = { tx: ptx, ty: pty, cols: cols, rows: rows, d: d };
+    return room[key];
   }
   function rayClear(x0, y0, x1, y1) {
     var len = Math.hypot(x1 - x0, y1 - y0), n = Math.ceil(len / 12), i, u;
@@ -4904,7 +4924,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       e.los = rayClear(e.x, e.y, player.x, player.y);
       e.nav = null;
       if (dist > TILE * 1.2 && !fatRayClear(e.x, e.y, player.x, player.y, Math.max(6, e.r * 0.9))) {
-        var f = roomFlow();
+        var f = roomFlow(e.r > TILE * 0.45);
         var tx = Math.floor(e.x / TILE), ty = Math.floor(e.y / TILE), best = -1, bx = 0, by = 0, i, j, nx, ny, v;
         if (f && tx >= 0 && ty >= 0 && tx < f.cols && ty < f.rows) {
           for (j = -1; j <= 1; j++) {
@@ -4919,13 +4939,67 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
             }
           }
         }
-        if (best >= 0) e.nav = { x: (bx + 0.5) * TILE, y: (by + 0.5) * TILE };
+        if (best >= 0) e.nav = navPoint(bx, by, e.r);
       }
     }
     if (!e.nav) return { x: dx / dist, y: dy / dist };
     var ux = e.nav.x - e.x, uy = e.nav.y - e.y, m = Math.hypot(ux, uy);
     if (m < 3) { e.navT = 0; return { x: dx / dist, y: dy / dist }; }
     return { x: ux / m, y: uy / m };
+  }
+  /* BB-V7.71 — a waypoint at a tile centre beside stone put a golem (r 16)
+     or grunt (r 15) half inside the wall, and moveToward's rewind then
+     cancelled every step: big foes froze for good. Waypoints now sit far
+     enough off adjacent stone for the body to fit, are followed with an
+     axis-separated slide (the free axis still moves), and a foe that stalls
+     on a waypoint is walked out to the nearest free spot. */
+  function navPoint(tx, ty, r) {
+    var x = (tx + 0.5) * TILE, y = (ty + 0.5) * TILE, push = Math.max(0, r - TILE / 2 + 1.5);
+    if (push > 0 && room && room.grid) {
+      var g = room.grid;
+      if (g[ty] && g[ty][tx - 1]) x += push;
+      if (g[ty] && g[ty][tx + 1]) x -= push;
+      if (g[ty - 1] && g[ty - 1][tx]) y += push;
+      if (g[ty + 1] && g[ty + 1][tx]) y -= push;
+    }
+    return { x: x, y: y };
+  }
+  var SLIDE_FAN = [0, 0.52, -0.52, 1.05, -1.05, 1.57, -1.57];
+  function slideToward(e, ux, uy, spd, dt) {
+    var mag = Math.min(1.25, Math.hypot(ux, uy)), step = spd * dt * mag;
+    if (step <= 0) return;
+    var base = Math.atan2(uy, ux), i, a, nx, ny;
+    /* your cover still gets chewed, not walked round */
+    var bi = blockAt(room.blocks, e.x + Math.cos(base) * step, e.y + Math.sin(base) * step, e.r);
+    if (bi >= 0) { e.vx = e.vy = 0; enemyBumpBlock(e, bi); return; }
+    /* fan out from the wanted heading so a pillar corner that blocks both
+       axes still leaves a way round */
+    for (i = 0; i < SLIDE_FAN.length; i++) {
+      a = base + SLIDE_FAN[i];
+      nx = e.x + Math.cos(a) * step; ny = e.y + Math.sin(a) * step;
+      if (!circleBlocked(room.grid, room.blocks, nx, ny, e.r)) {
+        e.vx = (nx - e.x) / dt; e.vy = (ny - e.y) / dt;
+        e.x = nx; e.y = ny;
+        return;
+      }
+    }
+    e.vx = e.vy = 0;
+  }
+  function stepFoe(e, ux, uy, spd, dt) {
+    if (e.nav) slideToward(e, ux, uy, spd, dt);
+    else moveToward(e, ux, uy, spd, dt);
+  }
+  function freeFoe(e) {
+    if (!room || !circleBlocked(room.grid, room.blocks, e.x, e.y, e.r)) return false;
+    var ring, a, ang, tx, ty;
+    for (ring = 1; ring <= 8; ring++) {
+      for (a = 0; a < 8; a++) {
+        ang = a * Math.PI / 4;
+        tx = e.x + Math.cos(ang) * ring * 3; ty = e.y + Math.sin(ang) * ring * 3;
+        if (!circleBlocked(room.grid, room.blocks, tx, ty, e.r)) { e.x = tx; e.y = ty; return true; }
+      }
+    }
+    return false;
   }
   /* Nudge a foe without ever pushing it into stone or a placed cube. */
   function nudgeFoe(e, x, y) {
@@ -5000,7 +5074,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       }
       return;
     }
-    moveToward(e, nav.x * 0.45, nav.y * 0.45, e.spd, dt);
+    stepFoe(e, nav.x * 0.45, nav.y * 0.45, e.spd, dt);
     if (e.cd <= 0 && dist < 340 && e.los) {
       e.windT = e.windMax = CHARGE_WIND;
       e.laneX = dx / dist; e.laneY = dy / dist;
@@ -5017,8 +5091,11 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       fireShot(e.x, e.y - 8, ux, uy, 140, 1, "orb", { owner: e, r: 7, life: 3, col: "#b080ff", accent: "#2a1040" });
     } else if (t === "spitter") {
       var a = Math.atan2(uy, ux);
-      fireShot(e.x, e.y - 6, Math.cos(a - 0.14), Math.sin(a - 0.14), 185, 1, "needle", { owner: e, r: 4, life: 2.2, col: "#24381f", accent: "#c0e070" });
-      fireShot(e.x, e.y - 6, Math.cos(a + 0.14), Math.sin(a + 0.14), 185, 1, "needle", { owner: e, r: 4, life: 2.2, col: "#24381f", accent: "#c0e070" });
+      /* twin needles hug the aim line (±0.045 rad stays inside the hero's
+         reach out to their full ~400px range); ±0.14 split around a still
+         hero past ~150px and never landed */
+      fireShot(e.x, e.y - 6, Math.cos(a - 0.045), Math.sin(a - 0.045), 185, 1, "needle", { owner: e, r: 4, life: 2.2, col: "#24381f", accent: "#c0e070" });
+      fireShot(e.x, e.y - 6, Math.cos(a + 0.045), Math.sin(a + 0.045), 185, 1, "needle", { owner: e, r: 4, life: 2.2, col: "#24381f", accent: "#c0e070" });
     } else {
       fireShot(e.x, e.y - 8, ux, uy, 165, 1, "knife", { owner: e, col: "#7a6a58", accent: "#c8d0d8", body: "#e0d8c0" });
     }
@@ -6215,7 +6292,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
           ty: Math.max(2, Math.min(playRows() - 3, Math.floor((boss.y + Math.sin(ang) * 120) / TILE)))
         };
         if (room.grid[t.ty]) room.grid[t.ty][t.tx] = 0;
-        room.flow = null;
+        room.flow = null; room.flowBig = null;
       }
       type = types[i];
       en = spawnEnemy(type, (t.tx + 0.5) * TILE, (t.ty + 0.5) * TILE, S.floor, false);
@@ -7020,8 +7097,20 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      resets each run. Panel buttons (and the splash) fire when the finger
      lifts on them: the touchmove preventDefault that keeps the field still
      also kills iOS's click when a thumb drifts mid-tap, which is what made
-     PLAY / TAP TO START dead in landscape on the Home Screen app. */
-  var BUILD = "v7.70";
+     PLAY / TAP TO START dead in landscape on the Home Screen app.
+     BB-V7.71 — from a six-dimension review with three-vote verification:
+     the tall north wall paints its full face again (v7.69 left black bands
+     at north corners and along solid north runs); grunts and golems no
+     longer freeze on stone (waypoints sit clear of walls, steering fans
+     round corners, one-tile gaps are closed to wide bodies, and a stalled
+     foe is walked free); the thorn spitter's twin needles hug the aim line
+     so they land; a killing blow no longer freezes the white hurt pose
+     through DOWN; the boss bar clears Safari's install banner; low-FX no
+     longer trips on 30Hz-capped phones (Low Power Mode); reduced motion
+     also stills the toast pulse and fade; the PLAY label gets its size;
+     the returning ball isn't drawn squashed; holdLord / fieldGlimpse pose
+     helpers see past the spawn rise and the room fade. */
+  var BUILD = "v7.71";
   var FEEL_DEF = { spd: 250, accel: 2600, brake: 3600, throwSpd: 620, aimMode: "drag", aimDead: 2, aimHold: 64 };
   var FEEL = (function () {
     var f = {};
@@ -8158,7 +8247,11 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       t = deco.tiles[y * cols + x];
       wh = wallHeightPx(x, y, cols, rows);
       px = x * TILE; top = y * TILE - wh; fTop = top + TILE; fBot = y * TILE + TILE;
-      open = y === rows - 1 || !grid[y + 1][x];
+      /* a face taller than the next row's lift (the north border, 1–4 blocks)
+         must always paint: the cap one row south only hides its bottom 14px,
+         and above it there is no floor, just the void (v7.69 left black
+         bands at every north corner and along solid north runs) */
+      open = y === rows - 1 || !grid[y + 1][x] || wh > Math.round(TILE * WALL_Z);
       if (open) {
         front.push(px, fTop, TILE, wh);
         ch = wh > TILE + 1 ? 10 : 7;
@@ -11124,6 +11217,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     var dpr = cw / Math.max(1, window.innerWidth);
     var w = Math.min(cw * 0.46, 560 * dpr), h = Math.max(8, 11 * dpr);
     var x = (cw - w) * 0.5, y = ch - Math.max(26 * dpr, ch * 0.07) - h;
+    if (installBar && installBar.className === "show") y -= installBar.offsetHeight * dpr;
     var ratio = Math.max(0, e.hp / e.maxHp);
     if (e.barShow == null || e.barShow < e.hp) e.barShow = e.hp;
     e.barShow += (e.hp - e.barShow) * 0.05;
@@ -12444,15 +12538,9 @@ function endRunToMenu() {
     if (document.hidden) return;
     try {
       if (!S.last) S.last = now;
-      /* BB-V7.69 — if the device can't hold ~33fps for three seconds of play,
-         drop the two full-screen passes (torch light and vignette) for the run. */
-      if (S.mode === "play" && !S.pause && !S.fxLite) {
-        var fms = now - S.last;
-        if (fms > 0 && fms < 250) S.fdEma = (S.fdEma || 16.7) * 0.95 + fms * 0.05;
-        if (S.fdEma > 30) { S.slowT = (S.slowT || 0) + Math.min(fms, 100) / 1000; if (S.slowT > 3) S.fxLite = true; }
-        else S.slowT = 0;
-      }
-      var d = Math.min(0.05, (now - S.last) / 1000);
+      var gapMs = now - S.last;
+      var d = Math.min(0.05, gapMs / 1000);
+      var workT0 = performance.now();
       S.last = now;
       S.acc += d;
       try {
@@ -12466,6 +12554,19 @@ function endRunToMenu() {
         draw();
       } catch (drawErr) {
         noteError(drawErr, "draw");
+      }
+      /* BB-V7.69/71 — drop the two full-screen passes (torch light and
+         vignette) for the run when the device really can't keep up for 3s:
+         either the frame's own work (update + draw) runs past 22ms, or frames
+         arrive slower than 25fps. iOS Low Power Mode and energy savers cap
+         rAF at a steady 30Hz (33ms) with plenty of headroom; v7.70 counted
+         that as slow and switched the torch light off for them. */
+      if (S.mode === "play" && !S.pause && !S.fxLite) {
+        var work = performance.now() - workT0;
+        S.fdEma = (S.fdEma || 4) * 0.95 + Math.min(work, 100) * 0.05;
+        if (gapMs > 0 && gapMs < 250) S.gapEma = (S.gapEma || 16.7) * 0.95 + gapMs * 0.05;
+        if (S.fdEma > 22 || S.gapEma > 40) { S.slowT = (S.slowT || 0) + Math.min(d, 0.05); if (S.slowT > 3) S.fxLite = true; }
+        else S.slowT = 0;
       }
     } catch (err) {
       noteError(err, "frame");
@@ -12666,6 +12767,7 @@ function endRunToMenu() {
     fieldGlimpse: function () {
       if (!player) return null;
       S.shake = 0;
+      S.fade = null;
       draw();
       var w = S.world || { x: 0, y: 0, s: 1 };
       var sc = 22 * HS;
@@ -13204,6 +13306,13 @@ function endRunToMenu() {
       return this.hoop();
     },
     setPause: function (v) { S.pause = !!v; return S.pause; },
+    /* Harness: finish every pending spawn-in (for paused pose captures). */
+    skipSpawn: function () {
+      if (!room) return 0;
+      var n = 0, i;
+      for (i = 0; i < room.enemies.length; i++) if (room.enemies[i].spawnT > 0) { room.enemies[i].spawnT = 0; n++; }
+      return n;
+    },
     forceSwish: function () {
       if (!room || !room.hoop) return null;
       S.hoopReady = true;
@@ -13392,6 +13501,7 @@ function endRunToMenu() {
       for (i = 0; i < room.enemies.length; i++) if (room.enemies[i].boss === "lord") e = room.enemies[i];
       if (!e) return null;
       ensureSkullLord(e);
+      e.spawnT = 0;
       e.atk = null;
       e.cd = 99;
       e.face = player && player.x < e.x ? -1 : 1;
