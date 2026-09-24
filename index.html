@@ -3087,6 +3087,36 @@
     t = Math.max(0, Math.min(1, t));
     return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
   }
+  /* BB-V7.72 — easing kit for the Skull Lord rig. All clamp t to 0..1. */
+  function clamp01(t) {
+    return t < 0 ? 0 : t > 1 ? 1 : t;
+  }
+  function easeInOutCubic(t) {
+    t = clamp01(t);
+    return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+  }
+  function easeInQuad(t) {
+    t = clamp01(t);
+    return t * t;
+  }
+  function easeOutQuad(t) {
+    t = clamp01(t);
+    return 1 - (1 - t) * (1 - t);
+  }
+  function easeInOutSine(t) {
+    t = clamp01(t);
+    return 0.5 - 0.5 * Math.cos(Math.PI * t);
+  }
+  /* Damped spring on o[xk]/o[vk], semi-implicit Euler (v first, then x).
+     force is an extra acceleration (k*target for a spring toward a target).
+     On a clamp the velocity is zeroed. Stable while sqrt(k)*dt <= 0.5. */
+  function spring(o, xk, vk, k, c, dt, lim, force) {
+    var v = o[vk] + (-k * o[xk] - c * o[vk] + (force || 0)) * dt;
+    var x = o[xk] + v * dt;
+    if (lim != null && (x > lim || x < -lim)) { x = x < 0 ? -lim : lim; v = 0; }
+    o[xk] = x;
+    o[vk] = v;
+  }
 
   /* Cinematic camera for the post-boss swish: track the live ball on approach,
      then punch-zoom the rim on the make — title-art energy, in-engine. */
@@ -3670,6 +3700,8 @@
   function killEnemy(en, trick) {
     en.alive = false;
     en.deadT = 1.2;
+    /* BB-V7.72 — the lord's threat telegraphs fade over 0.12 s of S.t from here */
+    if (en.boss === "lord" && en.an) en.an.dieAtS = S.t;
     S.score += 10 * S.floor * (trick ? 3 : 1);
     /* BB-V7.50 — no frag on every kill. Shards are an uncommon roll; a relic
        is a separate, much rarer roll that grants an upgrade rank immediately. */
@@ -4752,6 +4784,9 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
          boss or knight solid white for its whole death fade */
       if (e.flash > 0) e.flash -= dt;
       if (e.hitT > 0) e.hitT -= dt;
+      /* BB-V7.72 — the lord's cosmetic clock ticks before every early-out
+         (spawn, stun, daze, death); it never writes a gameplay field. */
+      if (e.boss === "lord") lordAnim(e, dt);
       if (!e.alive) {
         e.deadT -= dt;
         continue;
@@ -5669,10 +5704,878 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     e.prevY = e.y;
     e.lastAtk = null;
     e.lungeStreak = 0;
+    /* BB-V7.72 — animation rig state; lordAnim builds it on the first tick.
+       Null means the pre-rig (legacy) draw. */
+    e.an = e.an || null;
   }
   /* BB-V7.72 — harness seam for the lord hurt reaction. Null until the
      animation batch assigns it; __BB_SELFTEST.lordHurt returns null till then. */
   var lordHurtFn = null;
+
+  /* BB-V7.72 — Skull Lord animation rig (batch A: cosmetic clock, pure pose,
+     planted rig, facing, idle life, clockwork key, speed-driven gait).
+     lordAnim(e, dt) is the one cosmetic clock. updateEnemies runs it every
+     sim tick (so it freezes in hitStop, pause, the shop and the floor card,
+     and slows with the swish cine). It owns every integrated value on e.an
+     and never writes a gameplay field. lordPose(e, u) turns that state into
+     one frame's pose (LORD_P) and writes nothing, so 30 Hz and 60 Hz draw the
+     same poses. e.an == null (holdLord, the boss sheet) keeps the pre-rig
+     draw bit for bit. Cosmetic randomness is Math.random only. */
+  function fxN(n) { return S.fxLite ? Math.ceil(n / 2) : n; }
+  /* lord art (local, pre-LORD_VIS) → world, for emitters */
+  function lordW(e, lx, ly, out) {
+    out.x = e.x + (lx - e.x) * LORD_VIS;
+    out.y = e.y + (ly - e.y) * LORD_VIS;
+    return out;
+  }
+  var LORD_WP = { x: 0, y: 0 };
+  /* agitation: court calls already made */
+  function lordAgit(e) {
+    var f = e.waveFlags, n = 0;
+    if (f) for (var i = 0; i < f.length; i++) if (f[i]) n++;
+    return n;
+  }
+  /* breath 0 → 1 over a 2.0 s inhale, back over a 1.4 s exhale (phase 0..1) */
+  function lordBreath(ph) {
+    ph -= Math.floor(ph);
+    return ph < 0.588 ? easeInOutSine(ph / 0.588) : 1 - easeInOutSine((ph - 0.588) / 0.412);
+  }
+  /* plant envelope: up over 0.03 s, gone by 0.20 s */
+  function lordEnv(t) {
+    if (t < 0 || t >= 0.2) return 0;
+    return t < 0.03 ? t / 0.03 : 1 - easeInOutSine((t - 0.03) / 0.17);
+  }
+  /* the crouch's soft-clamped torso drop, in u (SK-05) */
+  function lordDrop(c) {
+    return 0.30 * (1 - Math.exp(-Math.max(0, c) / 0.30));
+  }
+  /* Feet (SK-05/09). Each foot is an x offset in u from its rest spot
+     (an.ftX0 left, an.ftX1 right) plus a lift. A planted foot keeps its
+     floor spot: every tick it gives back the body's x travel, so a change
+     of speed, direction or pose can only reshape the foot in the air. Only
+     a dash-speed slide drags the planted feet along (a skid). One foot is
+     in the air at a time (an.swF). Walking narrows the stance to ±0.18u and
+     lifts the feet in turn on a speed-driven cadence (~2.3 steps/s at the
+     chase), each landing at most ~0.17u ahead of its stance spot, so a leg
+     never shows beside the ribcage; standing steps a strayed foot home; an
+     attack steps once per phase (lordAtkFeet). No leg stands clear of the
+     ribcage (lordReach). Travel in y steps in place: y is the camera's
+     depth axis. BB-V7.72 polish: the stomp lift, the reach on the leg's
+     outer edge and the per-phase attack steps. */
+  function lordFootLift(an, i, from, to, dur, lift, walk, dust) {
+    an.swF = i;
+    an.swS = from;
+    an.swTo = to;
+    an.swTgt = to;
+    an.swP = 0;
+    an.swDur = dur;
+    an.swLift = Math.max(0.03, lift);
+    an.swWalk = walk;
+    an.swDust = dust || 0;
+    an.stHold = 0;
+  }
+  /* a step's lift: up fast (peak at 35 % of the swing), then an
+     accelerating drop into the floor, so the contact is the accent */
+  function lordStepLift(s) {
+    return s < 0.35 ? easeOutQuad(s / 0.35) : 1 - easeInQuad((s - 0.35) / 0.65);
+  }
+  /* reach: a leg's centre (rest spot -0.26u / +0.26u plus its offset)
+     stays within LORD_REACH of the hip (the ribcage centre), so its outer
+     edge is at most ~0.05u past the ribcage's (0.48u either side), and the
+     pale top face of the leg block never shows beside the ribs. A leg in
+     the air hangs from the hip, so a fast lean carries it along: its swing
+     is re-based toward the reach at most 0.08u a tick (a foot lifting from
+     past its reach swings in rather than jumping) and still lands on its
+     target. A planted leg is never slid (except in a dash-speed skid): the
+     lean outrunning it makes it step (lordOverReach) or, while it cannot
+     step yet, carries it along at the reach, lifted (a hop, not a skate). */
+  var LORD_REACH = 0.37;
+  var LORD_WALK_W = 0.08;   /* walking stance spots: ±0.26u narrowed to ±0.18u */
+  function lordReachFix(c, R, cap) {
+    var d = c > R ? c - R : c < -R ? c + R : 0;
+    return cap > 0 ? Math.max(-cap, Math.min(cap, d)) : d;
+  }
+  function lordReach(an, hip, skid) {
+    var R = LORD_REACH, d0 = 0, d1 = 0, d, s, w, i;
+    /* the foot in the air (not on its landing tick; lordFeet keeps its
+       landing spot within reach): shift the start of its Hermite so the
+       drawn foot moves by d (at most 0.08u a tick) and the landing spot is
+       untouched. On its lift-off tick it is still on the floor, so that
+       move is a carry. */
+    if (an.swF >= 0 && an.swP < 1) {
+      d = an.swF ? lordReachFix(an.ftX1 + 0.26 - hip, R, 0.08) : lordReachFix(an.ftX0 - 0.26 - hip, R, 0.08);
+      if (d && an.swP === 0) {
+        if (an.swF) { an.cyT1 = 0; an.cyL1 = Math.max(an.cyL1, 0.03); }
+        else { an.cyT0 = 0; an.cyL0 = Math.max(an.cyL0, 0.03); }
+      }
+      if (d) {
+        s = 2 * an.swP * an.swP * an.swP - 3 * an.swP * an.swP + 1;
+        w = Math.max(0.25, s);
+        an.swS -= d / w;
+        d *= s / w;
+        if (an.swF) an.ftX1 -= d; else an.ftX0 -= d;
+      }
+    }
+    if (skid) {
+      /* a skid drags the planted feet as one stance, so they never merge;
+         it keeps them 0.06u inside the reach, as the lean still runs on a
+         little once the slide has stopped */
+      if (an.swF !== 0) d0 = lordReachFix(an.ftX0 - 0.26 - hip, R - 0.06, 0);
+      if (an.swF !== 1) d1 = lordReachFix(an.ftX1 + 0.26 - hip, R - 0.06, 0);
+      d = Math.abs(d1) > Math.abs(d0) ? d1 : d0;
+      if (an.swF !== 0) an.ftX0 -= d;
+      if (an.swF !== 1) an.ftX1 -= d;
+      return;
+    }
+    /* carry: a planted foot the lean pushes past its reach while it cannot
+       step (the other foot is in the air, or it is the back foot an
+       attack's lurch leaves behind) is neither slid along the floor nor
+       left showing beside the ribs: it hops along at the reach, lifted
+       (lordCarryLift), and sets down once the lean stops pushing it */
+    for (i = 0; i < 2; i++) {
+      if (an.swF === i) continue;
+      d = i ? lordReachFix(an.ftX1 + 0.26 - hip, R, 0) : lordReachFix(an.ftX0 - 0.26 - hip, R, 0);
+      if (!d) continue;
+      if (i) {
+        an.ftX1 -= d;
+        an.cyT1 = 0;
+        an.cyD1 += Math.abs(d);
+        an.cyL1 = Math.max(an.cyL1, 0.03);
+      } else {
+        an.ftX0 -= d;
+        an.cyT0 = 0;
+        an.cyD0 += Math.abs(d);
+        an.cyL0 = Math.max(an.cyL0, 0.03);
+      }
+    }
+  }
+  /* a carried foot rides 0.03-0.045u up while pushed and for 0.05 s
+     after, then sets down over ~0.07 s (a small puff if it went far);
+     the drawn lift is the larger of this and its step's */
+  function lordCarryLift(e, an, i, dt, u) {
+    var t = i ? an.cyT1 : an.cyT0, l = i ? an.cyL1 : an.cyL0;
+    if (l > 0) {
+      if (t < 0.05) l += (0.045 - l) * (1 - Math.exp(-dt / 0.02));
+      else {
+        l = Math.max(0, l - 0.65 * dt);
+        if (l === 0 && (i ? an.cyD1 : an.cyD0) > 0.15) {
+          lordW(e, e.x + ((i ? 0.26 : -0.26) + (i ? an.ftX1 : an.ftX0)) * u, e.y, LORD_WP);
+          dustPuff(LORD_WP.x, e.y, fxN(1), "#8a7a64");
+        }
+      }
+    }
+    if (l === 0) { if (i) an.cyD1 = 0; else an.cyD0 = 0; }
+    if (i) {
+      an.cyT1 = t + dt;
+      an.cyL1 = l;
+      an.ftL1 = Math.max(an.ftL1, l);
+    } else {
+      an.cyT0 = t + dt;
+      an.cyL0 = l;
+      an.ftL0 = Math.max(an.ftL0, l);
+    }
+  }
+  /* the planted foot furthest past its reach (by more than tol), or -1.
+     A foot being carried at its reach counts as past it, so it takes a
+     real step as soon as the other foot is down (a carry only bridges the
+     other foot's swing, or the back foot through a strike's lurch). */
+  function lordOverReach(an, hip, tol) {
+    var d0 = an.swF === 0 ? -1 : Math.abs(an.ftX0 - 0.26 - hip) - LORD_REACH;
+    var d1 = an.swF === 1 ? -1 : Math.abs(an.ftX1 + 0.26 - hip) - LORD_REACH;
+    if (an.swF !== 0 && an.cyT0 < 0.03) d0 = Math.max(d0, tol + 0.001);
+    if (an.swF !== 1 && an.cyT1 < 0.03) d1 = Math.max(d1, tol + 0.001);
+    if (d0 <= tol && d1 <= tol) return -1;
+    return d1 > d0 ? 1 : 0;
+  }
+  /* attack footwork: the feet step once per phase. As the attack starts
+     each foot steps at most once toward the stance under the wind's peak
+     lean (the one on the side the lean goes first, the other once the
+     lean nears its spot; never past each other) and holds it through the
+     wind. On the strike the front foot steps in, landing on the cleave's
+     contact frame; a lunge's dash skids the planted stance along under
+     the lean (only a blocked dash steps in). Then each foot comes home
+     once the lean has come back near enough. A planted foot the lean
+     pushes past its reach is never slid or left showing beside the ribs:
+     it steps at once, or is carried at its reach, lifted, while the other
+     foot is in the air (and the back foot through the strike's lurch). */
+  function lordAtkTgt(an, i) {
+    return an.fpHip + (i ? an.fpSpl : -an.fpSpl);
+  }
+  /* a step target that keeps the foot on its own side of the other one
+     (centres at least sep apart, 0.30u unless given; the wind's gathering
+     steps may bring the blocks together), so the legs never cross */
+  function lordNoCross(an, i, tg, sep) {
+    sep = sep || 0.30;
+    return i ? Math.max(tg, an.ftX0 - 0.52 + sep) : Math.min(tg, an.ftX1 + 0.52 - sep);
+  }
+  function lordAtkLift(an, i, tg, dur) {
+    var fx = i ? an.ftX1 : an.ftX0, err = Math.abs(fx - tg);
+    if (err <= 0.05) return false;
+    lordFootLift(an, i, fx, tg, dur || Math.max(0.16, Math.min(0.26, 0.16 + 0.1 * err)),
+      Math.min(0.10, 0.04 + 0.06 * err), false, err > 0.25 ? 2 : 0);
+    return true;
+  }
+  function lordAtkFeet(e, an, dt, hip, skid) {
+    var face = e.face < 0 ? -1 : 1;
+    var lunge = e.atk === "lunge";
+    var t = e.atkT, W = e.atkWind, A = e.atkActive, R = LORD_REACH;
+    var wR = lunge ? 0.90 : 0.70;
+    var front = face > 0 ? 1 : 0;
+    var i, j, tg;
+    if (an.fpId !== an.atkN || an.fpFace !== face) {
+      /* a new attack (or the aim crossed sides): plan the wind stance */
+      var pk = wR * (lunge ? 0.95 : 0.62);
+      an.fpId = an.atkN;
+      an.fpFace = face;
+      an.fpStage = 0;
+      an.fpDone = 0;
+      an.fpWait = 0;
+      an.fpHip = -0.95 * pk * face;
+      an.fpSpl = Math.max(0, Math.min(0.5 * lordDrop(lunge ? 0.52 : 0.22), R - 0.28 - 0.05 * pk));
+      /* a step still in the air (a walk, a settle) lands toward its
+         stance spot if it has only just lifted (late in its swing it keeps
+         its spot), within reach of the hip as it is now and on its own
+         side of the other foot */
+      if (an.swF >= 0) {
+        j = an.swF ? 0.26 : -0.26;
+        tg = an.swP < 0.35 ? lordAtkTgt(an, an.swF) : an.swTgt;
+        an.swTgt = lordNoCross(an, an.swF, Math.max(hip - j - R + 0.03, Math.min(hip - j + R - 0.03, tg)), 0.15);
+      }
+    }
+    if (an.swF >= 0) return;
+    an.fpWait += dt;
+    var ov = skid ? -1 : lordOverReach(an, hip, 0.02);
+    /* the strike: the front foot lifts so it lands on the contact frame
+       (cleave, atkT ~0.93) or just after the launch (lunge) */
+    var sDur = lunge ? 0.18 : 0.16;
+    if (an.fpStage < 2 && t >= (lunge ? W + 2 * DT : W + 0.86 * A - sDur - DT)) an.fpStage = 2;
+    if (an.fpStage === 0) {
+      /* wind: the feet step toward the stance under the peak lean, one at
+         a time, each only once its spot is about within reach of the hip
+         (so no leg shows beside the ribs), the larger miss first and never
+         past the other foot (a foot the other one is in the way of steps
+         part way now and on later). A foot the lean has pushed to its
+         reach goes at once, or, if the other foot is in its way, that one
+         does. At most 4 wind steps, 0.06 s apart. */
+      var bi = -1, be = 0.05, er0, er1;
+      er0 = Math.abs(an.ftX0 - lordNoCross(an, 0, lordAtkTgt(an, 0), 0.15));
+      er1 = Math.abs(an.ftX1 - lordNoCross(an, 1, lordAtkTgt(an, 1), 0.15));
+      if (ov >= 0) {
+        bi = (ov ? er1 : er0) > 0.05 ? ov : ((ov ? er0 : er1) > 0.05 ? 1 - ov : -1);
+      } else if (an.fpDone < 4 && an.fpWait >= 0.06) {
+        for (i = 0; i < 2; i++) {
+          tg = lordNoCross(an, i, lordAtkTgt(an, i), 0.15);
+          j = i ? 0.26 : -0.26;
+          if ((i ? er1 : er0) > be && (Math.abs(j + tg - hip) <= R + 0.10 || t >= 0.8 * W)) {
+            bi = i;
+            be = i ? er1 : er0;
+          }
+        }
+      }
+      if (er0 <= 0.05 && er1 <= 0.05) an.fpStage = 1;
+      else if (bi >= 0) {
+        an.fpDone++;
+        an.fpWait = 0;
+        if (lordAtkLift(an, bi, lordNoCross(an, bi, lordAtkTgt(an, bi), 0.15))) return;
+      }
+    }
+    if (an.fpStage === 2) {
+      an.fpStage = 3;
+      an.fpDone = 0;
+      an.fpWait = 0;
+      /* a lunge that is really dashing skids its stance instead */
+      if (!(lunge && skid)) {
+        tg = lunge ? 0.95 * wR * 0.9 * face + 0.04 * face
+          : face * Math.max(0, Math.min(R - 0.26, wR * 0.93 - R - 0.10 - 0.26));
+        if (lordAtkLift(an, front, lordNoCross(an, front, tg), sDur)) return;
+      }
+    }
+    if (an.fpStage >= 3) {
+      /* recovery: a foot comes home once its home is within ~0.25u of its
+         reach of the returning lean and it is itself near its reach (or
+         the lean is nearly back); the larger miss first. A front foot past
+         its reach goes at once; the back foot is carried at its reach. */
+      if (t < W + A + (lunge ? 0 : 0.02)) return;
+      var best = -1, bestE = 0.05, cur, ok;
+      for (i = 0; i < 2; i++) {
+        if (an.fpDone & (1 << i)) continue;
+        cur = i ? an.ftX1 : an.ftX0;
+        j = i ? 0.26 : -0.26;
+        if (Math.abs(cur) <= 0.05) { an.fpDone |= 1 << i; continue; }
+        ok = Math.abs(j - hip) <= R + 0.25 && (Math.abs(j + cur - hip) > R - 0.05 || Math.abs(hip) < 0.25);
+        if (ok || (ov === i && i === front)) {
+          if (Math.abs(cur) > bestE) { best = i; bestE = Math.abs(cur); }
+        }
+      }
+      if (best >= 0 && (!an.fpDone || an.fpWait >= 0.04)) {
+        an.fpDone |= 1 << best;
+        an.fpWait = 0;
+        lordAtkLift(an, best, lordNoCross(an, best, 0));
+      }
+      return;
+    }
+    /* safety (wind): a planted foot the lean has pushed to its reach steps
+       well under the hip at once (0.15u inside it, room for the creep)
+       instead of sliding or being carried along */
+    if (ov >= 0) {
+      tg = lordAtkTgt(an, ov);
+      j = ov ? 0.26 : -0.26;
+      lordAtkLift(an, ov, lordNoCross(an, ov, Math.max(hip - j - R + 0.15, Math.min(hip - j + R - 0.15, tg))));
+    }
+  }
+  function lordFeet(e, an, dt, u, spdR, dxs, vNow, faceV, wRib) {
+    var LU = LORD_VIS * u;
+    /* 1 below walking speed, 0 at a dash */
+    var hf = vNow <= 160 ? 1 : vNow >= 320 ? 0 : (320 - vNow) / 160;
+    var skid = hf < 1;
+    var dxL = dxs / LU * hf;
+    if (an.swF !== 0) an.ftX0 -= dxL;
+    if (an.swF !== 1) an.ftX1 -= dxL;
+    var hip = wRib * an.lean;
+    var dir = an.vS > 1e-3 ? Math.max(-1, Math.min(1, an.vxS / an.vS)) : 0;
+    var vxL = an.vxS / LU;
+    var WW = LORD_WALK_W;
+    var walking = !e.atk && (an.walkOn ? an.vS > 8 : an.vS > 14);
+    if (walking && !an.walkOn) {
+      an.homeX = 0;
+      an.shufN = 0;
+      if (an.swF >= 0) {
+        /* a settling step already in the air becomes the first stride */
+        an.nextF = 1 - an.swF;
+        an.stepC = 0;
+      } else {
+        /* the first step goes with the trailing foot, at once */
+        var a0 = an.ftX0 * dir, a1 = an.ftX1 * dir;
+        an.nextF = Math.abs(a0 - a1) > 0.01 ? (a0 < a1 ? 0 : 1) : (dir >= 0 ? 0 : 1);
+        an.stepC = 1;
+      }
+    }
+    an.walkOn = walking;
+    var rate = 0, tsw = 0.30, f = 1, lead = 0;
+    if (walking) {
+      /* the stance covers at most ~0.34u (0.17u either side of the spot),
+         so the cadence rises with speed: ~2.3 steps/s at the chase, ~1.3
+         at a creep; the swing stays short (0.30 s) so each foot stomps */
+      var vU = an.vS / LU;
+      var hs = Math.min(0.17, 0.07 + 0.16 * vU);
+      rate = vU / (hs + 0.5 * vU * tsw);
+      if (rate * tsw > 0.8) tsw = 0.8 / rate;
+      f = tsw * rate;                       /* share of a step spent in the air */
+      an.stepC += dt * rate;
+      /* a foot is planted for two double supports and the other foot's
+         swing; it lands half that drift ahead of its spot and lifts as far
+         behind, so both feet share one even beat */
+      lead = hip + 0.5 * vxL * hf * (2 - f) / rate;
+    }
+    var i, s, fx, k, err;
+    if (an.swF >= 0) {
+      i = an.swF;
+      var sr = 1 / an.swDur;
+      if (an.swWalk) {
+        if (walking) an.swTgt = lead + (i ? -WW : WW);
+        else {
+          /* land it soon (sooner if an attack wants its stance) */
+          sr = Math.max(sr, e.atk ? 1 / 0.18 : 1 / 0.3);
+          if (!e.atk) an.swTgt = an.homeX;
+        }
+      }
+      k = 1 - Math.exp(-dt / (e.atk ? 0.03 : 0.06));
+      an.swTo += (an.swTgt - an.swTo) * k;
+      /* it lands within reach of the hip as the hip is now, so a step that
+         outruns the lurch lands at the reach and not past it */
+      k = hip - LORD_REACH - (i ? 0.26 : -0.26);
+      an.swTo = Math.max(k, Math.min(k + 2 * LORD_REACH, an.swTo));
+      an.swP = Math.min(1, an.swP + dt * sr);
+      s = an.swP;
+      /* Hermite: leaves and lands at the body's speed (still on the floor) */
+      var m = an.swWalk ? -vxL * hf / sr : 0;
+      var s2 = s * s, s3 = s2 * s;
+      fx = (2 * s3 - 3 * s2 + 1) * an.swS + (2 * s3 - 3 * s2 + s) * m + (3 * s2 - 2 * s3) * an.swTo;
+      var lift = lordStepLift(s) * an.swLift;
+      if (s >= 1) { fx = an.swTo; lift = 0; }
+      if (i) { an.ftX1 = fx; an.ftL1 = lift; an.ftL0 = 0; } else { an.ftX0 = fx; an.ftL0 = lift; an.ftL1 = 0; }
+      if (s >= 1) {
+        /* plant */
+        an.swF = -1;
+        an.plantT = 0;
+        if (an.swWalk || walking) an.stepC = 0;
+        k = 0;
+        if (an.swWalk && walking && an.gA > 0.35 && vNow > 20) {
+          k = 3;
+          an.keyV += i ? -0.3 : 0.3;
+          an.tipV += faceV * 0.5;
+        } else if (an.swDust) {
+          k = an.swDust;
+        }
+        if (k) {
+          lordW(e, e.x + ((i ? 0.26 : -0.26) + fx) * u, e.y, LORD_WP);
+          dustPuff(LORD_WP.x, e.y, fxN(k), "#8a7a64");
+        }
+      }
+    }
+    if (an.swF < 0) {
+      an.ftL0 = 0;
+      an.ftL1 = 0;
+      if (walking) {
+        i = an.nextF;
+        var sd = dir < 0 ? -1 : 1;
+        /* a planted foot at its reach steps at once */
+        var ovw = skid ? -1 : lordOverReach(an, hip, 0);
+        if (ovw >= 0) i = ovw;
+        else if (Math.abs(dir) > 0.3 &&
+            ((i ? an.ftX0 - WW : an.ftX1 + WW) - hip) * sd < ((i ? an.ftX1 + WW : an.ftX0 - WW) - hip) * sd - 0.12) {
+          /* after a reversal the other foot is the one left far behind
+             its spot: it goes first, so the feet never cross */
+          i = 1 - i;
+        }
+        fx = i ? an.ftX1 : an.ftX0;
+        /* on the beat; or at once if the trailing foot was left well
+           behind its spot (a speed-up) */
+        if (ovw >= 0 || an.stepC >= 1 - f || (Math.abs(dir) > 0.3 &&
+            (fx - (i ? -WW : WW) - hip) * sd < -(Math.abs(lead - hip) + 0.08))) {
+          lordFootLift(an, i, fx, lead + (i ? -WW : WW), tsw, 0.14 * clamp01(an.vS / (0.5 * spdR)), true);
+          an.nextF = 1 - i;
+          an.stepC = 1 - f;
+        }
+      } else if (!e.atk) {
+        var hx0 = an.homeX || 0;
+        var e0 = Math.abs(an.ftX0 - hx0), e1 = Math.abs(an.ftX1 - hx0);
+        var ov = skid ? -1 : lordOverReach(an, hip, 0.02);
+        if (an.shufN > 0 && ov < 0 && (an.turnP < 0 || an.turnP >= 0.10)) {
+          /* the turn's in-place shuffle: the new front foot, then the
+             other, lift and replant a touch toward the new side */
+          i = an.shufI;
+          fx = i ? an.ftX1 : an.ftX0;
+          lordFootLift(an, i, fx, hx0, 0.14, 0.06, false, 1);
+          an.shufN--;
+          an.shufI = 1 - i;
+        } else {
+          /* standing: after a walk or an attack each foot steps home in
+             turn (at once if the lean has left it past its reach) */
+          i = ov >= 0 ? ov : (e1 > e0 ? 1 : 0);
+          err = i ? e1 : e0;
+          if (err > 0.035) {
+            an.stHold += dt;
+            if (ov >= 0 || an.stHold >= 0.10) {
+              fx = i ? an.ftX1 : an.ftX0;
+              lordFootLift(an, i, fx, hx0, Math.max(0.18, Math.min(0.30, 0.16 + 0.3 * err)), Math.min(0.10, 0.5 * err), false, err > 0.25 ? 2 : 0);
+              an.nextF = 1 - i;
+            }
+          } else {
+            an.stHold = 0;
+          }
+        }
+      }
+    }
+    if (e.atk) lordAtkFeet(e, an, dt, hip, skid);
+    else an.fpId = -1;
+    lordReach(an, hip, skid);
+    lordCarryLift(e, an, 0, dt, u);
+    lordCarryLift(e, an, 1, dt, u);
+    /* the body rides up a little while a leg swings over (the contact dip
+       is the accent) and rocks onto the standing foot; the head, crown and
+       key trail the bounce */
+    var bn = an.swF >= 0 && an.swWalk ? Math.sin(Math.PI * an.swP) : 0;
+    an.bnc = bn * an.gA;
+    an.rock = bn * (an.swF === 0 ? 1 : -1);
+    an.bncH += (an.bnc - an.bncH) * (1 - Math.exp(-dt / 0.06));
+  }
+  /* eye glow through a blink: out 0.06 s, dark 0.08 s, re-ignite to 1.25
+     over 0.10 s, settle 0.30 s */
+  function lordBlink(base, bt) {
+    if (bt < 0.06) return base * (1 - 0.9 * bt / 0.06);
+    if (bt < 0.14) return base * 0.1;
+    if (bt < 0.24) return base * 0.1 + (1.25 - base * 0.1) * easeOutQuad((bt - 0.14) / 0.10);
+    return 1.25 + (base - 1.25) * easeInOutSine((bt - 0.24) / 0.30);
+  }
+  function lordAnimNew(e) {
+    var hero = player && player.x < e.x ? -1 : 1;
+    /* fresh: still rising, or the sim has not run yet (e.face is the
+       ensureSkullLord default until its first tick) */
+    var fresh = e.spawnT > 0 || !e.phase;
+    var f = fresh ? hero : (e.face < 0 ? -1 : 1);
+    var uW = artR(e) * 1.48 * LORD_VIS;
+    return {
+      /* core */
+      tickN: 0, t: 0, lastPhase: e.phase, postSpawn: fresh,
+      /* pose followers */
+      lean: e.lean || 0, crouch: e.crouch || 0, shield: e.shieldFwd || 0, flare: e.capeFlare || 0, flareAdd: 0,
+      flareD: e.capeFlare || 0, flareDk: 1.8,
+      /* lunge weight: the upper groups lean fuller while he lunges */
+      atkW: e.atk === "lunge" ? 1 : 0,
+      /* idle sway, and the head, crown and key trailing it */
+      sway: 0, swayH: 0, swayC: 0, swayK: 0,
+      /* the cape's side, trailing the turn on a spring */
+      capeS: f, capeV: 0,
+      /* facing */
+      faceFrom: f, faceTo: f, turnP: -1, turnDur: 0.3, faceHold: 0, turnBang0: skullRestAng(f), eyeF: f,
+      eyeHot: e.atk ? 1 : 0,
+      /* draw feedback: the only fields the draw writes */
+      lastBang: skullRestAng(f), lastHX: 0, lastHY: 0,
+      /* idle: breath, cape, eyes, jaw */
+      bPh: Math.random(), capePh: Math.random() * 6.3,
+      lookX: 0, lookY: 0, blinkT: -1, nextBlink: 4 + 3 * Math.random(), angerT: 0,
+      chatT: -1, nextChat: 5 + 3 * Math.random(),
+      /* clockwork key and sword-tip springs */
+      keyA: 0, keyV: 0, hwPrev: e.x + (e.lean || 0) * uW * 0.96, vHPrev: 0,
+      keyTh: 0, kFrom: 0, kTo: 0, kT: -1, kDur: 0, kPri: 0, kIdle: false, kSide: 1, keyLandN: 0, kN: 0, kSkip: 0,
+      tipA: 0, tipV: 0, heftW: e.atk ? 0 : 1,
+      /* gait */
+      lx: e.x, ly: e.y, vxS: 0, vS: 0, v: 0, gA: 0, gPh: 0, gRate: 0, plantT: 9, tl: 0, tlV: 0,
+      /* feet: x offsets from rest and lifts (u), the foot in the air, cadence */
+      ftX0: 0, ftX1: 0, ftL0: 0, ftL1: 0, swF: -1, swS: 0, swTo: 0, swP: 0, swDur: 0.3, swLift: 0, swWalk: false,
+      swTgt: 0, swDust: 0, homeX: 0, shufN: 0, shufI: 0,
+      /* a planted foot carried at its reach: lift, time since pushed, distance */
+      cyL0: 0, cyL1: 0, cyT0: 9, cyT1: 9, cyD0: 0, cyD1: 0,
+      walkOn: false, stepC: 0, nextF: 0, stHold: 0, bnc: 0, bncH: 0, rock: 0,
+      /* attack footwork plan (lordAtkFeet) */
+      fpId: -1, fpFace: 0, fpStage: 0, fpDone: 0, fpWait: 0, fpHip: 0, fpSpl: 0,
+      /* attack tracking (batch B hangs its events and vis off these) */
+      atkKind: null, prevAtkT: 0, atkBang0: null, aev: 0, lockT: -1, atkN: 0,
+      /* summon, stagger and landing clocks (batch C); the idle gates read them */
+      sumT: -1, stagT: -1, landT: -1,
+      /* death (tDie: an.t on the last live tick, so the dead pose holds
+         still instead of flickering on an.t) */
+      dieT: -1, dieAtS: 0, tDie: 0
+    };
+  }
+  /* key half-turn; priority death 3 > summon 2 > idle 1. clicks > 0 turns
+     it as a ratchet: that many equal clicks, each a quick ease-out and a
+     short dwell (the idle tick), instead of one smooth ease. */
+  function lordKeyTurn(an, dth, dur, pri, clicks) {
+    pri = pri || 1;
+    if (an.kT >= 0 && an.kPri > pri) return false;
+    an.kFrom = an.keyTh;
+    an.kTo = an.keyTh + dth;
+    an.kT = 0;
+    an.kDur = dur;
+    an.kPri = pri;
+    an.kIdle = pri === 1;
+    an.kN = clicks || 0;
+    return true;
+  }
+  /* forget the previous position (spawn, room load, teleport) */
+  function lordAnimSnap(e, an, uW) {
+    an.lx = e.x;
+    an.ly = e.y;
+    an.hwPrev = e.x + an.lean * uW * 0.96;
+    an.vHPrev = 0;
+    an.ftX0 = an.ftX1 = an.ftL0 = an.ftL1 = 0;
+    an.cyL0 = an.cyL1 = an.cyD0 = an.cyD1 = 0;
+    an.swF = -1;
+    an.walkOn = false;
+    an.stHold = 0;
+    an.shufN = 0;
+    an.homeX = 0;
+  }
+  /* body pose targets the followers chase. Batch B swaps the attack branch
+     for lordCleaveVis / lordLungeVis. */
+  var LORD_T = { lean: 0, crouch: 0, shield: 0, flare: 0 };
+  /* idle sway: 4.4 s (1.3x the breath, so the two never lock), 0.044 of
+     lean; the lagged head, crown and key followers (lordAnim) filter it to
+     at most ~0.04u anywhere */
+  function lordSwayT(e, an) {
+    return 0.044 * Math.sin(2 * Math.PI * an.t / 4.4 + (e.bobPhase || 0)) * (1 - an.gA);
+  }
+  function lordPoseTarget(e, an, out) {
+    if (e.spawnT > 0) {
+      out.lean = 0; out.crouch = 0; out.shield = 0; out.flare = 0;
+    } else if (e.atk) {
+      out.lean = e.lean || 0;
+      out.crouch = e.crouch || 0;
+      out.shield = e.shieldFwd || 0;
+      out.flare = e.capeFlare || 0;
+    } else {
+      /* idle sway over the planted feet, faded out by the gait, plus the
+         travel lean spring */
+      out.lean = lordSwayT(e, an) + an.tl;
+      out.crouch = 0;
+      out.shield = 0;
+      out.flare = e.capeFlare || 0;
+    }
+    return out;
+  }
+  function lordAnimDead(e, an, dt) {
+    if (an.dieT < 0) {
+      /* batch D replaces this with the full death clock; until then the
+         pose freezes, so drop any half-played blink or chatter */
+      an.dieT = 0;
+      an.tDie = an.t - dt;
+      an.blinkT = -1;
+      an.chatT = -1;
+    }
+    an.dieT += dt;
+    /* a foot caught in the air comes down where it was heading */
+    if (an.swF >= 0) {
+      var s0 = an.swP;
+      an.swP = Math.min(1, s0 + dt / 0.15);
+      var k = s0 < 1 ? (an.swP - s0) / (1 - s0) : 1;
+      var fx = an.swF ? an.ftX1 : an.ftX0, fl = an.swF ? an.ftL1 : an.ftL0;
+      fx += (an.swTo - fx) * k;
+      fl -= fl * k;
+      if (an.swP >= 1) { fx = an.swTo; fl = 0; }
+      if (an.swF) { an.ftX1 = fx; an.ftL1 = fl; } else { an.ftX0 = fx; an.ftL0 = fl; }
+      if (an.swP >= 1) an.swF = -1;
+    }
+    /* the walk bounce settles instead of snapping */
+    var kb = 1 - Math.exp(-dt / 0.06);
+    an.bnc -= an.bnc * kb;
+    an.bncH -= an.bncH * kb;
+  }
+  function lordAnim(e, dt) {
+    var an = e.an || (e.an = lordAnimNew(e));
+    an.tickN++;
+    an.t += dt;
+    if (!e.alive) { lordAnimDead(e, an, dt); return; }
+    var u = artR(e) * 1.48, uW = u * LORD_VIS;
+    var hero = player && player.x < e.x ? -1 : 1;
+    var hdx = player ? player.x - e.x : 0;
+    var spawning = e.spawnT > 0;
+    var n = lordAgit(e);
+    var spdR = Math.max(1, e.spd || 0);
+    var TAU = Math.PI * 2;
+    var k, p0;
+    /* spawn, room load and teleports */
+    if (spawning) {
+      an.postSpawn = true;
+      lordAnimSnap(e, an, uW);
+    } else if (an.postSpawn && e.phase !== an.lastPhase) {
+      an.postSpawn = false;
+    }
+    an.lastPhase = e.phase;
+    if (Math.abs(e.x - an.lx) > 120 || Math.abs(e.y - an.ly) > 120) lordAnimSnap(e, an, uW);
+
+    /* facing (SK-06): the drawn side follows e.face through a pinch turn,
+       with hysteresis so a hero straight above or below cannot flicker it */
+    var want = (spawning || an.postSpawn) ? hero : (e.face < 0 ? -1 : 1);
+    if (spawning || an.postSpawn) {
+      /* he rises already facing the hero (e.face is stale until the sim's
+         first post-spawn tick) */
+      an.faceFrom = an.faceTo = want;
+      an.turnP = -1;
+      an.faceHold = 0;
+    } else {
+      if (want !== an.faceTo) {
+        an.faceHold += dt;
+        if (Math.abs(hdx) > 0.45 * uW || an.faceHold >= (an.turnP >= 0 ? 0.08 : 0.15) ||
+            (e.atk && (Math.abs(hdx) > 0.1 * uW || an.faceHold >= 0.05))) {
+          if (an.turnP >= 0) {
+            /* the hero crossed back mid-turn: run the same turn in reverse */
+            an.turnP = 1 - an.turnP;
+          } else {
+            an.turnP = 0;
+            an.turnDur = e.atk ? 0.14 : 0.30;
+            if (!e.atk && !an.walkOn) {
+              /* standing turn: the feet shuffle round (lordFeet), new
+                 front foot first, landing a touch toward the new side */
+              an.shufN = 2;
+              an.shufI = want > 0 ? 1 : 0;
+              an.homeX = 0.03 * want;
+            }
+          }
+          an.faceFrom = an.faceTo;
+          an.faceTo = want;
+          an.turnBang0 = an.lastBang;
+          an.faceHold = 0;
+        }
+      } else {
+        an.faceHold = 0;
+      }
+      if (an.turnP >= 0) {
+        if (e.atk && an.turnDur > 0.14) an.turnDur = 0.14;
+        p0 = an.turnP;
+        an.turnP += dt / an.turnDur;
+        if (p0 < 0.5 && an.turnP >= 0.5) an.keyV += an.faceTo * 0.8;
+        /* the cape kicks out after the body has turned (follow-through)
+           and settles slowly */
+        if (p0 < 0.6 && an.turnP >= 0.6) {
+          an.flareAdd = Math.max(an.flareAdd, 0.30);
+          an.flareDk = 1.0;
+        }
+        if (an.turnP >= 1) { an.turnP = -1; an.tipV += an.faceTo * 1.3; }
+      }
+    }
+    var faceV = an.turnP < 0 || easeInOutQuad(an.turnP) >= 0.5 ? an.faceTo : an.faceFrom;
+    /* the embers lead the turn: they glide to the new side in ~0.1 s
+       (a reversal mid-turn glides back the same way) */
+    if (spawning || an.postSpawn) an.eyeF = an.faceTo;
+    else an.eyeF += (an.faceTo - an.eyeF) * (1 - Math.exp(-dt / 0.035));
+
+    /* attack tracking: a new attack (or a restarted clock) snapshots the
+       drawn blade so batch B's vis curves start where the sword is */
+    if (e.atk) {
+      if (an.atkKind !== e.atk || e.atkT < an.prevAtkT) {
+        an.atkN++;
+        an.shufN = 0;
+        an.atkKind = e.atk;
+        an.atkBang0 = an.lastBang;
+        an.aev = 0;
+        an.lockT = -1;
+      }
+      an.prevAtkT = e.atkT;
+    } else {
+      an.atkKind = null;
+      an.prevAtkT = 0;
+    }
+
+    /* followers (SK-05): the body trails the pose targets, ~2 frames behind
+       the blade in an attack, softer in the chase; no end-of-attack pops */
+    lordPoseTarget(e, an, LORD_T);
+    k = 1 - Math.exp(-dt / (e.atk ? 0.03 : 0.12));
+    an.lean += (LORD_T.lean - an.lean) * k;
+    an.crouch += (LORD_T.crouch - an.crouch) * k;
+    an.shield += (LORD_T.shield - an.shield) * k;
+    an.flare += (LORD_T.flare - an.flare) * k;
+    /* the lunge's fuller upper-body lean eases in with it and back out
+       over ~0.12 s after it */
+    k = e.atk === "lunge" ? 1 : 0;
+    an.atkW += (k - an.atkW) * (1 - Math.exp(-dt / (k ? 0.05 : 0.12)));
+    /* the idle sway's share of the lean, and the head (0.22 s), crown
+       (0.26 s) and key (0.30 s) trailing it, so the upper body visibly
+       follows the ribs */
+    k = 1 - Math.exp(-dt / 0.12);
+    an.sway += ((e.atk || spawning ? 0 : lordSwayT(e, an)) - an.sway) * k;
+    an.swayH += (an.sway - an.swayH) * (1 - Math.exp(-dt / 0.22));
+    an.swayC += (an.sway - an.swayC) * (1 - Math.exp(-dt / 0.26));
+    an.swayK += (an.sway - an.swayK) * (1 - Math.exp(-dt / 0.30));
+
+    /* gait (SK-09): speed drives the step phase, so a blocked or held lord
+       stands still and a creeping one steps slowly */
+    var dxs = e.x - an.lx, dys = e.y - an.ly;
+    var vNow = Math.sqrt(dxs * dxs + dys * dys) / dt;
+    an.lx = e.x;
+    an.ly = e.y;
+    an.plantT += dt;
+    if (spawning) {
+      an.gA = 0; an.vxS = 0; an.vS = 0; an.v = 0; an.gRate = 0;
+    } else if (e.atk) {
+      /* legs belong to the attack; the dash must not spin the phase */
+      k = 1 - Math.exp(-dt / 0.05);
+      an.gA -= an.gA * k;
+      an.vxS -= an.vxS * k;
+      an.vS -= an.vS * k;
+      an.v = 0;
+      an.gRate = 0;
+    } else {
+      var vx = dxs / dt, v = Math.sqrt(dxs * dxs + dys * dys) / dt;
+      an.v = v;
+      k = 1 - Math.exp(-12 * dt);
+      an.vxS += (vx - an.vxS) * k;
+      an.vS += (v - an.vS) * k;
+      an.gA += (clamp01(v / (0.5 * spdR)) - an.gA) * (1 - Math.exp(-dt / 0.2));
+      /* gPh only drives the cape's step flutter; the feet keep their own
+         cadence in lordFeet */
+      an.gRate = Math.PI * v / (0.45 * uW);
+      an.gPh += an.gRate * dt;
+      if (an.gPh > TAU * 64) an.gPh -= TAU * 64;
+    }
+    if (!spawning) lordFeet(e, an, dt, u, spdR, dxs, vNow, faceV, 0.70 + 0.20 * an.atkW);
+    /* travel lean: into the walk, a small rock onto the standing foot, and
+       a ~20 % overshoot when he stops (k 200, c 8 against the smoothed vx) */
+    var tlT = (spawning || e.atk) ? 0 :
+      Math.max(-1, Math.min(1, an.vxS / spdR)) * 0.10 + 0.03 * an.rock * an.gA;
+    spring(an, "tl", "tlV", 200, 8, dt, 0.5, 200 * tlT);
+
+    /* springs (SK-08): the key rocks against the head's acceleration; the
+       blade tip bobs on plants and turns */
+    var hw = e.x + an.lean * uW * 0.96;
+    var vH = (hw - an.hwPrev) / dt;
+    var aH = Math.max(-60000, Math.min(60000, (vH - an.vHPrev) / dt));
+    an.hwPrev = hw;
+    an.vHPrev = vH;
+    spring(an, "keyA", "keyV", 200, 8.5, dt, 0.30, -0.0006 * aH);
+    spring(an, "tipA", "tipV", 400, 12, dt, 0.12, 0);
+    /* the cape's side trails the body's turn and overshoots it */
+    k = an.turnP >= 0 ? an.faceFrom + (an.faceTo - an.faceFrom) * easeInOutSine(an.turnP) : an.faceTo;
+    if (spawning || an.postSpawn) { an.capeS = k; an.capeV = 0; }
+    else spring(an, "capeS", "capeV", 70, 8, dt, 1.8, 70 * k);
+    /* the resting sword's breathing heft hands over to the attack angle and
+       back without a pop: out over ~0.1 s as an attack starts, back in over
+       ~0.25 s after it ends (the sim's own angle is exactly rest then) */
+    k = (e.atk || spawning) ? 0 : 1;
+    an.heftW += (k - an.heftW) * (1 - Math.exp(-dt / (k ? 0.08 : 0.04)));
+
+    /* clocks: breath, cape, eyes, jaw, key turn */
+    var rate = (1 + 0.12 * n) / 3.4;
+    p0 = an.bPh;
+    an.bPh += dt * rate;
+    if (p0 < 0.588 && an.bPh >= 0.588 && !e.atk && !spawning && an.sumT < 0 && an.turnP < 0) {
+      /* the idle key tick: a 4-click ratchet half-turn at the exhale, on
+         the first exhale and then every 2nd (sometimes 3rd) one */
+      if (an.kSkip > 0) an.kSkip--;
+      else if (lordKeyTurn(an, Math.PI, 0.44, 1, 4)) an.kSkip = Math.random() < 0.25 ? 2 : 1;
+    }
+    if (an.bPh >= 1) an.bPh -= 1;
+    var lungeHold = e.atk === "lunge" && e.atkT >= 0.5 && e.atkT < e.atkWind;
+    an.capePh += dt * 1.35 * (1 + 0.1 * n) * (lungeHold ? 2 : 1);
+    if (an.capePh > TAU * 64) an.capePh -= TAU * 64;
+    k = 1 - Math.exp(-dt / 0.15);
+    an.lookX += (Math.max(-1, Math.min(1, hdx / 450)) * 0.08 - an.lookX) * k;
+    an.lookY += (Math.max(-1, Math.min(1, (player ? player.y - e.y : 0) / 300)) * 0.05 - an.lookY) * k;
+    /* an attack starts no new blink or chatter, but lets a running one
+       finish (no glow or jaw snap); the rise cancels them */
+    if (spawning) {
+      an.blinkT = -1;
+      an.chatT = -1;
+    }
+    if (an.blinkT >= 0) {
+      an.blinkT += dt;
+      if (an.blinkT >= 0.54) { an.blinkT = -1; an.nextBlink = 4 + 3 * Math.random(); }
+    } else if (!e.atk && !spawning) {
+      an.nextBlink -= dt;
+      if (an.nextBlink <= 0) an.blinkT = 0;
+    }
+    if (an.chatT >= 0) {
+      an.chatT += dt;
+      if (an.chatT >= 0.42) { an.chatT = -1; an.nextChat = 5 + 3 * Math.random(); }
+    } else if (!e.atk && !spawning) {
+      an.nextChat -= dt;
+      if (an.nextChat <= 0 && an.blinkT < 0) an.chatT = 0;
+    }
+    if (an.kT >= 0) {
+      p0 = an.kT;
+      an.kT += dt;
+      if (an.kN > 0) {
+        /* ratchet: each click an ease-out over 55 % of its slot, then a
+           dwell; it is done when the last click lands */
+        var kPer = an.kDur / an.kN, kCi = Math.min(an.kN, Math.floor(an.kT / kPer));
+        k = Math.min(1, an.kT / (an.kDur - 0.45 * kPer));
+        an.keyTh = an.kFrom + (an.kTo - an.kFrom) *
+          (k >= 1 ? 1 : (kCi + easeOutQuad((an.kT - kCi * kPer) / (0.55 * kPer))) / an.kN);
+        /* each earlier click lands with a small torque on the tilt spring */
+        var kLi = Math.floor((an.kT - 0.55 * kPer) / kPer);
+        if (kLi > Math.floor((p0 - 0.55 * kPer) / kPer) && kLi >= 0 && kLi < an.kN - 1) an.keyV += 0.15 * an.kSide;
+      } else {
+        k = Math.min(1, an.kT / an.kDur);
+        an.keyTh = an.kFrom + (an.kTo - an.kFrom) * easeInOutCubic(k);
+      }
+      if (k >= 1) {
+        if (an.kIdle) {
+          /* the bow seats: a 2-tick drop and a small rock */
+          an.keyLandN = 2;
+          an.keyV += 0.6 * an.kSide;
+          an.kSide = -an.kSide;
+        }
+        an.kT = -1;
+        an.kPri = 0;
+        an.kIdle = false;
+        an.kN = 0;
+        an.keyTh -= Math.floor(an.keyTh / TAU) * TAU;
+      }
+    } else if (an.keyLandN > 0) {
+      an.keyLandN--;
+    }
+    an.flareAdd = Math.max(0, an.flareAdd - an.flareDk * dt);
+    if (an.flareAdd <= 0) an.flareDk = 1.8;
+    /* the eyes flare as an attack starts (over ~0.05 s) and cool after */
+    k = e.atk ? 1 : 0;
+    an.eyeHot += (k - an.eyeHot) * (1 - Math.exp(-dt / (k ? 0.05 : 0.25)));
+    /* the drawn flare eases up onto a kick over ~50 ms (a turn's flareAdd
+       arrives in one tick) and falls with it */
+    k = Math.max(an.flare, an.flareAdd);
+    an.flareD = k > an.flareD ? an.flareD + (k - an.flareD) * (1 - Math.exp(-dt / 0.025)) : k;
+    if (an.angerT > 0) an.angerT = Math.max(0, an.angerT - dt);
+  }
 
   /* BB-V7.43 — Bone King pose clock for the scepter volley. */
   function ensureBoneKing(e) {
@@ -9637,6 +10540,186 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     return LORD_TIP;
   }
 
+  /* BB-V7.72 — pure per-frame pose for the Skull Lord rig. Reads e, e.an and
+     the player; writes only this reused module object (no allocation), so
+     the draw never integrates. P.legacy means e.an is null (holdLord, the
+     boss sheet) and drawSkullLord takes its pre-rig path unchanged.
+     Offsets are in local art pixels (u units already applied). */
+  var LORD_KEY_BACK = shade("#e0b44a", 0.7);
+  var LORD_P = {
+    legacy: true, thr: 1,
+    faceV: 1, faceE: 1, fS: 1, swPinch: 1, shPinch: 1,
+    L: 0, hipDX: 0, drop: 0, yU: 0, yUh: 0, b: 0,
+    wRib: 0.70, wPaul: 0.78, wHead: 0.90, wPan: 0.45, wFlap: 0.35, headSX: 0, crownSX: 0, keySX: 0,
+    chestB: 0, paulB: 0, headB: 0, crownB: 0, keyB: 0, hemB: 0, jawY: 0, shieldY: 0, shield: 0,
+    headDX: 0, headDY: 0, headRot: 0, crownRot: 0, keyRot: 0, keyCw: 1, keyBack: false,
+    glow: 1, eyeDX: 0, eyeDY: 0, eyeCore: false, gem: 1,
+    flare: 0, capeDrop: 0, sw0: 0, sw1: 0, sw2: 0, sw3: 0, sw4: 0, hs0: 0, hs1: 0, hs2: 0,
+    legLX: 0, legRX: 0, legLLift: 0, legRLift: 0, legHmul: 1,
+    bang: 0, hx: 0, hy: 0, hDX: 0, hDY: 0,
+    shRx: 0, shA: 0.52
+  };
+  function lordPose(e, u) {
+    var P = LORD_P, an = e.an;
+    P.thr = e.alive ? 1 : (an ? Math.max(0, 1 - (S.t - an.dieAtS) / 0.12) : 0);
+    if (!an) { P.legacy = true; return P; }
+    P.legacy = false;
+    /* the flicker clocks stop with the rest of the pose once he is dead */
+    var tt = !e.alive && an.dieT >= 0 ? an.tDie : an.t;
+    var x = e.x, ytP = e.y - u * 2.35;
+    var n = lordAgit(e), ph = e.bobPhase || 0;
+    var spdR = Math.max(1, e.spd || 0);
+    /* facing: the art side flips at the pinch's thinnest point; fS slides
+       the shield and grip across on one sine ease (a doubled ease packed
+       the crossing into ~2 ticks); the eyes lead (an.eyeF) */
+    var turning = an.turnP >= 0;
+    var q = turning ? easeInOutQuad(an.turnP) : 1;
+    P.faceV = !turning || q >= 0.5 ? an.faceTo : an.faceFrom;
+    P.faceE = an.faceTo;
+    P.fS = turning ? an.faceFrom + (an.faceTo - an.faceFrom) * easeInOutSine(an.turnP) : an.faceTo;
+    var cq = turning ? Math.abs(Math.cos(Math.PI * q)) : 1;
+    P.swPinch = Math.max(0.12, cq);
+    P.shPinch = Math.max(0.25, cq);
+    var turnDip = turning ? 0.04 * Math.sin(Math.PI * q) : 0;
+    /* breath (SK-07): each group rides the same breath a little later;
+       the ribs, shield and hem (what the phone camera always frames) carry
+       the most of it, each within the 0.04u idle cap */
+    var rate = (1 + 0.12 * n) / 3.4;
+    var b0 = lordBreath(an.bPh);
+    P.b = b0;
+    P.chestB = -0.038 * u * b0;
+    P.paulB = -0.040 * u * b0;
+    P.headB = -0.035 * u * lordBreath(an.bPh - 0.10 * rate);
+    P.crownB = -0.035 * u * lordBreath(an.bPh - 0.12 * rate);
+    P.keyB = -0.035 * u * lordBreath(an.bPh - 0.18 * rate) + (an.keyLandN > 0 ? 0.015 * u : 0);
+    P.hemB = 0.035 * u * (1 - b0);
+    P.jawY = 0.03 * u * (1 - lordBreath(an.bPh - 0.15 * rate));
+    if (an.chatT >= 0) {
+      /* chatter: 3 clacks at ~7 Hz, each opening over 0.05 s, held 0.02 s
+         and snapped shut (so every clack spans ~4 frames at 30 fps); the
+         breath's jaw eases out under it and the total stays <= 0.04u */
+      var chT = an.chatT, chC = chT - 0.14 * Math.floor(chT / 0.14);
+      var chO = chT >= 0.42 ? 0 : chC < 0.05 ? easeOutQuad(chC / 0.05) : chC < 0.07 ? 1 : 0;
+      var chW = Math.max(0, Math.min(1, chT / 0.05, (0.42 - chT) / 0.06));
+      P.jawY = Math.min(0.04 * u, P.jawY * (1 - chW) + 0.035 * u * chO);
+    }
+    /* gait bounce (up while a leg swings over; the head trails it) and
+       plant dip; drop is the soft-clamped crouch (SK-05) */
+    var envP = lordEnv(an.plantT);
+    P.drop = Math.min(0.36, lordDrop(an.crouch) + 0.04 * envP);
+    P.yU = (P.drop - 0.025 * an.bnc + turnDip) * u;
+    P.yUh = (P.drop - 0.025 * an.bncH + turnDip) * u;
+    P.L = an.lean * u;
+    /* group lean weights; the lunge's upper body leans fuller (an.atkW) */
+    var aw = an.atkW;
+    P.wRib = 0.70 + 0.20 * aw;
+    P.wPaul = 0.78 + 0.17 * aw;
+    P.wHead = 0.90 + 0.10 * aw;
+    P.wPan = 0.45 + 0.15 * aw;
+    P.wFlap = 0.35 + 0.15 * aw;
+    P.hipDX = P.wRib * P.L;
+    /* the head, crown and key trail the idle sway (absolute weights 0.90,
+       0.96, 1.00 on their lagged followers; the draw nests them) */
+    P.headSX = 0.90 * (an.swayH - an.sway) * u;
+    P.crownSX = (0.96 * an.swayC - 0.90 * an.swayH - 0.06 * an.sway) * u;
+    P.keySX = (1.00 * an.swayK - 0.96 * an.swayC - 0.04 * an.sway) * u;
+    P.shield = an.shield;
+    P.shieldY = 0.5 * P.drop * u - 0.035 * u * lordBreath(an.bPh - 0.20 * rate) + 0.02 * u * lordEnv(an.plantT - 0.06);
+    P.headDX = 0;
+    P.headDY = 0;
+    P.headRot = 0;
+    /* clockwork key (SK-08): crown and key tilt on the spring; the bow
+       narrows with the turn and darkens while it is edge-on */
+    P.crownRot = 0.35 * an.keyA;
+    P.keyRot = 0.65 * an.keyA;
+    var ck = Math.cos(an.keyTh);
+    P.keyCw = Math.max(0.18, Math.abs(ck));
+    P.keyBack = Math.abs(ck) < 0.55;
+    /* legs (SK-05/09): where lordFeet planted or is swinging each foot.
+       lordAnim ran before this tick's move, so the move since then is
+       given back here too (unless it was a dash) and a planted foot stays
+       on its floor spot in the drawn frame as well. */
+    var pdx = x - an.lx, pdy = e.y - an.ly;
+    var pv = Math.sqrt(pdx * pdx + pdy * pdy) / DT;
+    var pend = pdx / (LORD_VIS * u) * (pv <= 160 ? 1 : pv >= 320 ? 0 : (320 - pv) / 160);
+    P.legLX = (an.ftX0 - pend) * u;
+    P.legLLift = an.ftL0 * u;
+    P.legRX = (an.ftX1 - pend) * u;
+    P.legRLift = an.ftL1 * u;
+    /* a foot off the floor hangs from the hip: in the drawn frame too it
+       stays within reach of the ribcage (the move since the tick) */
+    var hipU = P.hipDX / u;
+    if (an.ftL0 > 0) P.legLX = Math.max(hipU - LORD_REACH + 0.26, Math.min(hipU + LORD_REACH + 0.26, P.legLX / u)) * u;
+    if (an.ftL1 > 0) P.legRX = Math.max(hipU - LORD_REACH - 0.26, Math.min(hipU + LORD_REACH - 0.26, P.legRX / u)) * u;
+    P.legHmul = 1;
+    /* eyes (SK-07): never below ~0.7, a faint living flicker, blinks,
+       tracking the hero; brighter with every court call */
+    /* an attack flares them over the idle (1.12-1.18, swelling), so a
+       wind-up always brightens the eyes: an.eyeHot eases it in and out */
+    var flk = 0.6 * Math.sin(tt * 37 + ph) + 0.4 * Math.sin(tt * 23);
+    var glow0 = 0.76 + 0.25 * b0 + 0.06 * flk * (1 + 0.25 * n) + 0.06 * n;
+    var glow = glow0;
+    if (an.eyeHot > 0) glow += (Math.max(glow0, 1) + 0.15 + 0.03 * Math.sin(tt * 14) - glow0) * an.eyeHot;
+    if (an.blinkT >= 0) glow = lordBlink(glow, an.blinkT);
+    P.glow = glow;
+    P.eyeCore = false;
+    /* the ember (0.16u x 0.14u, swelling past glow 1) never leaves its
+       socket: centre travel is the socket's slack minus the half size */
+    var eyS = glow > 1 ? 1 + (glow - 1) * 0.75 : 1;
+    var exm = 0.16 - 0.08 * eyS;
+    P.eyeDX = Math.max(-exm, Math.min(exm, 0.03 * an.eyeF + an.lookX)) * u;
+    P.eyeDY = Math.max(-0.17 + 0.07 * eyS, Math.min(0.15 - 0.07 * eyS, an.lookY)) * u;
+    /* the sternum gem swells on the inhale and dims with a blink */
+    P.gem = Math.max(0, Math.min(1, (0.55 + 0.45 * b0 + 0.05 * flk) * (an.blinkT >= 0 ? glow / Math.max(0.05, glow0) : 1)));
+    /* cloth cape (SK-07/09): per-panel phase and weight, lean and flare
+       drag, walk drag and step flutter */
+    var flD = an.flareD;
+    P.flare = flD;
+    P.capeDrop = Math.max(0, an.crouch) * u * 0.25 + flD * u * 0.18;
+    var cp = an.capePh + ph, osc = 0.08 * u, at = tt * 2.6, sec = 0.015 * u;
+    /* the flare's drag hangs on the cape's own side (an.capeS), which
+       trails the turn and overshoots it; the lag itself swings the cloth */
+    var drag = -P.L * 0.12 - an.capeS * flD * u * 0.12 - (an.capeS - P.fS) * 0.07 * u;
+    var walk = -Math.max(-1, Math.min(1, an.vxS / spdR)) * 0.10 * u;
+    var flut = 0.02 * u * Math.sin(2 * an.gPh) * an.gA;
+    P.sw0 = Math.sin(cp - 0.6) * osc + drag + sec * Math.sin(at) + walk * 1.2 + flut;
+    P.sw1 = (Math.sin(cp - 0.45) * osc + drag) * 0.6 + sec * Math.sin(at + 1.3) + walk * 1.2 + flut;
+    P.sw2 = (Math.sin(cp - 0.3) * osc + drag) * 0.7 + sec * Math.sin(at + 2.6) + walk + flut;
+    P.sw3 = (Math.sin(cp) * osc + drag) * 0.5 + sec * Math.sin(at + 3.9) + walk + flut;
+    P.sw4 = (Math.sin(cp - 0.3) * osc + drag) * 0.4 + sec * Math.sin(at + 5.2) + walk + flut;
+    var hem = Math.sin(cp - 0.9) * osc + drag;
+    P.hs0 = hem * 0.98 + sec * Math.sin(at + 6.5) + walk * 1.5 + flut;
+    P.hs1 = hem * 0.70 + sec * Math.sin(at + 7.8) + walk * 1.5 + flut;
+    P.hs2 = hem * 0.56 + sec * Math.sin(at + 9.1) + walk * 1.5 + flut;
+    /* sword: attacks keep the sim's angle and lift (batch B replaces them);
+       the chase rests flat with a breathing heft; a turn holds the old
+       angle until the pinch flips it; the tip spring rides on top */
+    var bang;
+    var heft = P.faceV * (0.018 + 0.012 * Math.sin(2 * Math.PI * (an.bPh - 0.23))) * an.heftW;
+    if (e.atk) {
+      bang = turning && q < 0.5 ? an.turnBang0 : (e.bladeAng != null ? e.bladeAng : skullRestAng(P.faceV)) + heft;
+    } else {
+      bang = skullRestAng(P.faceV) + heft;
+    }
+    P.bang = bang + an.tipA;
+    P.hDX = 0;
+    P.hDY = -0.28 * (e.bladeLift || 0);
+    P.hx = x + P.fS * u * 0.05 + P.wRib * P.L + P.hDX * u;
+    P.hy = ytP + P.yU + P.chestB + u * 1.22 + P.hDY * u;
+    /* shadow: breathes and spreads a touch on each plant */
+    P.shRx = u * (1.35 + Math.max(0, an.crouch) * 0.4) * (1 - 0.02 * b0) * (1 + 0.08 * envP);
+    P.shA = 0.56 - 0.04 * b0;
+    return P;
+  }
+  /* a cape panel that pools on the floor instead of sinking through it */
+  function lordCapeCube(g, x, y, w, h, z, col, floorL) {
+    if (floorL != null) {
+      var over = y + h - floorL;
+      if (over > 0) { h -= over; w += 0.5 * over; x -= 0.25 * over; }
+    }
+    cube(g, x, y, w, h, z, col);
+  }
+
   /* BB-V7.12 — Skull Lord drawn from the Undead Lord concept sheet, NOT the
      Bone Knight kit. Same undead skeleton language, but a different silhouette:
      wide tattered cape, spiked purple pauldrons, ornate crown + wind-up key,
@@ -9653,41 +10736,57 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     e.artH = u * 3.35;
     var x = e.x;
     if (e.bobPhase == null) e.bobPhase = Math.random() * 6.3;
-    var face = e.face || (player && player.x < e.x ? -1 : 1);
-    var bob = Math.sin(S.t * 1.55 + e.bobPhase) * u * 0.035;
-    var crouch = (e.crouch || 0) * u;
-    var lean = (e.lean || 0) * u;
+    /* BB-V7.72 — rig. A0 is the alpha drawEnemy handed in (spawn and death
+       fades); every alpha below is relative to it, so all parts fade
+       together. P is this frame's pose from lordPose; P.legacy (e.an null)
+       takes the pre-rig path, bit for bit. thr fades the threat telegraphs
+       out over 0.12 s of S.t once he is dead. Telegraphs keep the sim's
+       e.face (faceT); the art uses the drawn side. In the rig every group is
+       wrapped in its own save/translate: feet planted (weight 0), cape
+       0.25-0.45, ribs and grip 0.70, pauldrons 0.78, head 0.90 with crown
+       and key nested inside it. */
+    var A0 = g.globalAlpha;
+    var P = lordPose(e, u);
+    var LG = P.legacy;
+    var thr = P.thr;
+    var faceT = e.face || (player && player.x < e.x ? -1 : 1);
+    var face = LG ? faceT : P.faceV;
+    var bob = LG ? Math.sin(S.t * 1.55 + e.bobPhase) * u * 0.035 : 0;
+    var crouch = LG ? (e.crouch || 0) * u : 0;
+    var lean = LG ? (e.lean || 0) * u : 0;
     var yt = e.y - u * 2.35 + bob + crouch;
+    var ytP = e.y - u * 2.35;
+    var L = LG ? 0 : P.L;
     var body = e.flash > 0 ? "#ffffff" : BONE;
 
     /* ----- telegraphs ----- */
-    if (e.atk === "cleave" && e.atkT < e.atkWind) {
+    if (thr > 0 && e.atk === "cleave" && e.atkT < e.atkWind) {
       var tw = e.atkT / e.atkWind;
       var base = Math.atan2(e.aimY, e.aimX);
       var fanR = skullCleaveReach(e);
       g.save();
-      g.globalAlpha = 0.14 + tw * 0.34;
+      g.globalAlpha = (0.14 + tw * 0.34) * A0 * thr;
       g.fillStyle = "#c9a44c";
       g.beginPath();
       g.moveTo(x, e.y);
-      g.arc(x, e.y, fanR, base + face * (-SKULL_CLEAVE_BACK), base + face * SKULL_CLEAVE_FWD, face < 0);
+      g.arc(x, e.y, fanR, base + faceT * (-SKULL_CLEAVE_BACK), base + faceT * SKULL_CLEAVE_FWD, faceT < 0);
       g.closePath();
       g.fill();
       g.strokeStyle = "rgba(240,200,90," + (0.4 + tw * 0.5) + ")";
       g.lineWidth = 2.5;
       g.beginPath();
-      g.arc(x, e.y, fanR, base + face * (-SKULL_CLEAVE_BACK), base + face * SKULL_CLEAVE_FWD, face < 0);
+      g.arc(x, e.y, fanR, base + faceT * (-SKULL_CLEAVE_BACK), base + faceT * SKULL_CLEAVE_FWD, faceT < 0);
       g.stroke();
       g.restore();
     }
-    if (e.atk === "lunge" && e.atkT < e.atkWind) {
+    if (thr > 0 && e.atk === "lunge" && e.atkT < e.atkWind) {
       var lw = e.atkT / e.atkWind;
       var lx = x + e.aimX * u * 0.6, ly = e.y + e.aimY * u * 0.12;
       var len = e.dashLen || skullDashLen(e, 0);
       var tx = e.dashCommit ? e.dashToX : (lx + e.aimX * len);
       var ty = e.dashCommit ? e.dashToY : (ly + e.aimY * len);
       g.save();
-      g.globalAlpha = 0.24 + lw * 0.48;
+      g.globalAlpha = (0.24 + lw * 0.48) * A0 * thr;
       g.strokeStyle = "#f0e0b0";
       g.lineWidth = 6 + lw * 5;
       g.setLineDash([12, 9]);
@@ -9707,7 +10806,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
         var ct = ((lw * 3 + ch * 0.18 + S.t * 1.8) % 1);
         var cx = lx + (tx - lx) * ct;
         var cy = ly + (ty - ly) * ct;
-        g.globalAlpha = 0.4 + lw * 0.45;
+        g.globalAlpha = (0.4 + lw * 0.45) * A0 * thr;
         g.fillStyle = "#ffb060";
         g.beginPath();
         g.moveTo(cx + e.aimX * 9, cy + e.aimY * 9);
@@ -9719,7 +10818,8 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       g.restore();
     }
 
-    if (e.slashTrail && e.slashTrail.length) {
+    if (thr > 0 && e.slashTrail && e.slashTrail.length) {
+      g.globalAlpha = A0 * thr;
       for (var ti = 1; ti < e.slashTrail.length; ti++) {
         var a0 = e.slashTrail[ti - 1], a1 = e.slashTrail[ti];
         g.strokeStyle = "rgba(255,120,50," + (0.18 + a1.a * 0.55) + ")";
@@ -9729,11 +10829,12 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
         g.lineTo(a1.x, a1.y);
         g.stroke();
       }
+      g.globalAlpha = A0;
     }
 
-    if (e.dustT > 0) {
+    if (thr > 0 && e.dustT > 0) {
       g.save();
-      g.globalAlpha = Math.min(0.5, e.dustT * 1.5);
+      g.globalAlpha = Math.min(0.5, e.dustT * 1.5) * A0 * thr;
       g.fillStyle = "#6a5a44";
       for (var d = 0; d < 6; d++) {
         var da = e.capesway * 3 + d * 1.2;
@@ -9742,59 +10843,112 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       }
       g.restore();
     }
-    if (e.atk === "lunge" && e.atkT >= e.atkWind + e.atkActive && e.atkT < e.atkTotal) {
+    if (thr > 0 && e.atk === "lunge" && e.atkT >= e.atkWind + e.atkActive && e.atkT < e.atkTotal) {
       var rec = (e.atkT - e.atkWind - e.atkActive) / e.atkRecover;
       if (rec < 0.42) {
         g.save();
-        g.globalAlpha = 0.4 * (1 - rec / 0.42);
+        g.globalAlpha = 0.4 * (1 - rec / 0.42) * A0 * thr;
         g.strokeStyle = "#c9a44c";
         g.lineWidth = 3;
         g.beginPath();
-        g.ellipse(x, e.y + u * 0.28, u * (0.85 + rec * 2.0), u * (0.22 + rec * 0.4), 0, 0, 6.3);
+        if (ellipseOk(u * (0.85 + rec * 2.0), u * (0.22 + rec * 0.4))) {
+          g.ellipse(x, e.y + u * 0.28, u * (0.85 + rec * 2.0), u * (0.22 + rec * 0.4), 0, 0, 6.3);
+        }
         g.stroke();
         g.restore();
       }
     }
 
     /* weight shadow — wider than any knight */
-    g.save(); g.globalAlpha = 0.52; g.fillStyle = "#0a0806";
+    var shRx = LG ? u * (1.35 + (e.crouch || 0) * 0.4) : P.shRx;
+    g.save(); g.globalAlpha = (LG ? 0.52 : P.shA) * A0; g.fillStyle = "#0a0806";
     g.beginPath();
-    g.ellipse(x + lean * 0.15, e.y + u * 0.3, u * (1.35 + (e.crouch || 0) * 0.4), u * 0.36, 0, 0, 6.3);
-    g.fill(); g.restore();
+    if (ellipseOk(shRx, u * 0.36)) {
+      g.ellipse(x + (LG ? lean : L) * 0.15, e.y + u * 0.3, shRx, u * 0.36, 0, 0, 6.3);
+      g.fill();
+    }
+    g.restore();
 
     g.save();
-    g.translate(lean, 0);
+    if (LG) g.translate(lean, 0);
 
     /* ===== CAPE — dominant width, purple outside / crimson lining ===== */
-    var flare = (e.capeFlare || 0);
-    var sway = Math.sin((e.capesway || 0) * 1.35) * u * 0.08 - lean * 0.12 - face * flare * u * 0.12;
-    var capeDrop = (e.crouch || 0) * u * 0.25 + flare * u * 0.18;
+    var flare = LG ? (e.capeFlare || 0) : P.flare;
+    var sway = LG ? Math.sin((e.capesway || 0) * 1.35) * u * 0.08 - lean * 0.12 - face * flare * u * 0.12 : 0;
+    var capeDrop = LG ? (e.crouch || 0) * u * 0.25 + flare * u * 0.18 : P.capeDrop;
     var capeWide = flare * u * 0.22;
+    /* BB-V7.72 — rig: the cape hangs from the shoulders (yU), each panel on
+       its own sway, and pools where it meets the floor (capeFl, in each
+       group's frame) instead of sinking through it. */
+    var capeFl = null;
+    if (!LG) {
+      g.save();
+      g.translate(L * P.wFlap, P.yU + P.hemB);
+      capeFl = ytP + u * 2.28 - (P.yU + P.hemB);
+    }
     /* back lining flaps */
-    cube(g, x - u * 1.15 - capeWide + sway, yt + u * 0.55, u * 0.42, u * 1.55 + capeDrop, u * 0.08, LINING);
-    cube(g, x + u * 0.72 + capeWide + sway * 0.6, yt + u * 0.58, u * 0.42, u * 1.48 + capeDrop, u * 0.08, LINING);
+    lordCapeCube(g, x - u * 1.15 - capeWide + (LG ? sway : P.sw0), yt + u * 0.55, u * 0.42, u * 1.55 + capeDrop, u * 0.08, LINING, capeFl);
+    lordCapeCube(g, x + u * 0.72 + capeWide + (LG ? sway * 0.6 : P.sw1), yt + u * 0.58, u * 0.42, u * 1.48 + capeDrop, u * 0.08, LINING, capeFl);
+    if (!LG) {
+      g.restore();
+      g.save();
+      g.translate(L * P.wPan, P.yU);
+      capeFl = ytP + u * 2.28 - P.yU;
+    }
     /* main cloak panels — much wider than Bone Knight's strip */
-    cube(g, x - u * 0.95 - capeWide + sway * 0.7, yt + u * 0.42, u * 0.55, u * 1.72 + capeDrop, u * 0.10, PURPLE_D);
-    cube(g, x - u * 0.42 + sway * 0.5, yt + u * 0.38, u * 0.84, u * 1.82 + capeDrop, u * 0.12, PURPLE);
-    cube(g, x + u * 0.40 + capeWide + sway * 0.4, yt + u * 0.42, u * 0.55, u * 1.65 + capeDrop, u * 0.10, PURPLE_D);
+    lordCapeCube(g, x - u * 0.95 - capeWide + (LG ? sway * 0.7 : P.sw2), yt + u * 0.42, u * 0.55, u * 1.72 + capeDrop, u * 0.10, PURPLE_D, capeFl);
+    lordCapeCube(g, x - u * 0.42 + (LG ? sway * 0.5 : P.sw3), yt + u * 0.38, u * 0.84, u * 1.82 + capeDrop, u * 0.12, PURPLE, capeFl);
+    lordCapeCube(g, x + u * 0.40 + capeWide + (LG ? sway * 0.4 : P.sw4), yt + u * 0.42, u * 0.55, u * 1.65 + capeDrop, u * 0.10, PURPLE_D, capeFl);
     /* ragged hem notches */
     g.fillStyle = LORD_HEM_COL; /* BB-V7.72 */
-    g.fillRect(x - u * 0.85 + sway, yt + u * 2.05 + capeDrop, u * 0.18, u * 0.16);
-    g.fillRect(x - u * 0.15 + sway * 0.5, yt + u * 2.12 + capeDrop, u * 0.22, u * 0.18);
-    g.fillRect(x + u * 0.55 + sway * 0.4, yt + u * 2.00 + capeDrop, u * 0.18, u * 0.14);
-    if (e.atk === "cleave" && e.atkT >= e.atkWind && e.atkT < e.atkWind + e.atkActive) {
-      g.globalAlpha = 0.45;
+    if (LG) {
+      g.fillRect(x - u * 0.85 + sway, yt + u * 2.05 + capeDrop, u * 0.18, u * 0.16);
+      g.fillRect(x - u * 0.15 + sway * 0.5, yt + u * 2.12 + capeDrop, u * 0.22, u * 0.18);
+      g.fillRect(x + u * 0.55 + sway * 0.4, yt + u * 2.00 + capeDrop, u * 0.18, u * 0.14);
+    } else {
+      /* the hem trails the panels (lean weight 0.25) and never drops below
+         its rest line */
+      g.restore();
+      g.save();
+      g.translate(L * 0.25, P.yU + P.hemB);
+      var hemFl = ytP + u * 2.30 - (P.yU + P.hemB);
+      g.fillRect(x - u * 0.85 + P.hs0, Math.min(yt + u * 2.05 + capeDrop, hemFl - u * 0.16), u * 0.18, u * 0.16);
+      g.fillRect(x - u * 0.15 + P.hs1, Math.min(yt + u * 2.12 + capeDrop, hemFl - u * 0.18), u * 0.22, u * 0.18);
+      g.fillRect(x + u * 0.55 + P.hs2, Math.min(yt + u * 2.00 + capeDrop, hemFl - u * 0.14), u * 0.18, u * 0.14);
+      g.restore();
+    }
+    if (thr > 0 && e.atk === "cleave" && e.atkT >= e.atkWind && e.atkT < e.atkWind + e.atkActive) {
+      if (!LG) {
+        g.save();
+        g.translate(L * P.wPan, P.yU);
+      }
+      g.globalAlpha = 0.45 * A0 * thr;
       g.fillStyle = LINING;
-      g.fillRect(x - u * 0.5 + sway, yt + u * 0.7, u * 1.0, u * 1.1);
-      g.globalAlpha = 1;
+      g.fillRect(x - u * 0.5 + (LG ? sway : P.sw3), yt + u * 0.7, u * 1.0, u * 1.1);
+      g.globalAlpha = A0;
+      if (!LG) g.restore();
     }
 
     /* ===== LEGS — short stubby bone blocks, stride on chase/lunge ===== */
-    var stride = (e.stride || 0) * u;
-    cube(g, x - u * 0.42, yt + u * 1.78 + stride, u * 0.32, u * 0.36, u * 0.18, BONE_D);
-    cube(g, x + u * 0.10, yt + u * 1.78 - stride, u * 0.32, u * 0.36, u * 0.18, BONE_D);
+    if (LG) {
+      var stride = (e.stride || 0) * u;
+      cube(g, x - u * 0.42, yt + u * 1.78 + stride, u * 0.32, u * 0.36, u * 0.18, BONE_D);
+      cube(g, x + u * 0.10, yt + u * 1.78 - stride, u * 0.32, u * 0.36, u * 0.18, BONE_D);
+    } else {
+      /* BB-V7.72 — planted rigid blocks (lean weight 0), bottoms on the
+         floor line; a crouch bends (shortens) them. lordFeet places, lifts
+         and steps each foot, so a foot on the floor never skates. */
+      var legH = Math.max(u * 0.10, (u * 0.36 - 0.6 * P.drop * u) * P.legHmul);
+      var legBot = ytP + u * 2.14;
+      cube(g, x - u * 0.42 + P.legLX, legBot - P.legLLift - legH, u * 0.32, legH, u * 0.18, BONE_D);
+      cube(g, x + u * 0.10 + P.legRX, legBot - P.legRLift - legH, u * 0.32, legH, u * 0.18, BONE_D);
+    }
 
     /* ===== RIBCAGE — exposed, not a solid cuirass like the knight ===== */
+    if (!LG) {
+      g.save();
+      g.translate(L * P.wRib, P.yU + P.chestB);
+    }
     cube(g, x - u * 0.48, yt + u * 0.78, u * 0.96, u * 1.00, u * 0.30, body);
     /* open rib gaps */
     g.fillStyle = shade(body, 0.45);
@@ -9811,11 +10965,16 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     }
     /* sternum gem */
     g.fillStyle = EMBER;
-    g.globalAlpha = 0.7 + 0.3 * Math.sin(S.t * 4 + e.bobPhase);
+    g.globalAlpha = (LG ? 0.7 + 0.3 * Math.sin(S.t * 4 + e.bobPhase) : P.gem) * A0;
     g.fillRect(x - u * 0.11, yt + u * 1.12, u * 0.22, u * 0.18);
-    g.globalAlpha = 1;
+    g.globalAlpha = A0;
     g.fillStyle = LORD_GEM_HOT; /* BB-V7.72 */
     g.fillRect(x - u * 0.06, yt + u * 1.16, u * 0.12, u * 0.08);
+    if (!LG) {
+      g.restore();
+      g.save();
+      g.translate(L * P.wPaul, P.yU + P.paulB);
+    }
 
     /* ===== SPIKED PURPLE PAULDRONS — wide silhouette break ===== */
     cube(g, x - u * 1.05, yt + u * 0.62, u * 0.52, u * 0.42, u * 0.22, PURPLE);
@@ -9825,35 +10984,71 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     cube(g, x - u * 0.78, yt + u * 0.34, u * 0.12, u * 0.32, u * 0.07, BONE);
     cube(g, x + u * 0.66, yt + u * 0.28, u * 0.14, u * 0.38, u * 0.08, BONE);
     cube(g, x + u * 0.86, yt + u * 0.34, u * 0.12, u * 0.32, u * 0.07, BONE);
+    if (!LG) g.restore();
 
     /* Greatsword is painted after the crown so the giant blade sits in front.
        The kite is painted there too, in front of the body and behind the sword. */
 
     /* ===== SKULL HEAD — bigger than the crypt king's, bare bone under the crown ===== */
+    /* BB-V7.72 — rig: head nest pivots at the neck; the crown nests in the
+       head and the key in the crown, each a breath beat later. */
+    if (!LG) {
+      g.save();
+      g.translate(L * P.wHead + P.headDX + P.headSX, P.yUh + P.headB + P.headDY);
+      if (P.headRot) {
+        g.translate(x, ytP + u * 0.78);
+        g.rotate(P.headRot);
+        g.translate(-x, -(ytP + u * 0.78));
+      }
+    }
+    var jawY = LG ? 0 : P.jawY;
     cube(g, x - u * 0.58, yt - u * 0.06, u * 1.16, u * 0.82, u * 0.34, body);
     /* cheek / jaw */
-    cube(g, x - u * 0.42, yt + u * 0.68, u * 0.84, u * 0.26, u * 0.18, shade(body, 0.9));
+    cube(g, x - u * 0.42, yt + u * 0.68 + jawY, u * 0.84, u * 0.26, u * 0.18, shade(body, 0.9));
     /* eye sockets */
     g.fillStyle = "#0a0604";
     g.fillRect(x - u * 0.42, yt + u * 0.16, u * 0.34, u * 0.32);
     g.fillRect(x + u * 0.08, yt + u * 0.16, u * 0.34, u * 0.32);
     g.fillStyle = EMBER;
-    var glow = 0.6 + 0.4 * Math.sin(S.t * 3.0 + e.bobPhase);
-    if (e.atk) glow = 0.9 + 0.1 * Math.sin(S.t * 14);
-    g.globalAlpha = Math.min(1, glow);
-    g.fillRect(x - u * 0.32 + face * u * 0.03, yt + u * 0.26, u * 0.16, u * 0.14);
-    g.fillRect(x + u * 0.16 + face * u * 0.03, yt + u * 0.26, u * 0.16, u * 0.14);
-    g.globalAlpha = 1;
+    var glow = LG ? 0.6 + 0.4 * Math.sin(S.t * 3.0 + e.bobPhase) : P.glow;
+    if (LG && e.atk) glow = 0.9 + 0.1 * Math.sin(S.t * 14);
+    g.globalAlpha = Math.min(1, glow) * A0;
+    if (LG) {
+      g.fillRect(x - u * 0.32 + face * u * 0.03, yt + u * 0.26, u * 0.16, u * 0.14);
+      g.fillRect(x + u * 0.16 + face * u * 0.03, yt + u * 0.26, u * 0.16, u * 0.14);
+    } else {
+      /* embers track the hero inside the sockets; above glow 1 they swell */
+      var eyS = glow > 1 ? 1 + (glow - 1) * 0.75 : 1;
+      var eyW = u * 0.16 * eyS, eyH = u * 0.14 * eyS;
+      var eyY = yt + u * 0.33 + P.eyeDY;
+      g.fillRect(x - u * 0.24 + P.eyeDX - eyW * 0.5, eyY - eyH * 0.5, eyW, eyH);
+      g.fillRect(x + u * 0.24 + P.eyeDX - eyW * 0.5, eyY - eyH * 0.5, eyW, eyH);
+      if (P.eyeCore) {
+        g.fillStyle = "#fff4d0";
+        g.fillRect(x - u * 0.24 + P.eyeDX - eyW * 0.25, eyY - eyH * 0.25, eyW * 0.5, eyH * 0.5);
+        g.fillRect(x + u * 0.24 + P.eyeDX - eyW * 0.25, eyY - eyH * 0.25, eyW * 0.5, eyH * 0.5);
+      }
+    }
+    g.globalAlpha = A0;
     /* nasal cavity */
     g.fillStyle = "#0a0604";
     g.fillRect(x - u * 0.07, yt + u * 0.50, u * 0.14, u * 0.16);
     /* teeth */
     for (var tooth = 0; tooth < 5; tooth++) {
       g.fillStyle = "#0a0604";
-      g.fillRect(x - u * 0.34 + tooth * u * 0.14, yt + u * 0.70, u * 0.07, u * 0.20);
+      g.fillRect(x - u * 0.34 + tooth * u * 0.14, yt + u * 0.70 + jawY, u * 0.07, u * 0.20);
     }
 
     /* ===== WIDE CROWN + WIND-UP KEY — not Bone King's low circlet ===== */
+    if (!LG) {
+      g.save();
+      g.translate(L * 0.06 + P.crownSX, P.crownB - P.headB);
+      if (P.crownRot) {
+        g.translate(x, ytP - u * 0.14);
+        g.rotate(P.crownRot);
+        g.translate(-x, -(ytP - u * 0.14));
+      }
+    }
     cube(g, x - u * 0.82, yt - u * 0.34, u * 1.64, u * 0.40, u * 0.20, GOLD);
     cube(g, x - u * 0.98, yt - u * 0.22, u * 0.24, u * 0.32, u * 0.12, LORD_GOLD_82);
     cube(g, x + u * 0.74, yt - u * 0.22, u * 0.24, u * 0.32, u * 0.12, LORD_GOLD_82);
@@ -9870,17 +11065,39 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     g.fillRect(x - u * 0.36, yt - u * 0.18, u * 0.12, u * 0.12);
     g.fillRect(x + u * 0.24, yt - u * 0.18, u * 0.12, u * 0.12);
     /* wind-up key — tall enough to be the head silhouette */
-    cube(g, x - u * 0.11, yt - u * 2.05, u * 0.22, u * 1.10, u * 0.11, GOLD);
-    cube(g, x - u * 0.52, yt - u * 2.28, u * 1.04, u * 0.28, u * 0.12, LORD_GOLD_120);
-    cube(g, x - u * 0.58, yt - u * 2.20, u * 0.16, u * 0.16, u * 0.07, LORD_GOLD_80);
-    cube(g, x + u * 0.42, yt - u * 2.20, u * 0.16, u * 0.16, u * 0.07, LORD_GOLD_80);
+    if (LG) {
+      cube(g, x - u * 0.11, yt - u * 2.05, u * 0.22, u * 1.10, u * 0.11, GOLD);
+      cube(g, x - u * 0.52, yt - u * 2.28, u * 1.04, u * 0.28, u * 0.12, LORD_GOLD_120);
+      cube(g, x - u * 0.58, yt - u * 2.20, u * 0.16, u * 0.16, u * 0.07, LORD_GOLD_80);
+      cube(g, x + u * 0.42, yt - u * 2.20, u * 0.16, u * 0.16, u * 0.07, LORD_GOLD_80);
+    } else {
+      /* BB-V7.72 — the key tilts on its spring about the stem's seat and
+         turns about its stem: the bow and nubs foreshorten with cos(keyTh). */
+      g.save();
+      g.translate(L * 0.04 + P.keySX, P.keyB - P.crownB);
+      if (P.keyRot) {
+        g.translate(x, ytP - u * 0.95);
+        g.rotate(P.keyRot);
+        g.translate(-x, -(ytP - u * 0.95));
+      }
+      var kcw = P.keyCw, kstW = u * 0.22 * Math.max(0.6, kcw);
+      cube(g, x - kstW * 0.5, yt - u * 2.05, kstW, u * 1.10, u * 0.11, GOLD);
+      cube(g, x - u * 0.52 * kcw, yt - u * 2.28, u * 1.04 * kcw, u * 0.28, u * 0.12, P.keyBack ? LORD_KEY_BACK : LORD_GOLD_120);
+      cube(g, x - u * 0.50 * kcw - u * 0.08, yt - u * 2.20, u * 0.16, u * 0.16, u * 0.07, LORD_GOLD_80);
+      cube(g, x + u * 0.50 * kcw - u * 0.08, yt - u * 2.20, u * 0.16, u * 0.16, u * 0.07, LORD_GOLD_80);
+      g.restore(); /* key */
+      g.restore(); /* crown */
+      g.restore(); /* head */
+    }
 
     /* ===== TOWER SHIELD — tall steel rectangle on the off-hand.
        From the front the face is flat. From above, the plate bows:
        every column is the same height, and the middle sits lower.
        The kite stays upright on that face. The whole shield draws at 80%. */
-    var shPush = (e.shieldFwd || 0);
-    var shx = x - face * u * (1.16 + shPush * 0.55);
+    /* BB-V7.72 — rig: shield side slides with fS through a turn and pinches
+       edge-on; it rides half the crouch drop (weight 0.60). */
+    var shPush = LG ? (e.shieldFwd || 0) : P.shield;
+    var shx = x - (LG ? face : P.fS) * u * (1.16 + shPush * 0.55);
     var shTop = yt + u * (0.32 - shPush * 0.10);
     var shH = u * 1.72;
     var shW = u * 0.60;
@@ -9893,9 +11110,13 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     var bow = u * 0.11;
     var towerTop = yt + u * (0.16 - shPush * 0.10);
     var shieldMidY = towerTop - bow * 0.5 + towerH * 0.5;
+    if (!LG) {
+      g.save();
+      g.translate(L * 0.60, P.shieldY);
+    }
     g.save();
     g.translate(shx, shieldMidY);
-    g.scale(0.80, 0.80);
+    g.scale(LG ? 0.80 : 0.80 * P.shPinch, 0.80);
     g.translate(-shx, -shieldMidY);
     /* Flip the plate only. The kite is drawn after this restore. */
     g.save();
@@ -9947,17 +11168,26 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     }
     g.restore();
     g.restore();
+    if (!LG) g.restore(); /* shield group */
 
     /* ===== GIANT SWORD — grip at the fist, skull at the tip.
        Local -Y is the tip. rotate(-PI/2) sends that tip left, the way he
        faces. The handle is a plain wrapped grip. The skull is the far end. ===== */
-    var bang = (e.bladeAng != null ? e.bladeAng : skullRestAng(face));
+    /* BB-V7.72 — rig: grip rides the chest (weight 0.70); a turn pinches the
+       whole sword edge-on about the grip before it changes side. */
+    var bang = LG ? (e.bladeAng != null ? e.bladeAng : skullRestAng(face)) : P.bang;
     var lift = (e.bladeLift || 0) * u;
-    var hx = x + face * u * 0.05;
-    var hy = yt + u * 1.22 - lift * 0.28;
+    var hx = LG ? x + face * u * 0.05 : P.hx;
+    var hy = LG ? yt + u * 1.22 - lift * 0.28 : P.hy;
     var swinging = e.atk && e.atkT >= e.atkWind && e.atkT < e.atkWind + e.atkActive;
+    if (!LG && e.alive) {
+      e.an.lastBang = bang;
+      e.an.lastHX = P.hDX;
+      e.an.lastHY = P.hDY;
+    }
     g.save();
     g.translate(hx, hy);
+    if (!LG && P.swPinch < 1) g.scale(P.swPinch, 1);
     g.rotate(bang);
     /* wrapped grip — plain handle, no skull */
     cube(g, -u * 0.13, -u * 0.05, u * 0.26, u * 0.55, u * 0.12, "#6a3e22");
@@ -10007,28 +11237,46 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
        LORD_TIP rect cache; same rects, order and colours as the old
        per-frame grid build, rebuilt only when u changes. */
     var tipK = LORD_TIP.u === u ? LORD_TIP : lordTipBuild(u);
-    var tipR = tipK.r, tipC = tipK.c, tipCol = -1;
-    for (var tipI = 0, tipJ = 0; tipI < tipK.n; tipI++, tipJ += 4) {
-      if (tipC[tipI] !== tipCol) { tipCol = tipC[tipI]; g.fillStyle = LORD_TIP_COLS[tipCol]; }
-      g.fillRect(tipR[tipJ], tipR[tipJ + 1], tipR[tipJ + 2], tipR[tipJ + 3]);
+    var tipR = tipK.r, tipC = tipK.c, tipCol = -1, tipI, tipJ;
+    if (!LG && A0 < 0.999) {
+      /* BB-V7.72 — fading (rise, death): each run of one colour is one
+         path and one fill, so the knit overlaps between cells do not
+         blend twice into a screen-door grid. Same rects, same order. */
+      for (tipI = 0, tipJ = 0; tipI < tipK.n; tipI++, tipJ += 4) {
+        if (tipC[tipI] !== tipCol) {
+          if (tipCol >= 0) g.fill();
+          tipCol = tipC[tipI];
+          g.fillStyle = LORD_TIP_COLS[tipCol];
+          g.beginPath();
+        }
+        g.rect(tipR[tipJ], tipR[tipJ + 1], tipR[tipJ + 2], tipR[tipJ + 3]);
+      }
+      if (tipCol >= 0) g.fill();
+    } else {
+      for (tipI = 0, tipJ = 0; tipI < tipK.n; tipI++, tipJ += 4) {
+        if (tipC[tipI] !== tipCol) { tipCol = tipC[tipI]; g.fillStyle = LORD_TIP_COLS[tipCol]; }
+        g.fillRect(tipR[tipJ], tipR[tipJ + 1], tipR[tipJ + 2], tipR[tipJ + 3]);
+      }
     }
-    if (swinging) {
-      g.globalAlpha = 0.85;
+    if (swinging && thr > 0) {
+      g.globalAlpha = 0.85 * A0 * thr;
       g.fillStyle = "#fff2c0";
       g.fillRect(-bladeW * 0.22, bladeFar - u * 0.2, bladeW * 0.44, u * 0.16);
-      g.globalAlpha = 1;
+      g.globalAlpha = A0;
     }
     g.restore();
 
     g.restore(); /* lean */
 
-    if (e.atk && e.atkT < e.atkWind) {
+    if (thr > 0 && e.atk && e.atkT < e.atkWind) {
       var wt = e.atkT / e.atkWind;
+      g.globalAlpha = A0 * thr;
       g.strokeStyle = "rgba(240,220,140," + (0.28 + wt * 0.5) + ")";
       g.lineWidth = 2.8;
       g.beginPath();
-      g.arc(x, e.y - u * 0.55, u * (1.55 + Math.sin(S.t * 16) * 0.1), 0, 6.3);
+      g.arc(x + L * (LG ? 0.70 : P.wRib), e.y - u * 0.55 + (LG ? 0 : P.yU), u * (1.55 + Math.sin(S.t * 16) * 0.1), 0, 6.3);
       g.stroke();
+      g.globalAlpha = A0;
     }
   }
 
@@ -10619,10 +11867,13 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     var yt = e.y - u * 2.15 + bob + crouch;
     var body = e.flash > 0 ? "#ffffff" : BONE;
     var swing = e.swing || 0;
+    /* BB-V7.72 — alpha root: every alpha is relative to the fade drawEnemy
+       handed in, so the guard fades as one piece instead of bottom-up. */
+    var A0 = g.globalAlpha;
 
-    g.save(); g.globalAlpha = 0.42; g.fillStyle = "#0a0806";
+    g.save(); g.globalAlpha = 0.42 * A0; g.fillStyle = "#0a0806";
     g.beginPath();
-    g.ellipse(x, e.y + u * 0.28, u * 0.95, u * 0.26, 0, 0, 6.3);
+    if (ellipseOk(u * 0.95, u * 0.26)) g.ellipse(x, e.y + u * 0.28, u * 0.95, u * 0.26, 0, 0, 6.3);
     g.fill(); g.restore();
 
     g.save();
@@ -10645,9 +11896,9 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       g.fillRect(x - u * 0.32, yt + u * (0.86 + ri * 0.14), u * 0.64, u * 0.06);
     }
     g.fillStyle = EMBER;
-    g.globalAlpha = 0.75 + 0.25 * Math.sin(S.t * 4 + e.bobPhase);
+    g.globalAlpha = (0.75 + 0.25 * Math.sin(S.t * 4 + e.bobPhase)) * A0;
     g.fillRect(x - u * 0.08, yt + u * 1.02, u * 0.16, u * 0.14);
-    g.globalAlpha = 1;
+    g.globalAlpha = A0;
 
     cube(g, x - u * 0.78, yt + u * 0.58, u * 0.36, u * 0.30, u * 0.16, PURPLE);
     cube(g, x + u * 0.42, yt + u * 0.58, u * 0.36, u * 0.30, u * 0.16, PURPLE);
@@ -10675,9 +11926,9 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       cube(g, face * u * 0.02, -u * 1.35, u * 0.42, u * 0.22, u * 0.08, STEEL);
       cube(g, face * u * 0.28, -u * 1.22, u * 0.22, u * 0.36, u * 0.07, shade(STEEL, 1.1));
       g.fillStyle = EMBER;
-      g.globalAlpha = 0.7;
+      g.globalAlpha = 0.7 * A0;
       g.fillRect(-u * 0.06, -u * 1.15, u * 0.10, u * 0.55);
-      g.globalAlpha = 1;
+      g.globalAlpha = A0;
     } else {
       cube(g, -u * 0.08, -u * 0.05, u * 0.16, u * 0.36, u * 0.08, BONE_D);
       cube(g, -u * 0.22, -u * 0.18, u * 0.44, u * 0.12, u * 0.06, GOLD);
@@ -10695,10 +11946,10 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     g.fillStyle = EMBER;
     var glow = 0.65 + 0.35 * Math.sin(S.t * 3 + e.bobPhase);
     if (e.atk) glow = 1;
-    g.globalAlpha = glow;
+    g.globalAlpha = glow * A0;
     g.fillRect(x - u * 0.20 + face * u * 0.02, yt + u * 0.24, u * 0.10, u * 0.09);
     g.fillRect(x + u * 0.10 + face * u * 0.02, yt + u * 0.24, u * 0.10, u * 0.09);
-    g.globalAlpha = 1;
+    g.globalAlpha = A0;
 
     cube(g, x - u * 0.42, yt - u * 0.16, u * 0.84, u * 0.24, u * 0.12, GOLD);
     cube(g, x - u * 0.40, yt - u * 0.40, u * 0.14, u * 0.28, u * 0.06, GOLD);
