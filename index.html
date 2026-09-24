@@ -11201,7 +11201,9 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     12,10, 13,10, 14,10, 15,10, 16,10, 17,10, 18,10,
     12,11, 13,11, 14,11, 15,11
   ];
-  var LORD_TIP = { u: -1, n: 0, r: null, c: null };
+  /* BB-V7.72 — shared dash patterns (setLineDash copies them) */
+  var LORD_DASH = [12, 9], LORD_DASH_OFF = [];
+  var LORD_TIP = { u: -1, n: 0, r: null, c: null, p: null, pc: null };
   function lordTipBuild(u) {
     var rr = [], cc = [];
     var bladeLen = u * 2.85;
@@ -11274,6 +11276,19 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     LORD_TIP.c = new Uint8Array(cc);
     LORD_TIP.n = cc.length;
     LORD_TIP.u = u;
+    /* BB-V7.72 — the fading draw's one-path-per-colour-run, prebuilt
+       (same rects, same order), so a fade frame issues one fill per run
+       instead of ~330 rect() calls */
+    LORD_TIP.p = null;
+    if (typeof Path2D === "function") {
+      var pr = [], pc = [], pth = null, pcol = -1;
+      for (i = 0; i < cc.length; i++) {
+        if (cc[i] !== pcol) { pcol = cc[i]; pth = new Path2D(); pr.push(pth); pc.push(pcol); }
+        pth.rect(rr[i * 4], rr[i * 4 + 1], rr[i * 4 + 2], rr[i * 4 + 3]);
+      }
+      LORD_TIP.p = pr;
+      LORD_TIP.pc = pc;
+    }
     return LORD_TIP;
   }
 
@@ -11357,7 +11372,8 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     C.hurtX = an.hx * hk;
     C.headDX = 1.8 * an.hh * hk * u;
     C.headRot = Math.max(-0.05, Math.min(0.05, -1.2 * (an.hx - an.hh))) * hk;
-    /* squash on the hit (hitT 0.20 -> 0.10), capped at 3 %; the head nods */
+    /* squash on the hit (hitT 0.20 -> 0.10): sx 1 + 0.03k, sy 1 - 0.035k
+       (drawSkullLord scales sqK by 7/6 for y); the head nods */
     k = e.hitT > 0.1 ? Math.min(1, (e.hitT - 0.1) / 0.1) : 0;
     C.sqK = 0.03 * k * hk;
     C.headDY = 0.05 * u * k * hk;
@@ -11873,6 +11889,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     P.shieldY = 0.5 * d0.drop * u * k3 + (P.shieldY - 0.5 * d0.drop * u) * live;
     P.shRot = -D * (t < 0.90 ? 1.45 * easeInCubic((t - 0.45) / 0.45) :
       1.45 - (t < 1.02 ? 0.06 * Math.sin(Math.PI * (t - 0.90) / 0.12) : 0));
+    P.sqK = 0;
     /* sword: held 0.30 s while the hands let go, droops until the skull
        tip meets the floor at 0.80, then falls flat about the tip (the grip
        drops to the floor) and clangs at 1.05; runes go out hilt to tip */
@@ -12240,13 +12257,13 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       g.globalAlpha = 0.72 * (1 - lbS) * A0 * thr;
       g.strokeStyle = "#ffd88a";
       g.lineWidth = 11;
-      g.setLineDash([12, 9]);
+      g.setLineDash(LORD_DASH);
       g.lineDashOffset = (x - e.dashFromX) * e.aimX + (e.y - e.dashFromY) * e.aimY;
       g.beginPath();
       g.moveTo(lbX, lbY);
       g.lineTo(e.dashToX, e.dashToY);
       g.stroke();
-      g.setLineDash([]);
+      g.setLineDash(LORD_DASH_OFF);
       g.lineDashOffset = 0;
       g.restore();
     }
@@ -12340,7 +12357,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       /* BB-V7.72 — SK-14: the hit squash (<= 3 %) about the feet line; the
          planted legs undo it */
       g.translate(x, e.y);
-      g.scale(1 + P.sqK, 1 - P.sqK);
+      g.scale(1 + P.sqK, 1 - P.sqK * 7 / 6);
       g.translate(-x, -e.y);
     }
 
@@ -12425,7 +12442,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
         /* BB-V7.72 — the feet stay planted through the hit squash */
         g.save();
         g.translate(x, e.y);
-        g.scale(1 / (1 + P.sqK), 1 / (1 - P.sqK));
+        g.scale(1 / (1 + P.sqK), 1 / (1 - P.sqK * 7 / 6));
         g.translate(-x, -e.y);
       }
       cube(g, x - u * 0.42 + P.legLX, legBot - P.legLLift - legH, u * 0.32, legH, u * 0.18, BONE_D);
@@ -12799,7 +12816,12 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       /* BB-V7.72 — fading (rise, death): each run of one colour is one
          path and one fill, so the knit overlaps between cells do not
          blend twice into a screen-door grid. Same rects, same order. */
-      for (tipI = 0, tipJ = 0; tipI < tipK.n; tipI++, tipJ += 4) {
+      if (tipK.p) {
+        for (tipI = 0; tipI < tipK.p.length; tipI++) {
+          g.fillStyle = LORD_TIP_COLS[tipK.pc[tipI]];
+          g.fill(tipK.p[tipI]);
+        }
+      } else for (tipI = 0, tipJ = 0; tipI < tipK.n; tipI++, tipJ += 4) {
         if (tipC[tipI] !== tipCol) {
           if (tipCol >= 0) g.fill();
           tipCol = tipC[tipI];
@@ -13698,7 +13720,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     var rx = (0.4 + 0.6 * easeOutCubic(Math.min(1, s / 0.25))) * 1.35 * uW, ry = 0.27 * rx;
     var fa = s < 0.85 ? 1 : Math.max(0, 1 - (s - 0.85) / 0.15);
     if (fa <= 0 || !ellipseOk(rx, ry)) return;
-    var k, a, h;
+    var k, a, h, A0 = g.globalAlpha; /* every alpha relative to the incoming one */
     g.save();
     /* the blade rests level at chest height, so it breaks the floor as one
        long edge beyond the pit: a slit opens along it while it passes the
@@ -13710,23 +13732,23 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       var sx0 = cx + sf * 0.5 * uW, sx1 = cx + sf * 4.7 * uW;
       var srx = Math.abs(sx1 - sx0) * 0.5, sry = 0.07 * uW * sa;
       if (ellipseOk(srx, sry)) {
-        g.globalAlpha = 0.8 * sa;
+        g.globalAlpha = A0 * (0.8 * sa);
         g.fillStyle = "#0a0604";
         g.beginPath();
         g.ellipse((sx0 + sx1) * 0.5, cy, srx, sry, 0, 0, 6.3);
         g.fill();
-        g.globalAlpha = 0.7 * sa;
+        g.globalAlpha = A0 * (0.7 * sa);
         g.strokeStyle = "#ff6a28";
         g.lineWidth = 1.5;
         g.stroke();
       }
     }
-    g.globalAlpha = 0.7 * fa;
+    g.globalAlpha = A0 * (0.7 * fa);
     g.fillStyle = "#0a0604";
     g.beginPath();
     g.ellipse(cx, cy, rx, ry, 0, 0, 6.3);
     g.fill();
-    g.globalAlpha = 0.85 * fa;
+    g.globalAlpha = A0 * (0.85 * fa);
     g.strokeStyle = "#ff6a28";
     g.lineWidth = 2;
     g.stroke();
@@ -13735,7 +13757,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     for (k = 0; k < 5; k++) {
       a = S.t * 1.7 + k * 1.2566 + e.x * 0.01;
       h = (S.t * 1.1 + k * 0.2) % 1;
-      g.globalAlpha = 0.8 * fa * (1 - h);
+      g.globalAlpha = A0 * (0.8 * fa * (1 - h));
       g.fillRect(cx + Math.cos(a) * rx * 0.7 - 1.5, cy + Math.sin(a) * ry * 0.7 - h * uW * 0.9 - 1.5, 3, 3);
     }
     g.restore();
@@ -13751,6 +13773,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
   function drawLordWisps(g) {
     if (!room || !room.enemies) return;
     var i, e, s, p, q, k, x0, y0, x1, y1, mx, my, r, px, py, sz, uW;
+    var A0 = g.globalAlpha; /* every alpha relative to the incoming one */
     for (i = 0; i < room.enemies.length; i++) {
       e = room.enemies[i];
       if (e.wispX == null || !e.alive || !(e.spawnT > 0) || !e.spawnMax) continue;
@@ -13773,13 +13796,13 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
         px = (1 - q) * (1 - q) * x0 + 2 * (1 - q) * q * mx + q * q * x1;
         py = (1 - q) * (1 - q) * y0 + 2 * (1 - q) * q * my + q * q * y1;
         sz = LORD_WISP_S[k - 1] * uW;
-        g.globalAlpha = LORD_WISP_A[k - 1];
+        g.globalAlpha = A0 * LORD_WISP_A[k - 1];
         g.fillStyle = "#7a32c8";
         g.fillRect(px - sz * 0.5, py - sz * 0.5, sz, sz);
       }
       px = (1 - p) * (1 - p) * x0 + 2 * (1 - p) * p * mx + p * p * x1;
       py = (1 - p) * (1 - p) * y0 + 2 * (1 - p) * p * my + p * p * y1;
-      g.globalAlpha = 1;
+      g.globalAlpha = A0;
       sz = 0.21 * uW;
       g.fillStyle = "#d24ad8";
       g.fillRect(px - sz * 0.5, py - sz * 0.5, sz, sz);
@@ -16429,7 +16452,10 @@ function endRunToMenu() {
     skipSpawn: function () {
       if (!room) return 0;
       var n = 0, i;
-      for (i = 0; i < room.enemies.length; i++) if (room.enemies[i].spawnT > 0) { room.enemies[i].spawnT = 0; n++; }
+      for (i = 0; i < room.enemies.length; i++) if (room.enemies[i].spawnT > 0) {
+        room.enemies[i].spawnT = 0; n++;
+        if (room.enemies[i].wispBurst) lordWispArrive(room.enemies[i], 0); /* BB-V7.72 — the add's landing burst still fires */
+      }
       return n;
     },
     forceSwish: function () {
