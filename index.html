@@ -5670,6 +5670,9 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     e.lastAtk = null;
     e.lungeStreak = 0;
   }
+  /* BB-V7.72 — harness seam for the lord hurt reaction. Null until the
+     animation batch assigns it; __BB_SELFTEST.lordHurt returns null till then. */
+  var lordHurtFn = null;
 
   /* BB-V7.43 — Bone King pose clock for the scepter volley. */
   function ensureBoneKing(e) {
@@ -8659,6 +8662,18 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      PLAYER_R matches the painted torso. */
   var HS = 1.7;
 
+  /* BB-V7.72 — cube's four shade() results cached per colour (shade is pure),
+     so a frame stops building ~4 hex strings per solid. Reset past 512 keys. */
+  var CUBE_SH = Object.create(null), CUBE_SH_N = 0;
+  function cubeShades(col) {
+    var sh = CUBE_SH[col];
+    if (sh) return sh;
+    if (CUBE_SH_N >= 512) { CUBE_SH = Object.create(null); CUBE_SH_N = 0; }
+    sh = CUBE_SH[col] = [shade(col, 0.72), shade(col, 1.22), shade(col, 0.9), shade(col, 0.38)];
+    CUBE_SH_N++;
+    return sh;
+  }
+
   /* CHIEF BB-V6.1 — lifted verbatim in behaviour from Joe's own v3 build
      (artifact 9c0196b1, `function cube`). This one function is why the old game
      looked like Minecraft Dungeons and the new one looked like coloured squares:
@@ -8666,14 +8681,15 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      seam line where the two meet, and a dark outline. Nothing else about the art
      mattered as much as this. */
   function cube(g, x, y, w, h, z, col, outline) {
-    g.fillStyle = shade(col, 0.72);
+    var sh = typeof col === "string" ? cubeShades(col) : [shade(col, 0.72), shade(col, 1.22), shade(col, 0.9), shade(col, 0.38)];
+    g.fillStyle = sh[0];
     g.fillRect(x, y + h, w, z);
-    g.fillStyle = shade(col, 1.22);
+    g.fillStyle = sh[1];
     g.fillRect(x, y, w, h);
-    g.fillStyle = shade(col, 0.9);
+    g.fillStyle = sh[2];
     g.fillRect(x, y + h - 2, w, 2);
     if (outline !== false) {
-      g.strokeStyle = shade(col, 0.38);
+      g.strokeStyle = sh[3];
       g.lineWidth = 1;
       g.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
     }
@@ -9433,6 +9449,194 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
   }
 
 
+  /* BB-V7.72 — constant Skull Lord colours shaded once, not every frame.
+     Hexes match drawSkullLord's PURPLE / EMBER / GOLD / STEEL locals. */
+  var LORD_HEM_COL = shade("#7a32c8", 0.55);
+  var LORD_GEM_HOT = shade("#ff6a28", 1.25);
+  var LORD_GOLD_82 = shade("#e0b44a", 0.82);
+  var LORD_GOLD_80 = shade("#e0b44a", 0.8);
+  var LORD_GOLD_120 = shade("#e0b44a", 1.2);
+  var LORD_PLATE_N = 16;
+  var LORD_PLATE_COLS = (function () {
+    var out = [], i, nx;
+    for (i = 0; i < LORD_PLATE_N; i++) {
+      nx = ((i + 0.5) / LORD_PLATE_N) * 2 - 1;
+      out.push(shade("#8a9098", 0.74 + 0.48 * (1 - nx * nx)));
+    }
+    return out;
+  })();
+  /* BB-V7.72 — tower-shield helpers hoisted out of drawSkullLord so a frame
+     allocates no closures. Same maths as the old inner functions. */
+  function lordPlateLift(bow, i) {
+    var nx = ((i + 0.5) / LORD_PLATE_N) * 2 - 1;
+    return bow * (1 - nx * nx);
+  }
+  function lordDrawPlate(g, shx, towerTop, towerW, towerH, bow, grow, cols) {
+    var span = towerW + grow * 2;
+    var cw = span / LORD_PLATE_N;
+    var left = shx - span * 0.5;
+    var h = towerH + grow * 2;
+    for (var i = 0; i < LORD_PLATE_N; i++) {
+      g.fillStyle = typeof cols === "string" ? cols : cols[i];
+      g.fillRect(left + i * cw, towerTop - lordPlateLift(bow, i) - grow, cw + 1, h);
+    }
+  }
+  /* straight hot edge — the front face, not the bow */
+  function lordPlateEdge(g, shx, towerTop, towerW, towerH, bow, u) {
+    var span = towerW;
+    var cw = span / LORD_PLATE_N;
+    var left = shx - span * 0.5;
+    var hot = Math.max(2, u * 0.028);
+    g.fillStyle = "#f4f7fb";
+    g.fillRect(left + 1, towerTop - lordPlateLift(bow, 0) + u * 0.05, hot, towerH - u * 0.10);
+    g.fillStyle = "#c5ccd4";
+    for (var i = 0; i < LORD_PLATE_N; i++) {
+      g.fillRect(left + i * cw, towerTop - lordPlateLift(bow, i), cw + 1, Math.max(2, u * 0.04));
+    }
+  }
+  function lordPlateRivet(g, i, shx, towerTop, towerW, towerH, bow, u, riv) {
+    var span = towerW;
+    var cw = span / LORD_PLATE_N;
+    var rx = shx - span * 0.5 + i * cw;
+    var topY = towerTop - lordPlateLift(bow, i) + u * 0.10;
+    g.fillRect(rx, topY, riv, riv);
+    g.fillRect(rx, topY + towerH - u * 0.28, riv, riv);
+  }
+  function lordKiteHalf(shW, t) {
+    if (t < 0.58) return shW * (1 - t * 0.14);
+    var k = (t - 0.58) / 0.42;
+    return shW * 0.92 * (1 - k);
+  }
+  function lordDrawKite(g, shx, shTop, shH, shW, u, col, grow, stopT) {
+    var steps = 8;
+    var end = stopT == null ? 1 : stopT;
+    g.fillStyle = col;
+    for (var si = 0; si < steps; si++) {
+      var t0 = si / steps;
+      if (t0 >= end) break;
+      var t1 = Math.min(end, (si + 1) / steps);
+      var hw = Math.max(lordKiteHalf(shW, t0), lordKiteHalf(shW, t1)) + grow;
+      var y0 = shTop + shH * t0 - (si === 0 ? grow : 0);
+      var y1 = shTop + shH * t1;
+      g.fillRect(shx - hw, y0, hw * 2, Math.max(1, y1 - y0 + u * 0.02));
+    }
+  }
+  function lordShieldSpike(g, shx, shTop, u, dx, hgt, bw, bone, gold) {
+    cube(g, shx + dx - bw * 0.5, shTop - hgt, bw, hgt + u * 0.04, u * 0.05, bone);
+    g.fillStyle = gold;
+    g.fillRect(shx + dx - bw * 0.75, shTop - u * 0.02, bw * 1.5, u * 0.07);
+  }
+  /* BB-V7.72 — skull-tip geometry cache. Every rect the old per-frame block
+     emitted (skull cells, fang cells, dark rim in the old for-in order, eye
+     cells), same order and colours, rebuilt only when u changes. Coordinates
+     are in the sword's local frame, so they depend on u alone. */
+  var LORD_TIP_COLS = ["#f0e8dc", "#f4efe4", "#120e0c", "#e01818"];
+  var LORD_TIP_SKULL = [
+    6,0, 7,0,
+    4,1, 5,1, 6,1, 7,1,
+    4,2, 5,2, 6,2, 7,2,
+    2,3, 3,3, 4,3, 5,3, 6,3, 7,3,
+    2,4, 3,4, 4,4, 5,4, 6,4, 7,4, 8,4, 9,4, 10,4, 11,4,
+    1,5, 2,5, 3,5, 4,5, 5,5, 7,5, 8,5, 9,5, 10,5, 11,5,
+    1,6, 2,6, 3,6, 4,6, 5,6, 8,6, 9,6, 10,6, 11,6,
+    1,7, 2,7, 3,7, 4,7, 5,7, 8,7, 9,7, 10,7, 11,7,
+    1,8, 2,8, 3,8, 4,8, 5,8, 6,8, 7,8, 8,8, 9,8, 10,8, 11,8,
+    1,9, 2,9, 3,9, 4,9, 5,9, 6,9, 7,9, 8,9, 9,9, 10,9, 11,9,
+    1,10, 2,10, 3,10, 4,10, 5,10, 6,10, 7,10, 8,10, 10,10, 11,10,
+    1,11, 2,11, 3,11, 4,11, 5,11, 6,11, 7,11, 8,11, 9,11, 10,11, 11,11,
+    1,12, 2,12, 3,12, 4,12, 5,12, 6,12, 7,12, 8,12, 9,12, 10,12,
+    1,13, 2,13, 3,13, 4,13, 5,13, 8,13, 9,13, 10,13, 11,13,
+    1,14, 2,14, 3,14, 4,14, 5,14, 8,14, 9,14, 10,14, 11,14,
+    2,15, 3,15, 4,15, 5,15, 7,15, 8,15, 9,15, 10,15, 11,15,
+    2,16, 3,16, 4,16, 5,16, 6,16, 7,16, 8,16, 9,16, 10,16, 11,16,
+    3,17, 4,17, 5,17, 6,17, 7,17,
+    4,18, 5,18, 6,18, 7,18,
+    5,19, 6,19, 7,19
+  ];
+  var LORD_TIP_FANG = [
+    12,5, 13,5, 14,5, 15,5,
+    12,6, 13,6, 14,6, 15,6, 16,6, 17,6, 18,6,
+    12,7, 13,7, 14,7, 15,7,
+    12,9, 13,9, 14,9, 15,9,
+    12,10, 13,10, 14,10, 15,10, 16,10, 17,10, 18,10,
+    12,11, 13,11, 14,11, 15,11
+  ];
+  var LORD_TIP = { u: -1, n: 0, r: null, c: null };
+  function lordTipBuild(u) {
+    var rr = [], cc = [];
+    var bladeLen = u * 2.85;
+    var bladeFar = -u * 0.82 - bladeLen;
+    /* Reference tip, blocked off the concept sheet. Grid +x is toward
+       the pommel, +y is down. After rotate(-PI/2), local +Y is the
+       pommel and local +X is up. Fangs are not on the sheet: two
+       added spikes from the upper teeth, aimed at the pommel. */
+    var cell = u * 0.082;
+    var gx0 = 660, gy0 = 328, gcs = 8, gRight = 756;
+    /* Fangs occupy rows 5–7 and 9–11. Their midpoint is the seat on the blade. */
+    var gMid = 394;
+    var su = cell / gcs;
+    function tipCell(c, r, col, grow) {
+      var ix = gx0 + c * gcs;
+      var iy = gy0 + r * gcs;
+      var pad = grow || 0;
+      var xTop = -(iy - gMid) * su + pad;
+      var xBot = -(iy + gcs - gMid) * su - pad;
+      var yLeft = bladeFar + (ix - gRight) * su - pad;
+      var yRight = bladeFar + (ix + gcs - gRight) * su + pad;
+      rr.push(xBot, yLeft, xTop - xBot, yRight - yLeft);
+      cc.push(col);
+    }
+    function rect(x, y, w, h) {
+      rr.push(x, y, w, h);
+      cc.push(2);
+    }
+    /* Overlap the blocks so hairline seams do not turn into a grid
+       when the sword is small. The dark stroke sits outside the cells,
+       and only where a neighbor is missing, so the locked shape stays. */
+    var knit = Math.max(1.15, su * 1.15);
+    var sk = LORD_TIP_SKULL, fg = LORD_TIP_FANG, i;
+    for (i = 0; i < sk.length; i += 2) tipCell(sk[i], sk[i + 1], 0, knit);
+    for (i = 0; i < fg.length; i += 2) tipCell(fg[i], fg[i + 1], 1, knit);
+    var occupied = {};
+    for (i = 0; i < sk.length; i += 2) occupied[sk[i] + "," + sk[i + 1]] = 1;
+    for (i = 0; i < fg.length; i += 2) occupied[fg[i] + "," + fg[i + 1]] = 1;
+    var rim = Math.max(2.4, su * 2.6);
+    var seam = Math.max(0.9, su * 0.9);
+    function tipEdge(c, r) {
+      var ix = gx0 + c * gcs;
+      var iy = gy0 + r * gcs;
+      var xTop = -(iy - gMid) * su;
+      var xBot = -(iy + gcs - gMid) * su;
+      var yLeft = bladeFar + (ix - gRight) * su;
+      var yRight = bladeFar + (ix + gcs - gRight) * su;
+      var cw = xTop - xBot;
+      var chh = yRight - yLeft;
+      if (!occupied[(c - 1) + "," + r]) rect(xBot - seam, yLeft - rim, cw + seam * 2, rim);
+      if (!occupied[(c + 1) + "," + r]) rect(xBot - seam, yRight, cw + seam * 2, rim);
+      if (!occupied[c + "," + (r - 1)]) rect(xTop, yLeft - seam, rim, chh + seam * 2);
+      if (!occupied[c + "," + (r + 1)]) rect(xBot - rim, yLeft - seam, rim, chh + seam * 2);
+      if (!occupied[(c - 1) + "," + r] && !occupied[c + "," + (r - 1)]) rect(xTop, yLeft - rim, rim, rim);
+      if (!occupied[(c + 1) + "," + r] && !occupied[c + "," + (r - 1)]) rect(xTop, yRight, rim, rim);
+      if (!occupied[(c - 1) + "," + r] && !occupied[c + "," + (r + 1)]) rect(xBot - rim, yLeft - rim, rim, rim);
+      if (!occupied[(c + 1) + "," + r] && !occupied[c + "," + (r + 1)]) rect(xBot - rim, yRight, rim, rim);
+    }
+    for (var ek in occupied) {
+      var parts = ek.split(",");
+      tipEdge(+parts[0], +parts[1]);
+    }
+    tipCell(6, 5, 2, 0);
+    tipCell(6, 6, 3, 0);
+    tipCell(7, 6, 3, 0);
+    tipCell(6, 7, 2, 0);
+    tipCell(7, 7, 2, 0);
+    /* Float64 keeps the exact doubles the old fillRect calls got. */
+    LORD_TIP.r = new Float64Array(rr);
+    LORD_TIP.c = new Uint8Array(cc);
+    LORD_TIP.n = cc.length;
+    LORD_TIP.u = u;
+    return LORD_TIP;
+  }
+
   /* BB-V7.12 — Skull Lord drawn from the Undead Lord concept sheet, NOT the
      Bone Knight kit. Same undead skeleton language, but a different silhouette:
      wide tattered cape, spiked purple pauldrons, ornate crown + wind-up key,
@@ -9574,7 +9778,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     cube(g, x - u * 0.42 + sway * 0.5, yt + u * 0.38, u * 0.84, u * 1.82 + capeDrop, u * 0.12, PURPLE);
     cube(g, x + u * 0.40 + capeWide + sway * 0.4, yt + u * 0.42, u * 0.55, u * 1.65 + capeDrop, u * 0.10, PURPLE_D);
     /* ragged hem notches */
-    g.fillStyle = shade(PURPLE, 0.55);
+    g.fillStyle = LORD_HEM_COL; /* BB-V7.72 */
     g.fillRect(x - u * 0.85 + sway, yt + u * 2.05 + capeDrop, u * 0.18, u * 0.16);
     g.fillRect(x - u * 0.15 + sway * 0.5, yt + u * 2.12 + capeDrop, u * 0.22, u * 0.18);
     g.fillRect(x + u * 0.55 + sway * 0.4, yt + u * 2.00 + capeDrop, u * 0.18, u * 0.14);
@@ -9610,7 +9814,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     g.globalAlpha = 0.7 + 0.3 * Math.sin(S.t * 4 + e.bobPhase);
     g.fillRect(x - u * 0.11, yt + u * 1.12, u * 0.22, u * 0.18);
     g.globalAlpha = 1;
-    g.fillStyle = shade(EMBER, 1.25);
+    g.fillStyle = LORD_GEM_HOT; /* BB-V7.72 */
     g.fillRect(x - u * 0.06, yt + u * 1.16, u * 0.12, u * 0.08);
 
     /* ===== SPIKED PURPLE PAULDRONS — wide silhouette break ===== */
@@ -9651,8 +9855,8 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
 
     /* ===== WIDE CROWN + WIND-UP KEY — not Bone King's low circlet ===== */
     cube(g, x - u * 0.82, yt - u * 0.34, u * 1.64, u * 0.40, u * 0.20, GOLD);
-    cube(g, x - u * 0.98, yt - u * 0.22, u * 0.24, u * 0.32, u * 0.12, shade(GOLD, 0.82));
-    cube(g, x + u * 0.74, yt - u * 0.22, u * 0.24, u * 0.32, u * 0.12, shade(GOLD, 0.82));
+    cube(g, x - u * 0.98, yt - u * 0.22, u * 0.24, u * 0.32, u * 0.12, LORD_GOLD_82);
+    cube(g, x + u * 0.74, yt - u * 0.22, u * 0.24, u * 0.32, u * 0.12, LORD_GOLD_82);
     cube(g, x - u * 0.78, yt - u * 0.70, u * 0.16, u * 0.42, u * 0.08, GOLD);
     cube(g, x - u * 0.44, yt - u * 0.86, u * 0.18, u * 0.58, u * 0.08, GOLD);
     cube(g, x - u * 0.12, yt - u * 1.02, u * 0.24, u * 0.74, u * 0.10, GOLD);
@@ -9667,9 +9871,9 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     g.fillRect(x + u * 0.24, yt - u * 0.18, u * 0.12, u * 0.12);
     /* wind-up key — tall enough to be the head silhouette */
     cube(g, x - u * 0.11, yt - u * 2.05, u * 0.22, u * 1.10, u * 0.11, GOLD);
-    cube(g, x - u * 0.52, yt - u * 2.28, u * 1.04, u * 0.28, u * 0.12, shade(GOLD, 1.2));
-    cube(g, x - u * 0.58, yt - u * 2.20, u * 0.16, u * 0.16, u * 0.07, shade(GOLD, 0.8));
-    cube(g, x + u * 0.42, yt - u * 2.20, u * 0.16, u * 0.16, u * 0.07, shade(GOLD, 0.8));
+    cube(g, x - u * 0.52, yt - u * 2.28, u * 1.04, u * 0.28, u * 0.12, LORD_GOLD_120);
+    cube(g, x - u * 0.58, yt - u * 2.20, u * 0.16, u * 0.16, u * 0.07, LORD_GOLD_80);
+    cube(g, x + u * 0.42, yt - u * 2.20, u * 0.16, u * 0.16, u * 0.07, LORD_GOLD_80);
 
     /* ===== TOWER SHIELD — tall steel rectangle on the off-hand.
        From the front the face is flat. From above, the plate bows:
@@ -9698,85 +9902,28 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     g.translate(shx, shieldMidY);
     g.scale(1, -1);
     g.translate(-shx, -shieldMidY);
-    var plateN = 16;
-    function plateLift(i) {
-      var nx = ((i + 0.5) / plateN) * 2 - 1;
-      return bow * (1 - nx * nx);
-    }
-    function drawPlate(grow, colAt) {
-      var span = towerW + grow * 2;
-      var cw = span / plateN;
-      var left = shx - span * 0.5;
-      var h = towerH + grow * 2;
-      for (var i = 0; i < plateN; i++) {
-        var nx = ((i + 0.5) / plateN) * 2 - 1;
-        g.fillStyle = colAt(nx, i);
-        g.fillRect(left + i * cw, towerTop - plateLift(i) - grow, cw + 1, h);
-      }
-    }
-    drawPlate(u * 0.04, function () { return "#14181c"; });
-    drawPlate(0, function (nx) {
-      return shade(STEEL, 0.74 + 0.48 * (1 - nx * nx));
-    });
-    /* straight hot edge — the front face, not the bow */
-    (function () {
-      var span = towerW;
-      var cw = span / plateN;
-      var left = shx - span * 0.5;
-      var hot = Math.max(2, u * 0.028);
-      g.fillStyle = "#f4f7fb";
-      g.fillRect(left + 1, towerTop - plateLift(0) + u * 0.05, hot, towerH - u * 0.10);
-      g.fillStyle = "#c5ccd4";
-      for (var i = 0; i < plateN; i++) {
-        g.fillRect(left + i * cw, towerTop - plateLift(i), cw + 1, Math.max(2, u * 0.04));
-      }
-    })();
+    /* BB-V7.72 — plate, hot edge and rivets via the module-level helpers
+       (no per-frame closures); steel column colours come from LORD_PLATE_COLS. */
+    lordDrawPlate(g, shx, towerTop, towerW, towerH, bow, u * 0.04, "#14181c");
+    lordDrawPlate(g, shx, towerTop, towerW, towerH, bow, 0, LORD_PLATE_COLS);
+    lordPlateEdge(g, shx, towerTop, towerW, towerH, bow, u);
     var riv = Math.max(3, u * 0.04);
     g.fillStyle = "#e7edf2";
-    [1, plateN - 2].forEach(function (i) {
-      var span = towerW;
-      var cw = span / plateN;
-      var rx = shx - span * 0.5 + i * cw;
-      var topY = towerTop - plateLift(i) + u * 0.10;
-      g.fillRect(rx, topY, riv, riv);
-      g.fillRect(rx, topY + towerH - u * 0.28, riv, riv);
-    });
+    lordPlateRivet(g, 1, shx, towerTop, towerW, towerH, bow, u, riv);
+    lordPlateRivet(g, LORD_PLATE_N - 2, shx, towerTop, towerW, towerH, bow, u, riv);
     g.restore();
     var destY = towerTop + towerH * 0.50;
     g.save();
     g.translate(shx, destY);
     g.scale(emblem, emblem);
     g.translate(-shx, -gMidY);
-    function kiteHalf(t) {
-      if (t < 0.58) return shW * (1 - t * 0.14);
-      var k = (t - 0.58) / 0.42;
-      return shW * 0.92 * (1 - k);
-    }
-    function drawKite(col, grow, stopT) {
-      var steps = 8;
-      var end = stopT == null ? 1 : stopT;
-      g.fillStyle = col;
-      for (var si = 0; si < steps; si++) {
-        var t0 = si / steps;
-        if (t0 >= end) break;
-        var t1 = Math.min(end, (si + 1) / steps);
-        var hw = Math.max(kiteHalf(t0), kiteHalf(t1)) + grow;
-        var y0 = shTop + shH * t0 - (si === 0 ? grow : 0);
-        var y1 = shTop + shH * t1;
-        g.fillRect(shx - hw, y0, hw * 2, Math.max(1, y1 - y0 + u * 0.02));
-      }
-    }
-    drawKite("#120e0c", u * 0.06, 1);
-    drawKite(GOLD, u * 0.045, 1);
-    drawKite(BONE, 0, 0.66);
-    function spike(dx, hgt, bw) {
-      cube(g, shx + dx - bw * 0.5, shTop - hgt, bw, hgt + u * 0.04, u * 0.05, BONE);
-      g.fillStyle = GOLD;
-      g.fillRect(shx + dx - bw * 0.75, shTop - u * 0.02, bw * 1.5, u * 0.07);
-    }
-    spike(-u * 0.34, u * 0.26, u * 0.11);
-    spike(0, u * 0.44, u * 0.13);
-    spike(u * 0.34, u * 0.26, u * 0.11);
+    /* BB-V7.72 — kite and spikes via module-level helpers. */
+    lordDrawKite(g, shx, shTop, shH, shW, u, "#120e0c", u * 0.06, 1);
+    lordDrawKite(g, shx, shTop, shH, shW, u, GOLD, u * 0.045, 1);
+    lordDrawKite(g, shx, shTop, shH, shW, u, BONE, 0, 0.66);
+    lordShieldSpike(g, shx, shTop, u, -u * 0.34, u * 0.26, u * 0.11, BONE, GOLD);
+    lordShieldSpike(g, shx, shTop, u, 0, u * 0.44, u * 0.13, BONE, GOLD);
+    lordShieldSpike(g, shx, shTop, u, u * 0.34, u * 0.26, u * 0.11, BONE, GOLD);
     var ey = shTop + shH * 0.18;
     g.fillStyle = "#120e0c";
     g.fillRect(shx - u * 0.30, ey, u * 0.22, u * 0.18);
@@ -9856,95 +10003,15 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
         g.fillRect(-u * 0.04, ry + u * 0.04, u * 0.08, u * 0.05);
       }
     }
-    /* Reference tip, blocked off the concept sheet. Grid +x is toward
-       the pommel, +y is down. After rotate(-PI/2), local +Y is the
-       pommel and local +X is up. Fangs are not on the sheet: two
-       added spikes from the upper teeth, aimed at the pommel. */
-    var cell = u * 0.082;
-    var gx0 = 660, gy0 = 328, gcs = 8, gRight = 756;
-    /* Fangs occupy rows 5–7 and 9–11. Their midpoint is the seat on the blade. */
-    var gMid = 394;
-    var su = cell / gcs;
-    function tipCell(c, r, col, grow) {
-      var ix = gx0 + c * gcs;
-      var iy = gy0 + r * gcs;
-      var pad = grow || 0;
-      var xTop = -(iy - gMid) * su + pad;
-      var xBot = -(iy + gcs - gMid) * su - pad;
-      var yLeft = bladeFar + (ix - gRight) * su - pad;
-      var yRight = bladeFar + (ix + gcs - gRight) * su + pad;
-      g.fillStyle = col;
-      g.fillRect(xBot, yLeft, xTop - xBot, yRight - yLeft);
+    /* BB-V7.72 — the skull tip (cells, fangs, dark rim, eyes) replays the
+       LORD_TIP rect cache; same rects, order and colours as the old
+       per-frame grid build, rebuilt only when u changes. */
+    var tipK = LORD_TIP.u === u ? LORD_TIP : lordTipBuild(u);
+    var tipR = tipK.r, tipC = tipK.c, tipCol = -1;
+    for (var tipI = 0, tipJ = 0; tipI < tipK.n; tipI++, tipJ += 4) {
+      if (tipC[tipI] !== tipCol) { tipCol = tipC[tipI]; g.fillStyle = LORD_TIP_COLS[tipCol]; }
+      g.fillRect(tipR[tipJ], tipR[tipJ + 1], tipR[tipJ + 2], tipR[tipJ + 3]);
     }
-    var skullCells = [
-      [6,0],[7,0],
-      [4,1],[5,1],[6,1],[7,1],
-      [4,2],[5,2],[6,2],[7,2],
-      [2,3],[3,3],[4,3],[5,3],[6,3],[7,3],
-      [2,4],[3,4],[4,4],[5,4],[6,4],[7,4],[8,4],[9,4],[10,4],[11,4],
-      [1,5],[2,5],[3,5],[4,5],[5,5],[7,5],[8,5],[9,5],[10,5],[11,5],
-      [1,6],[2,6],[3,6],[4,6],[5,6],[8,6],[9,6],[10,6],[11,6],
-      [1,7],[2,7],[3,7],[4,7],[5,7],[8,7],[9,7],[10,7],[11,7],
-      [1,8],[2,8],[3,8],[4,8],[5,8],[6,8],[7,8],[8,8],[9,8],[10,8],[11,8],
-      [1,9],[2,9],[3,9],[4,9],[5,9],[6,9],[7,9],[8,9],[9,9],[10,9],[11,9],
-      [1,10],[2,10],[3,10],[4,10],[5,10],[6,10],[7,10],[8,10],[10,10],[11,10],
-      [1,11],[2,11],[3,11],[4,11],[5,11],[6,11],[7,11],[8,11],[9,11],[10,11],[11,11],
-      [1,12],[2,12],[3,12],[4,12],[5,12],[6,12],[7,12],[8,12],[9,12],[10,12],
-      [1,13],[2,13],[3,13],[4,13],[5,13],[8,13],[9,13],[10,13],[11,13],
-      [1,14],[2,14],[3,14],[4,14],[5,14],[8,14],[9,14],[10,14],[11,14],
-      [2,15],[3,15],[4,15],[5,15],[7,15],[8,15],[9,15],[10,15],[11,15],
-      [2,16],[3,16],[4,16],[5,16],[6,16],[7,16],[8,16],[9,16],[10,16],[11,16],
-      [3,17],[4,17],[5,17],[6,17],[7,17],
-      [4,18],[5,18],[6,18],[7,18],
-      [5,19],[6,19],[7,19]
-    ];
-    var fangCells = [
-      [12,5],[13,5],[14,5],[15,5],
-      [12,6],[13,6],[14,6],[15,6],[16,6],[17,6],[18,6],
-      [12,7],[13,7],[14,7],[15,7],
-      [12,9],[13,9],[14,9],[15,9],
-      [12,10],[13,10],[14,10],[15,10],[16,10],[17,10],[18,10],
-      [12,11],[13,11],[14,11],[15,11]
-    ];
-    /* Overlap the blocks so hairline seams do not turn into a grid
-       when the sword is small. The dark stroke sits outside the cells,
-       and only where a neighbor is missing, so the locked shape stays. */
-    var knit = Math.max(1.15, su * 1.15);
-    for (var sc = 0; sc < skullCells.length; sc++) tipCell(skullCells[sc][0], skullCells[sc][1], BONE, knit);
-    for (var fc = 0; fc < fangCells.length; fc++) tipCell(fangCells[fc][0], fangCells[fc][1], "#f4efe4", knit);
-    var occupied = {};
-    for (var oi = 0; oi < skullCells.length; oi++) occupied[skullCells[oi][0] + "," + skullCells[oi][1]] = 1;
-    for (var oj = 0; oj < fangCells.length; oj++) occupied[fangCells[oj][0] + "," + fangCells[oj][1]] = 1;
-    var rim = Math.max(2.4, su * 2.6);
-    var seam = Math.max(0.9, su * 0.9);
-    g.fillStyle = "#120e0c";
-    function tipEdge(c, r) {
-      var ix = gx0 + c * gcs;
-      var iy = gy0 + r * gcs;
-      var xTop = -(iy - gMid) * su;
-      var xBot = -(iy + gcs - gMid) * su;
-      var yLeft = bladeFar + (ix - gRight) * su;
-      var yRight = bladeFar + (ix + gcs - gRight) * su;
-      var cw = xTop - xBot;
-      var chh = yRight - yLeft;
-      if (!occupied[(c - 1) + "," + r]) g.fillRect(xBot - seam, yLeft - rim, cw + seam * 2, rim);
-      if (!occupied[(c + 1) + "," + r]) g.fillRect(xBot - seam, yRight, cw + seam * 2, rim);
-      if (!occupied[c + "," + (r - 1)]) g.fillRect(xTop, yLeft - seam, rim, chh + seam * 2);
-      if (!occupied[c + "," + (r + 1)]) g.fillRect(xBot - rim, yLeft - seam, rim, chh + seam * 2);
-      if (!occupied[(c - 1) + "," + r] && !occupied[c + "," + (r - 1)]) g.fillRect(xTop, yLeft - rim, rim, rim);
-      if (!occupied[(c + 1) + "," + r] && !occupied[c + "," + (r - 1)]) g.fillRect(xTop, yRight, rim, rim);
-      if (!occupied[(c - 1) + "," + r] && !occupied[c + "," + (r + 1)]) g.fillRect(xBot - rim, yLeft - rim, rim, rim);
-      if (!occupied[(c + 1) + "," + r] && !occupied[c + "," + (r + 1)]) g.fillRect(xBot - rim, yRight, rim, rim);
-    }
-    for (var ek in occupied) {
-      var parts = ek.split(",");
-      tipEdge(+parts[0], +parts[1]);
-    }
-    tipCell(6, 5, "#120e0c", 0);
-    tipCell(6, 6, "#e01818", 0);
-    tipCell(7, 6, "#e01818", 0);
-    tipCell(6, 7, "#120e0c", 0);
-    tipCell(7, 7, "#120e0c", 0);
     if (swinging) {
       g.globalAlpha = 0.85;
       g.fillStyle = "#fff2c0";
@@ -13501,6 +13568,7 @@ function endRunToMenu() {
       for (i = 0; i < room.enemies.length; i++) if (room.enemies[i].boss === "lord") e = room.enemies[i];
       if (!e) return null;
       ensureSkullLord(e);
+      e.an = null; /* BB-V7.72 — legacy (pre-rig) pose path */
       e.spawnT = 0;
       e.atk = null;
       e.cd = 99;
@@ -13513,6 +13581,53 @@ function endRunToMenu() {
       S.pause = true;
       draw();
       return { name: e.name, face: e.face, blade: Math.round(e.bladeAng * 100) / 100 };
+    },
+    /* BB-V7.72 — Skull Lord animation lab hooks. Harness-only; nothing in
+       normal play calls them. */
+    setFxLite: function (v) { S.fxLite = !!v; return S.fxLite; },
+    forceLordAtk: function (kind) {
+      if (!room || !player) return null;
+      var e = null, i;
+      for (i = 0; i < room.enemies.length; i++) if (room.enemies[i].boss === "lord" && room.enemies[i].alive) e = room.enemies[i];
+      if (!e) return null;
+      ensureSkullLord(e);
+      var dx = player.x - e.x, dy = player.y - e.y;
+      startSkullAtk(e, kind || "cleave", dx, dy, Math.hypot(dx, dy) || 1);
+      return this.skullState();
+    },
+    lordAnim: function () {
+      if (!room) return null;
+      var e = null, i, k, an, out;
+      for (i = 0; i < room.enemies.length; i++) if (room.enemies[i].boss === "lord") e = room.enemies[i];
+      an = e && e.an;
+      if (!an) return null;
+      out = {};
+      k = ["turnP", "faceTo", "hx", "keyA", "gA", "sumT", "stagT", "lockT", "dieT", "landT"];
+      for (i = 0; i < k.length; i++) if (an[k[i]] !== undefined) out[k[i]] = an[k[i]];
+      return out;
+    },
+    lordHurt: function (dir, opts) {
+      if (!room) return null;
+      var e = null, i;
+      for (i = 0; i < room.enemies.length; i++) if (room.enemies[i].boss === "lord" && room.enemies[i].alive) e = room.enemies[i];
+      if (!e) return null;
+      return lordHurtFn ? lordHurtFn(e, dir || 1, (opts && opts.dealt) || 1, !!(opts && opts.crossing)) : null;
+    },
+    /* Pose-only scrub: pause, set the clock fields, draw one frame. Fires no events. */
+    lordScrub: function (o) {
+      S.pause = true;
+      if (!room) return null;
+      o = o || {};
+      var e = null, i;
+      for (i = 0; i < room.enemies.length; i++) if (room.enemies[i].boss === "lord") e = room.enemies[i];
+      if (!e) return null;
+      ensureSkullLord(e);
+      if (o.atk !== undefined) e.atk = o.atk;
+      if (o.atkT != null) e.atkT = o.atkT;
+      if (o.su != null && e.spawnMax) e.spawnT = e.spawnMax * (1 - o.su);
+      if (o.dieT != null && e.an) e.an.dieT = o.dieT;
+      draw();
+      return this.skullState();
     },
     boneKingState: function () {
       if (!room) return null;
