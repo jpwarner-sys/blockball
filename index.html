@@ -4753,7 +4753,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
          boss or knight solid white for its whole death fade */
       if (e.flash > 0) e.flash -= dt;
       if (e.hitT > 0) e.hitT -= dt;
-      if (e.boss === "bone") boneAnim(e, dt);
+      if (e.boss === "bone" && (e.alive || e.deadT > 0)) boneAnim(e, dt);
       if (!e.alive) {
         e.deadT -= dt;
         continue;
@@ -5758,7 +5758,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     sw: [0, 0, 0, 0, 0], hem: [0, 0, 0], pool: false,
     legDx: 0, fLx: 0, fLy: 0, fLz: 0, fRx: 0, fRy: 0, fRz: 0, splay: 0,
     ribDx: 0, ribDy: 0, offDx: 0, offDy: 0, offBehind: false,
-    hx: 0, hy: 0, sAng: 0, S: 0, gripAfter: false, gripX: 0, gripY: 0, staffFree: false,
+    hx: 0, hy: 0, sAng: 0, S: 0, gripAfter: false, gripX: 0, gripY: 0, staffFree: false, stBack: false,
     stBX: 0, stBY: 0, stAng: 0, tipA: 0, tipX: 0, tipY: 0, topX: 0, topY: 0, footX: 0, footY: 0,
     cowlDx: 0, cowlDy: 0, cowlH: 0.86,
     headDx: 0, headDy: 0, headRot: 0, neckY: 0, jaw: 0, skX: 0, skY: 0,
@@ -5782,12 +5782,13 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     return ph < 0.59 ? boneEIO(ph / 0.59) : 1 - boneEIO((ph - 0.59) / 0.41);
   }
   /* semi-implicit Euler; a clamp kills the velocity. omega*dt <= 0.44 at 60 Hz */
-  function boneSpring(an, xk, vk, k, c, target, dt, lim) {
-    var v = an[vk] + (-k * (an[xk] - target) - c * an[vk]) * dt;
-    var x = an[xk] + v * dt;
+  var BONE_SO = { x: 0, v: 0 };   /* boneSpring out: literal keys keep the loads monomorphic */
+  function boneSpring(x0, v0, k, c, target, dt, lim) {
+    var v = v0 + (-k * (x0 - target) - c * v0) * dt;
+    var x = x0 + v * dt;
     if (x > lim) { x = lim; v = 0; } else if (x < -lim) { x = -lim; v = 0; }
-    an[xk] = x;
-    an[vk] = v;
+    BONE_SO.x = x;
+    BONE_SO.v = v;
   }
   function boneFxN(n) { return S.fxLite ? Math.ceil(n / 2) : n; }
   /* local art px (drawEnemy scales the art by vis about the feet) -> world */
@@ -5874,8 +5875,9 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       return;
     }
     if (e.spawnT > 0) {
-      var hs = player && player.x < e.x ? -1 : 1;
-      an.faceFrom = hs; an.faceTo = hs; an.turnP = -1; an.faceHold = 0; an.bIn = 0;
+      /* facing is locked for the rise (set when the rig is made); the live turn takes over after */
+      var hs = an.faceTo;
+      an.faceFrom = hs; an.turnP = -1; an.faceHold = 0; an.bIn = 0;
       var smax = e.spawnMax || 1;
       var suN = 1 - Math.max(0, e.spawnT - dt) / smax, suP = an.pSu;
       if (suP >= 0) {
@@ -5973,11 +5975,12 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     boneAnimPrev(e, an, hitT);
   }
   function boneSprings(an, dt) {
-    boneSpring(an, "tA", "tV", 320, 9, 0, dt, 0.14);
-    boneSpring(an, "cX", "cV", 60, 7.75, -Math.max(-1, Math.min(1, an.vxS / 12)) * 0.06, dt, 0.12);
-    boneSpring(an, "cY", "cVy", 60, 7.75, 0, dt, 0.12);
-    boneSpring(an, "crA", "crV", 500, 10, 0, dt, 0.10);
-    boneSpring(an, "hX", "hV", 700, 18.5, 0, dt, 0.14);
+    var o = BONE_SO;
+    boneSpring(an.tA, an.tV, 320, 9, 0, dt, 0.14); an.tA = o.x; an.tV = o.v;
+    boneSpring(an.cX, an.cV, 60, 7.75, -Math.max(-1, Math.min(1, an.vxS / 12)) * 0.06, dt, 0.12); an.cX = o.x; an.cV = o.v;
+    boneSpring(an.cY, an.cVy, 60, 7.75, 0, dt, 0.12); an.cY = o.x; an.cVy = o.v;
+    boneSpring(an.crA, an.crV, 500, 10, 0, dt, 0.10); an.crA = o.x; an.crV = o.v;
+    boneSpring(an.hX, an.hV, 700, 18.5, 0, dt, 0.14); an.hX = o.x; an.hV = o.v;
     an.hF += (1.2 * an.hX - an.hF) * (1 - Math.exp(-dt / 0.04));
   }
   function boneAnimPrev(e, an, hitT) {
@@ -6188,7 +6191,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     P.white = false; P.hot = false; P.ringK = 1; P.ringA = 1; P.ringLW = 2.4; P.relA = 0;
     P.smN = 0; P.stFront = false; P.moteN = 0; P.rise = false; P.riseD = 0; P.skipBody = false; P.pitRx = 0; P.pitA = 0;
     P.eyeCore = 0; P.eyeSq = false; P.jaw = 0; P.headRot = 0; P.crRot = 0; P.crDx = 0; P.crDy = 0; P.crFree = false;
-    P.staffFree = false; P.gripAfter = false; P.S = 0; P.tipA = 0; P.offBehind = false;
+    P.staffFree = false; P.stBack = false; P.gripAfter = false; P.S = 0; P.tipA = 0; P.offBehind = false;
     P.capeTop = 0; P.capeHem = 0; P.capeDrop = 0; P.pool = false; P.splay = 0;
     P.fLx = 0; P.fLy = 0; P.fLz = 0; P.fRx = 0; P.fRy = 0; P.fRz = 0; P.cowlH = 0.86; P.shA = 1;
     if (P.legacy) return boneLegacyPose(e, u, P, hs);
@@ -6339,6 +6342,8 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
         if (dT >= 0.40) sA2 -= f * 0.10 * Math.exp(-(dT - 0.40) / 0.05) * Math.cos(45 * (dT - 0.40));
       }
       P.staffFree = true; P.stBX = f0x; P.stBY = fy; P.stAng = sA2;
+      /* raised over the far shoulder (behind the head): it falls behind the ribs */
+      P.stBack = d0.ang * d0.fV < 0;
       P.hx = d0.hx; P.hy = d0.hy; P.S = d0.S; P.sAng = d0.ang; P.tipA = 0; P.gripAfter = false;
       k = boneEaseOutQuad((dT - 0.06) / 0.12);
       P.gripX = d0.hx + f * 0.06 * u * k;
@@ -6450,7 +6455,8 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     /* smear: one light band along the topper's path over the last two ticks
        (the strike only: the contact frame is a clean key). Outer edge = the
        topper's crown, inner edge 0.60u down the shaft. */
-    if (e.alive && e.atk && an && !S.fxLite && atkT >= tF - 2 * DT - 1e-6 && atkT < tF - 1e-6) {
+    if (e.alive && e.atk && an && !S.fxLite && an.pAtkT < atkT - 1e-9 &&
+        atkT >= tF - 2 * DT - 1e-6 && atkT < tF - 1e-6) {
       for (i = 2; i >= 0; i--) {
         var gAng, gHx, gHy, gS;
         if (i === 0) { gAng = P.sAng; gHx = P.hx; gHy = P.hy; gS = P.S; }
@@ -10924,7 +10930,8 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
   function drawBoneKing(g, e) {
     ensureBoneKing(e);
     /* BB-V7.72 — alpha root: every alpha is relative to drawEnemy's fade */
-    var A0 = g.globalAlpha;
+    /* dead: drawEnemy's alpha = deadT is ignored while deadT > 1 (out of range) */
+    var A0 = e.alive ? g.globalAlpha : Math.min(1, Math.max(0, e.deadT));
     var BONE = "#f0e8dc", BONE_D = "#a89880", GOLD = "#e0b44a";
     var CLOAK = "#5a2230", CLOAK_D = "#3a141c", LINING = "#8a2840";
     var EMBER = "#ff7a2a", STEEL = "#79808c";
@@ -11020,6 +11027,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
 
     /* off-hand bone (matches facing); behind the ribs mid-turn */
     if (P.offBehind) boneOffHand(g, P, x, yt, u, body);
+    if (P.stBack) boneScepter(g, e, P, u, body, tell, A0);
     var rbx = x + P.ribDx, rby = yt + P.ribDy, ri;
     cube(g, rbx - u * 0.42, rby + u * 0.72, u * 0.84, u * 0.94, u * 0.26, body);
     g.fillStyle = body === BONE ? BONE_SH.rib0 : BONE_SH.rib0W;
@@ -11040,7 +11048,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     g.fillRect(rbx - u * 0.05, rby + u * 1.09, u * 0.10, u * 0.07);
     if (!P.offBehind) boneOffHand(g, P, x, yt, u, body);
 
-    if (!P.offBehind && !P.stFront) boneScepter(g, e, P, u, body, tell, A0);
+    if (!P.offBehind && !P.stFront && !P.stBack) boneScepter(g, e, P, u, body, tell, A0);
 
     /* burgundy cowl behind a smaller skull — crypt king, not the Lord's bare head */
     var cwx = x + P.cowlDx, cwy = yt + P.cowlDy;
@@ -11104,7 +11112,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       boneCirclet(g, P.crX, P.crY - u * 0.09, u, P.crRot === 0 || P.crRot === BONE_Q || P.crRot === -BONE_Q);
       g.restore();
     }
-    if (P.offBehind || P.stFront) boneScepter(g, e, P, u, body, tell, A0);
+    if ((P.offBehind || P.stFront) && !P.stBack) boneScepter(g, e, P, u, body, tell, A0);
     /* motes gathering to the topper through the wind */
     if (P.moteN > 0) {
       var ms = u * 0.07;
