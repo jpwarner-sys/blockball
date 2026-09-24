@@ -4461,15 +4461,21 @@
        squash, and (trash only) a shove along the ball's travel. */
     en.flash = 0.11;
     en.hitT = 0.2;
+    /* BB-V7.72 — SK-14: the lord's cosmetic flinch (e.an only; no gameplay
+       field) and, for the ball, FX from the point the ball met him */
+    var lordC = en.boss === "lord" && src === ball ? lordContact(en) : null;
+    if (en.boss === "lord" && en.an) lordHurt(en, src.vx > 0 ? 1 : src.vx < 0 ? -1 : -en.an.faceTo, dealt, lordCrossing(en, dealt), src !== ball);
     if (!en.boss && src === ball) {
       var bs = Math.hypot(ball.vx, ball.vy) || 1;
       var kb = hasAff("Heavy") ? 14 : 9;
       nudgeFoe(en, ball.vx / bs * kb, ball.vy / bs * kb);
     }
-    floatTxt(en.x, en.y - (en.hitLift || en.r) - 14, fmt(dealt), dazed ? "#ffe070" : "#fff2c0", { pop: true, big: dealt >= currentDmg() * 1.4 });
+    if (lordC) floatTxt(lordC.x + lordC.nx * 16, lordC.y + lordC.ny * 16 - 10, fmt(dealt), dazed ? "#ffe070" : "#fff2c0", { pop: true, big: dealt >= currentDmg() * 1.4 });
+    else floatTxt(en.x, en.y - (en.hitLift || en.r) - 14, fmt(dealt), dazed ? "#ffe070" : "#fff2c0", { pop: true, big: dealt >= currentDmg() * 1.4 });
     sfx("hit");
     if (src === ball) {
-      sparks(en.x, en.y - (en.hitLift || 0), "#fff2c0", 5, Math.atan2(ball.vy, ball.vx), 1.3);
+      if (lordC) sparks(lordC.x, lordC.y, "#ff9a50", 5, Math.atan2(lordC.ny, lordC.nx), 1.0);
+      else sparks(en.x, en.y - (en.hitLift || 0), "#fff2c0", 5, Math.atan2(ball.vy, ball.vx), 1.3);
       /* BB-V7.69 — one throw through a crowd calls itself out. The bank-shot
          game had no word for a two- or three-body throw short of the kill. */
       var nh = ball.hits.length;
@@ -4479,7 +4485,8 @@
         S.score += 5 * (nh - 1) * Math.max(1, S.floor);
       }
     }
-    burst(en.x, en.y - (en.hitLift || 0), "#f0c070", 3);
+    if (lordC) { if (!S.fxLite) burst(lordC.x, lordC.y, "#f0e8dc", 2); }
+    else burst(en.x, en.y - (en.hitLift || 0), "#f0c070", 3);
     if (src === ball || isSplit) gainPlaceHit();
     if (hasAff("Fire") && src === ball) en.burn = Math.max(en.burn, 2.2);
     if (hasAff("Chain") && src === ball) {
@@ -4800,7 +4807,11 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
         }
       }
       if (e.recoil > 0) e.recoil -= dt;
-      if (e.spawnT > 0) { e.spawnT -= dt; continue; }
+      if (e.spawnT > 0) {
+        e.spawnT -= dt;
+        if (e.wispBurst) lordWispArrive(e, dt); /* BB-V7.72 — SK-15 */
+        continue;
+      }
       if (e.stun > 0) { e.stun -= dt; continue; }
       if (e.daze > 0) { e.daze -= dt; e.walkT = 0; continue; }
       e.cd -= dt;
@@ -6452,6 +6463,11 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       atkKind: null, prevAtkT: 0, atkBang0: null, aev: 0, lockT: -1, atkN: 0,
       /* summon, stagger and landing clocks (batch C); the idle gates read them */
       sumT: -1, stagT: -1, landT: -1,
+      /* batch C: hurt flinch spring (hx, u) and head follower, heat, stagger,
+         crossing white; summon lite/full, crank click, slam; rise events */
+      hx: 0, hv: 0, hh: 0, heat: 0, stagDir: 0, stagAtk: false, whiteT: -1,
+      sumLite: e.atk ? 1 : 0, sumFull: true, sumClick: 0, sumSlam: false, sumDir: 1,
+      suPrev: -1, sev: 0,
       /* death (tDie: an.t on the last live tick, so the dead pose holds
          still instead of flickering on an.t) */
       dieT: -1, dieAtS: 0, tDie: 0
@@ -6706,6 +6722,13 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
        (a reversal mid-turn glides back the same way) */
     if (spawning || an.postSpawn) an.eyeF = an.faceTo;
     else an.eyeF += (an.faceTo - an.eyeF) * (1 - Math.exp(-dt / 0.035));
+    /* BB-V7.72 — SK-16 rise events on this frame's drawn su (lordAnim runs
+       before the spawn decrement); none fire if the spawn is skipped */
+    if (spawning && e.spawnMax) {
+      k = 1 - Math.max(0, e.spawnT - dt) / e.spawnMax;
+      lordRiseEvents(e, an, an.suPrev, k, u, uW, faceV);
+      an.suPrev = k;
+    }
 
     /* attack tracking: a new attack (or a restarted clock) snapshots the
        drawn blade so batch B's vis curves start where the sword is.
@@ -6799,6 +6822,13 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     an.vHPrev = vH;
     spring(an, "keyA", "keyV", 200, 8.5, dt, 0.30, -0.0006 * aH);
     spring(an, "tipA", "tipV", 400, 12, dt, 0.12, 0);
+    /* BB-V7.72 — SK-14: the hurt flinch rides out the stun (k 450, zeta
+       0.35: ~0.10u held F2-F5 so 30 fps catches it twice, settled by
+       ~0.45 s); the head trails it (whip, tau 0.08: peaks ~F6 as the body
+       swings back) */
+    spring(an, "hx", "hv", 450, 14.8, dt, 0.12, 0);
+    an.hh += (an.hx - an.hh) * (1 - Math.exp(-dt / 0.08));
+    an.heat = Math.max(0, an.heat - dt);
     /* the cape's side trails the body's turn and overshoots it */
     k = an.turnP >= 0 ? an.faceFrom + (an.faceTo - an.faceFrom) * easeInOutSine(an.turnP) : an.faceTo;
     if (spawning || an.postSpawn) { an.capeS = k; an.capeV = 0; }
@@ -6846,6 +6876,10 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       an.nextChat -= dt;
       if (an.nextChat <= 0 && an.blinkT < 0) an.chatT = 0;
     }
+    /* BB-V7.72 — SK-14/15 clocks (stagger, crossing white, summon); the
+       summon crank clicks at each half-turn of its key turn */
+    lordAnimC(e, an, dt, u, uW);
+    var kTh0 = an.keyTh, kFr0 = an.kFrom, kTo0 = an.kTo, kSum0 = an.kT >= 0 && an.kPri === 2;
     if (an.kT >= 0) {
       p0 = an.kT;
       an.kT += dt;
@@ -6879,6 +6913,8 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     } else if (an.keyLandN > 0) {
       an.keyLandN--;
     }
+    if (kSum0 && Math.floor(((an.kT >= 0 ? an.keyTh : kTo0) - kFr0) / Math.PI + 1e-6) >
+        Math.floor((kTh0 - kFr0) / Math.PI + 1e-6)) lordSumClick(e, an, u);
     an.flareAdd = Math.max(0, an.flareAdd - an.flareDk * dt);
     if (an.flareAdd <= 0) an.flareDk = 1.8;
     /* the eyes flare as an attack starts (over ~0.05 s) and cool after */
@@ -6889,6 +6925,188 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     k = Math.max(an.flare, an.flareAdd);
     an.flareD = k > an.flareD ? an.flareD + (k - an.flareD) * (1 - Math.exp(-dt / 0.025)) : k;
     if (an.angerT > 0) an.angerT = Math.max(0, an.angerT - dt);
+  }
+
+  /* BB-V7.72 — Skull Lord batch C: hurt reaction (SK-14), phase stagger and
+     summon performance (SK-15), floor emergence (SK-16). Cosmetic only: these
+     write e.an and particles/shake, never a gameplay field. */
+  /* the hit that crosses a court call (an unset mark between the hp before
+     and after it) is the big one: white frame, buckle, roar */
+  function lordCrossing(e, dealt) {
+    if (!e.maxHp || !e.waveFlags) return false;
+    var hi = (e.hp + dealt) / e.maxHp, lo = e.hp / e.maxHp, i, m;
+    for (i = 0; i < SKULL_WAVE_MARKS.length; i++) {
+      m = SKULL_WAVE_MARKS[i];
+      if (!e.waveFlags[i] && hi > m && m >= lo) return true;
+    }
+    return false;
+  }
+  /* where the ball meets the hurt circle (world), and the outward normal */
+  var LORD_HC = { x: 0, y: 0, nx: 0, ny: -1 };
+  function lordContact(e) {
+    var box = enemyHurtBox(e), dx = ball.x - box.x, dy = ball.y - box.y;
+    var d = Math.sqrt(dx * dx + dy * dy);
+    if (d > 1e-6) { LORD_HC.nx = dx / d; LORD_HC.ny = dy / d; }
+    else { LORD_HC.nx = 0; LORD_HC.ny = -1; }
+    LORD_HC.x = box.x + LORD_HC.nx * box.r;
+    LORD_HC.y = box.y + LORD_HC.ny * box.r;
+    return LORD_HC;
+  }
+  /* the hurt impulse: the body flinches along the ball's travel (dir), the
+     key and crown kick the other way, the tip bobs. A big hit, a crossing or
+     a third quick hit buckles him (stagger) unless he is attacking. */
+  function lordHurt(e, dir, dealt, crossing, weak) {
+    var an = e.an;
+    if (!an || !e.alive) return null;
+    dir = dir < 0 ? -1 : 1;
+    var imp = (crossing ? 2.2 : 1) * (weak ? 0.6 : 1);
+    /* 4.2 u/s on the 60 Hz semi-implicit step (k 450, c 14.8): ~0.10u at
+       F3-F4 (>0.085u F2-F5), zero near F9, ~-0.03u at F12; a crossing
+       (x2.2) meets the 0.12u clamp */
+    an.hv += dir * 4.2 * (0.85 + 0.3 * Math.random()) * imp;
+    an.keyV += -dir * 2.0 * (0.85 + 0.3 * Math.random()) * (crossing ? 1.5 : 1);
+    an.tipV += dir * 0.8;
+    an.heat += 1;
+    an.angerT = 0.6;
+    an.flareAdd = Math.max(an.flareAdd, 0.3);
+    if (!e.atk && (crossing || dealt >= 1.4 * currentDmg() || an.heat >= 3)) {
+      an.stagT = 0;
+      an.stagDir = dir;
+      an.stagAtk = false;
+    }
+    if (crossing) an.whiteT = 0;
+    return { hv: an.hv, heat: an.heat, stagT: an.stagT, whiteT: an.whiteT };
+  }
+  lordHurtFn = lordHurt;
+  /* one tick of the stagger, crossing-white, summon and landing clocks */
+  function lordAnimC(e, an, dt, u, uW) {
+    var s0, s1, k;
+    if (an.whiteT >= 0) { an.whiteT += dt; if (an.whiteT > 0.5) an.whiteT = -1; }
+    if (an.landT >= 0) { an.landT += dt; if (an.landT > 1) an.landT = -1; }
+    /* stagger: held until the roar releases it; else it lets go over
+       0.35-0.70 s shaking the head. An attack starting releases it at once
+       (no head shakes). */
+    if (an.stagT >= 0) {
+      if (e.atk && an.stagT < 0.35) { an.stagT = 0.35; an.stagAtk = true; }
+      an.stagT += dt;
+      if (an.stagT >= 0.70 || (an.sumT >= 0.10 && an.sumT < an.stagT)) an.stagT = -1;
+    }
+    /* the summon's lite weight: an attack keeps the fan and lane readable,
+       so the body and slam layers ease out over 0.1 s while he attacks */
+    k = e.atk ? 1 : 0;
+    an.sumLite = k ? Math.min(1, an.sumLite + dt / 0.1) : Math.max(0, an.sumLite - dt / 0.1);
+    if (an.sumClick > 0) an.sumClick--;
+    if (an.sumT < 0) return;
+    s0 = an.sumT;
+    if (s0 === 0) {
+      /* armed this tick (skullLordWaves): the roar. The crown kicks back
+         straight out of the stagger's skew, overshooting it. */
+      an.sumDir = an.stagT >= 0 && an.stagDir ? an.stagDir : (an.faceTo || 1);
+      an.keyV += -an.sumDir * 2;
+      an.sumSlam = false;
+    }
+    s1 = an.sumT = s0 + dt;
+    /* 0.15 the crank: two full turns of the key (easeInOutCubic) */
+    if (s0 < 0.15 && s1 >= 0.15) lordKeyTurn(an, 4 * Math.PI, 0.60, 2, 0);
+    /* 0.30 the shield slam (only a full summon, and not mid-attack) */
+    if (s0 < 0.30 && s1 >= 0.30) {
+      an.sumSlam = an.sumFull && !e.atk;
+      S.shake = Math.max(S.shake, 0.28);
+    }
+    if (s0 < 0.333 && s1 >= 0.333 && an.sumSlam) {
+      var sf = e.an.faceTo || 1;
+      var shx = e.x - sf * u * (1.16 + an.shield * 0.55) + an.lean * u * 0.60;
+      lordW(e, shx, e.y, LORD_WP);
+      floorRing(LORD_WP.x, e.y + 4, "#7a32c8", 0.8 * uW, 2.6 * uW, 0.5);
+      dustPuff(LORD_WP.x, e.y, fxN(6), "#6a5a44");
+    }
+    /* 0.75 the crank's last click whips the key over (~0.2 rad) */
+    if (s0 < 0.75 && s1 >= 0.75) an.keyV += 3;
+    if (s1 >= 1.30) an.sumT = -1;
+  }
+  /* a click of the summon crank: the crown jolts, sparks off the key base */
+  function lordSumClick(e, an, u) {
+    an.sumClick = 2;
+    lordW(e, e.x, e.y - u * 2.35 - u * 0.95, LORD_WP);
+    sparks(LORD_WP.x, LORD_WP.y, "#ffd24a", fxN(2), -Math.PI / 2, 0.8);
+  }
+  /* rise (SK-16): events on the drawn su crossing each mark (s0 -> s1) */
+  function lordRiseEvents(e, an, s0, s1, u, uW, faceV) {
+    var py = e.y + 0.30 * uW, i, a, rx;
+    if (s0 < 0 && s1 >= 0) floorRing(e.x, py, "#c9a44c", 20, 150, 0.35);
+    if (s1 < 0.25) S.shake = Math.max(S.shake, 0.06 + 0.08 * s1 / 0.25);
+    if (s0 < 0.25 && s1 >= 0.25) {
+      /* the key breaks the floor */
+      floorRing(e.x, py, "#c9a44c", 30, 190, 0.4);
+      if (!S.fxLite) {
+        for (i = 0; i < 6; i++) {
+          a = Math.random() * Math.PI * 2;
+          pushPart({ k: "cube", x: e.x + Math.cos(a) * uW * 0.25, y: py + Math.sin(a) * uW * 0.08, z: 4,
+            vx: Math.cos(a) * (60 + Math.random() * 90), vy: Math.sin(a) * (20 + Math.random() * 30),
+            vz: 150 + Math.random() * 110, t: 0.6 + Math.random() * 0.35, col: "#4a3e34", dk: "#2e2620",
+            s: 4 + Math.random() * 3.5 });
+        }
+      }
+      sparks(e.x, py - 6, "#ffd24a", 4, -Math.PI / 2, 0.9);
+    }
+    if (s1 >= 0.30 && s1 < 0.85 && an.tickN % (S.fxLite ? 6 : 2) === 0) {
+      /* grit spills off the rim as he climbs */
+      dustPuff(e.x + (Math.random() * 2 - 1) * 1.1 * uW, py, 1, "#6a5a44");
+    }
+    if (s0 < 0.603 && s1 >= 0.603) {
+      /* the blade cuts up through the floor: grit along its slit */
+      for (i = 0; i < fxN(5); i++) {
+        a = e.x + (an.faceTo || 1) * (0.9 + 3.6 * (i + Math.random()) / fxN(5)) * uW;
+        dustPuff(a, py, 1, "#6a5a44");
+      }
+      sparks(e.x + (an.faceTo || 1) * 2.5 * uW, py, "#ffd080", fxN(3), -Math.PI / 2, 1.6);
+    }
+    if (s0 < 0.55 && s1 >= 0.55) {
+      rx = 1.35 * uW;
+      for (i = 0; i < fxN(6); i++) {
+        a = Math.random() * Math.PI * 2;
+        dustPuff(e.x + Math.cos(a) * rx, py + Math.sin(a) * rx * 0.27, 1, "#6a5a44");
+      }
+    }
+    if (s0 < 0.82 && s1 >= 0.82 && !S.fxLite) {
+      /* the eyes catch */
+      lordW(e, e.x - u * 0.24, e.y - u * 2.02, LORD_WP);
+      embers(LORD_WP.x, LORD_WP.y, "#ff6a28", 3);
+      lordW(e, e.x + u * 0.24, e.y - u * 2.02, LORD_WP);
+      embers(LORD_WP.x, LORD_WP.y, "#ff6a28", 3);
+    }
+    if (s0 < 0.85 && s1 >= 0.85) {
+      /* the stomp */
+      S.shake = Math.max(S.shake, 0.22);
+      lordW(e, e.x - u * 0.26, e.y, LORD_WP);
+      dustPuff(LORD_WP.x, e.y, fxN(8), "#8a7a64");
+      lordW(e, e.x + u * 0.26, e.y, LORD_WP);
+      dustPuff(LORD_WP.x, e.y, fxN(8), "#8a7a64");
+      floorRing(e.x, e.y + 4, "#6a5a44", 30, 170, 0.4);
+      an.flareAdd = Math.max(an.flareAdd, 0.6);
+      an.keyV += 1.2;
+      an.tipV += faceV * 1.2;
+      an.landT = 0;
+    }
+  }
+  /* body height out of the pit (0 hidden .. 1 standing): the key breaks the
+     floor at 25 %, a hitch at ~50 % (dip, then a catch held 0.55-0.58), up by 85 %; no overshoot */
+  function lordRiseH(s) {
+    if (s < 0.25) return 0;
+    if (s < 0.50) return 0.55 * easeOutCubic((s - 0.25) / 0.25);
+    if (s < 0.58) return 0.55 - 0.045 * Math.sin(Math.PI * Math.min(1, (s - 0.5) / 0.05));
+    if (s < 0.85) return 0.55 + 0.45 * easeOutCubic((s - 0.58) / 0.27);
+    return 1;
+  }
+  /* an add's wisp lands (its spawn passes 30 %): the burst that used to
+     fire at the summon, and a ring where it touched down */
+  function lordWispArrive(e, dt) {
+    var sA = 1 - e.spawnT / e.spawnMax, sB = 1 - (e.spawnT + dt) / e.spawnMax;
+    if (!(sB < 0.30 && sA >= 0.30) && !(e.spawnT <= 0)) return;
+    e.wispBurst = false;
+    var r = artR(e) * enemyVis(e) * (e.boss ? 1.6 : 1.1);
+    burst(e.x, e.y, e.col, fxN(10));
+    floorRing(e.x, e.y + r * 0.5, "#d24ad8", 6, r, 0.3);
   }
 
   /* BB-V7.43 — Bone King pose clock for the scepter volley. */
@@ -7518,12 +7736,18 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       en = spawnEnemy(type, (t.tx + 0.5) * TILE, (t.ty + 0.5) * TILE, S.floor, false);
       en.spawnT = en.spawnMax = 0.7 + i * 0.1;
       room.enemies.push(en);
-      burst(en.x, en.y, en.col, 10);
+      /* BB-V7.72 — SK-15: a wisp flies from the lord's sternum gem (world
+         coordinates, not a reference) to the add's ring; its burst waits for
+         the wisp's arrival (updateEnemies spawn branch) */
+      en.wispX = boss.x;
+      en.wispY = boss.y - artR(boss) * 1.48 * 1.14 * LORD_VIS;
+      en.wispUW = artR(boss) * 1.48 * LORD_VIS;
+      en.wispBurst = true;
       spawned++;
     }
     if (spawned) {
       sfx("boss");
-      S.shake = Math.max(S.shake, 0.28);
+      S.shake = Math.max(S.shake, boss.atk ? 0.28 : 0.10); /* BB-V7.72 — the slam shakes at 0.30 */
     }
     return spawned;
   }
@@ -7531,8 +7755,9 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
   /* BB-V7.51 — the splash is the fight. 75% calls the sword-and-shield crown
      guard, 50% the curved blade, 25% the grave. Slimes no longer walk out of
      a throne painted with two crowned skeletons. */
+  var SKULL_WAVE_MARKS = [0.75, 0.5, 0.25]; /* BB-V7.72 — shared with the hurt reaction */
   function skullLordWaves(e) {
-    var marks = [0.75, 0.5, 0.25];
+    var marks = SKULL_WAVE_MARKS;
     var packs = [
       ["courtshield", "skel", "skel"],
       ["courtblade", "skel", "skel"],
@@ -7543,7 +7768,12 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     for (var i = 0; i < 3; i++) {
       if (!e.waveFlags[i] && ratio <= marks[i]) {
         e.waveFlags[i] = true;
-        if (spawnSkullAdds(e, packs[i])) toast(lines[i]);
+        if (spawnSkullAdds(e, packs[i])) {
+          toast(lines[i]);
+          /* BB-V7.72 — SK-15: the summon performance (cosmetic clock only);
+             two packs on one tick arm it once */
+          if (e.an && (e.an.sumT < 0 || e.an.sumT >= 0.8)) { e.an.sumT = 0; e.an.sumFull = !e.atk; }
+        }
       }
     }
   }
@@ -9191,6 +9421,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     /* East exit after wall pass so sealed/open leaves sit on the carved hole. */
     drawExitDoor(g, wz);
     if (deco) drawLights(g, deco, look, vis);
+    drawLordWisps(g); /* BB-V7.72 — SK-15: post-pass, walls never hide a wisp */
 
     for (s = 0; s < S.shots.length; s++) drawShot(g, S.shots[s]);
     for (sp = 0; sp < S.splits.length; sp++) {
@@ -10874,8 +11105,147 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     bang: 0, hx: 0, hy: 0, hDX: 0, hDY: 0,
     shRx: 0, shA: 0.52,
     /* batch B: the attack's vis curve (LORD_VP or null), tremor, cues */
-    vis: null, tt: 0, trX: 0, trY: 0, glint: -1
+    vis: null, tt: 0, trX: 0, trY: 0, glint: -1,
+    /* batch C: flash level, crossing white, squash, rib rattle, spike
+       jitter, shield sway, gem halo, eye squint */
+    hf: 0, white: false, sqK: 0, ribR: 0, spkJ: 0, shRot: 0, halo: 0, eyeSq: 1
   };
+  /* BB-V7.72 — batch C pose layers (hurt, stagger, summon, rise), filled by
+     the pure lordPoseC once per frame and folded into LORD_P by lordPose.
+     LORD_HOT is the hurt value pop for the dark masses (shade 1.6). */
+  var LORD_HOT = {
+    "#7a32c8": shade("#7a32c8", 1.6), "#4a1888": shade("#4a1888", 1.6),
+    "#e25898": shade("#e25898", 1.6), "#e0b44a": shade("#e0b44a", 1.6)
+  };
+  var LORD_C = {
+    hurtX: 0, dip: 0, lift: 0, headDX: 0, headDY: 0, headRot: 0,
+    crownRot: 0, crownSX: 0, crownB: 0, crownLift: 0, jaw: 0, jawR: 0, jawW: 0, shieldY: 0, shRot: 0,
+    sqK: 0, ribR: 0, spkJ: 0, hf: 0, white: false, core: false, squint: 1, halo: 0,
+    rise: 1, stomp: 0
+  };
+  /* hurt jaw clack by time since the hit: open 0.06u, snap shut past rest
+     (-0.015u, a bite) and settle */
+  /* open 0-0.08 (5 ticks, so 30 fps lands on it twice), snap shut
+     0.08-0.11, overshoot out by 0.15 (hitT 0.05): all inside the stun */
+  function lordClack(t) {
+    if (t < 0) return 0;
+    if (t < 0.08) return 0.06 * easeOutQuad(t / 0.02);
+    if (t < 0.11) return 0.06 - 0.075 * easeInQuad((t - 0.08) / 0.03);
+    if (t < 0.15) return -0.015 * (1 - easeOutQuad((t - 0.11) / 0.04));
+    return 0;
+  }
+  /* stagger weight 0..1: buckles in 0.08 s; the roar releases it, else it
+     lets go over 0.35-0.70 s */
+  function lordStagA(an) {
+    if (an.stagT < 0) return 0;
+    var a = easeOutCubic(an.stagT / 0.08);
+    if (an.sumT >= 0 && an.sumT < an.stagT) a *= 1 - easeOutCubic(an.sumT / 0.10);
+    else if (an.stagT > 0.35) a *= 1 - easeInOutCubic((an.stagT - 0.35) / 0.35);
+    return a;
+  }
+  function lordBump(x) { return x > 0 && x < 1 ? Math.sin(Math.PI * x) : 0; }
+  /* landing envelope after the stomp: down in 0.05 s, back by 0.35 s */
+  function lordLandEnv(t) {
+    if (t < 0) return 0;
+    return t < 0.05 ? t / 0.05 : 1 - easeOutCubic((t - 0.05) / 0.30);
+  }
+  function lordPoseC(e, an, u) {
+    var C = LORD_C, k, t, sg, body, lf;
+    /* hurt layers ride at half strength mid-attack */
+    var hk = e.atk ? 0.5 : 1;
+    /* 15 Hz alternation, so 30 fps shows the rattle as well as 60 */
+    var par = (an.tickN >> 1) & 1 ? 1 : -1;
+    /* flinch spring (u) and head whip: the head trails the body, then
+       overshoots it, tipping against the push */
+    C.hurtX = an.hx * hk;
+    C.headDX = 1.8 * an.hh * hk * u;
+    C.headRot = Math.max(-0.05, Math.min(0.05, -1.2 * (an.hx - an.hh))) * hk;
+    /* squash on the hit (hitT 0.20 -> 0.10), capped at 3 %; the head nods */
+    k = e.hitT > 0.1 ? Math.min(1, (e.hitT - 0.1) / 0.1) : 0;
+    C.sqK = 0.03 * k * hk;
+    C.headDY = 0.05 * u * k * hk;
+    C.jaw = lordClack(e.hitT > 0 ? 0.2 - e.hitT : 1) * u;
+    k = e.hitT > 0 ? Math.min(1, e.hitT / 0.2) : 0;
+    C.ribR = 0.025 * u * par * k;
+    C.spkJ = e.hitT > 0.1 ? 0.03 * u * par : 0;
+    C.shRot = Math.max(-0.06, Math.min(0.06, -0.667 * an.hh)) * hk;
+    /* flash: two ticks white, then an ember tint; the dark masses pop in
+       value (LORD_HOT), full white only on a crossing hit */
+    /* white holds 3 ticks (flash 0.093/0.077/0.060) so a 30 fps frame
+       always lands on it */
+    C.hf = e.flash > 0.058 ? 2 : e.flash > 0 ? 1 : 0;
+    C.white = an.whiteT >= 0 && an.whiteT < 0.051;
+    C.core = C.hf === 2;
+    C.squint = e.hitT > 0.05 && e.hitT < 0.14 ? 0.5 : 1;
+    /* stagger: the buckle drops him, knocks the crown askew along the hit
+       and, if no roar comes, he shakes it off */
+    sg = lordStagA(an);
+    C.dip = 0.14 * sg;
+    C.crownRot = an.stagDir * 0.18 * sg;
+    C.crownSX = an.stagDir * 0.06 * u * sg;
+    /* the tipped crown rests on its low rim instead of sinking into the
+       skull: lift it by the rim's drop (half-width 0.82u) */
+    C.crownLift = 0.82 * u * Math.abs(C.crownRot);
+    if (an.stagT >= 0.40 && !an.stagAtk) {
+      C.headRot += 0.06 * an.stagDir * (lordBump((an.stagT - 0.40) / 0.12) - lordBump((an.stagT - 0.55) / 0.12));
+    }
+    C.crownB = 0;
+    C.lift = 0;
+    C.shieldY = 0;
+    C.halo = 0;
+    C.jawR = 0;
+    C.jawW = 0;
+    /* summon: roar (lift, head back, jaw wide, eyes blaze), crank, slam */
+    if (an.sumT >= 0) {
+      t = an.sumT;
+      body = 1 - an.sumLite;
+      lf = t < 0.30 ? easeOutCubic(t / 0.08) : 1 - easeInOutCubic((t - 0.30) / 0.15);
+      C.lift = 0.06 * lf * body;
+      C.headDY -= 0.08 * u * lf * body;
+      C.headRot -= (an.faceTo || 1) * 0.06 * lf * body;
+      C.jawR = (t < 0.08 ? 0.14 * easeOutCubic(t / 0.08) : t < 0.80 ? 0.14 :
+        t < 0.86 ? 0.14 - 0.16 * easeInQuad((t - 0.80) / 0.06) :
+        t < 0.90 ? -0.02 * (1 - easeOutQuad((t - 0.86) / 0.04)) : 0) * u;
+      C.jawW = t < 0.90 ? Math.min(1, t / 0.03) : Math.max(0, 1 - (t - 0.90) / 0.10);
+      if (an.sumSlam) {
+        k = t < 0.30 ? 0 : t < 0.333 ? easeInQuad((t - 0.30) / 0.033) : t < 0.383 ? 1 :
+          1 - easeOutCubic((t - 0.383) / 0.134);
+        C.shieldY = 0.15 * u * k * body;
+      }
+      /* the gem gathers: up in 0.04 s, held through the roar, out by 0.55 */
+      if (t < 0.55 && !S.fxLite) C.halo = 0.85 * Math.min(1, t / 0.04) * (t < 0.25 ? 1 : 1 - easeInQuad((t - 0.25) / 0.30));
+    }
+    if (an.sumClick > 0) C.crownB = 0.02 * u;
+    /* rise: height out of the pit; the landing dips him and, a beat later,
+       the shield; the front foot stomps down at 85 % */
+    C.rise = e.spawnT > 0 && e.spawnMax ? 1 - e.spawnT / e.spawnMax : 1;
+    C.stomp = C.rise > 0.68 && C.rise < 0.85 ? 0.12 * u * lordStepLift((C.rise - 0.68) / 0.17) : 0;
+    if (an.landT >= 0) {
+      C.dip += 0.08 * lordLandEnv(an.landT);
+      C.shieldY += 0.04 * u * lordLandEnv(an.landT - 0.10);
+    }
+    return C;
+  }
+  /* eyes: rise (dark until 82 %, blaze, settle after the stomp), summon
+     blaze, hurt white-hot then angry */
+  function lordEyeC(e, an, glow) {
+    var C = LORD_C, t, k;
+    if (C.rise < 1 || an.landT >= 0) {
+      k = C.rise < 0.82 ? 0 : 1.4 * easeOutQuad((C.rise - 0.82) / 0.04);
+      if (an.landT >= 0) k = 1.4 + (glow - 1.4) * easeInOutSine((an.landT - 0.05) / 0.35);
+      if (C.rise >= 0.82 && C.rise < 0.84) C.core = true;
+      glow = k;
+    }
+    if (an.sumT >= 0) {
+      t = an.sumT;
+      k = Math.min(1, t / 0.04) * (t < 0.80 ? 1 : 1 - easeInOutSine((t - 0.80) / 0.50));
+      glow += (1.5 - glow) * k;
+      if (t < 0.05) C.core = true;
+    }
+    if (an.angerT > 0) glow *= 1 + 0.3 * Math.min(1, an.angerT / 0.2);
+    if (C.hf === 2) glow = Math.max(glow, 1.4);
+    return glow;
+  }
   function lordPose(e, u) {
     var P = LORD_P, an = e.an;
     P.thr = e.alive ? 1 : (an ? Math.max(0, 1 - (S.t - an.dieAtS) / 0.12) : 0);
@@ -10932,9 +11302,25 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
        plant dip; drop is the soft-clamped crouch (SK-05) */
     var envP = lordEnv(an.plantT);
     P.drop = Math.min(0.36, lordDrop(an.crouch) + 0.04 * envP + (V ? V.dipU : 0));
+    /* BB-V7.72 — batch C: stagger buckle and landing dip (C.dip), the roar's
+       lift (C.lift); the hurt flinch rides the lean weights (C.hurtX) */
+    var C = lordPoseC(e, an, u);
+    P.drop = Math.min(0.36, P.drop + C.dip);
+    /* hurt clack on top; the roar's jaw takes over from the breath */
+    P.jawY = P.jawY * (1 - C.jawW) + C.jawR + C.jaw;
+    P.hf = C.hf;
+    P.white = C.white;
+    P.sqK = C.sqK;
+    P.ribR = C.ribR;
+    P.spkJ = C.spkJ;
+    P.shRot = C.shRot;
+    P.halo = C.halo;
     P.yU = (P.drop - 0.025 * an.bnc + turnDip) * u;
     P.yUh = (P.drop - 0.025 * an.bncH + turnDip) * u;
+    P.yU -= C.lift * u;
+    P.yUh -= C.lift * u;
     P.L = an.lean * u;
+    P.L += C.hurtX * u;
     /* group lean weights; the lunge's upper body leans fuller (an.atkW) */
     var aw = an.atkW;
     P.wRib = 0.70 + 0.20 * aw;
@@ -10950,9 +11336,10 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     P.keySX = (1.00 * an.swayK - 0.96 * an.swayC - 0.04 * an.sway) * u;
     P.shield = an.shield;
     P.shieldY = 0.5 * P.drop * u - 0.035 * u * lordBreath(an.bPh - 0.20 * rate) + 0.02 * u * lordEnv(an.plantT - 0.06);
-    P.headDX = V ? V.headDX * u : 0;
-    P.headDY = V ? (V.headDY + V.sag) * u : 0;
-    P.headRot = 0;
+    P.headDX = (V ? V.headDX * u : 0) + C.headDX;
+    P.headDY = (V ? (V.headDY + V.sag) * u : 0) + C.headDY;
+    P.headRot = C.headRot;
+    P.shieldY += C.shieldY;
     /* the cleave's bite sags the shoulders; the lunge's loaded hold
        trembles every group of lean weight 0.7 and up, and the grip */
     if (V) P.paulB += V.sag * u;
@@ -10961,7 +11348,10 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     if (V && V.jawY > 0) P.jawY = Math.max(P.jawY, V.jawY * u);
     /* clockwork key (SK-08): crown and key tilt on the spring; the bow
        narrows with the turn and darkens while it is edge-on */
-    P.crownRot = 0.35 * an.keyA;
+    P.crownRot = 0.35 * an.keyA + C.crownRot;
+    P.crownSX += C.crownSX;
+    P.crownB += C.crownB - C.crownLift;
+    P.keyB += C.crownB - C.crownLift;
     P.keyRot = 0.65 * an.keyA;
     var ck = Math.cos(an.keyTh);
     P.keyCw = Math.max(0.18, Math.abs(ck));
@@ -10995,6 +11385,8 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
         P.legLX += V.legBX * u;
       }
     }
+    /* BB-V7.72 — the rise's stomp: the front foot lifts and slams down */
+    if (C.stomp) { if (P.faceV > 0) P.legRLift += C.stomp; else P.legLLift += C.stomp; }
     /* eyes (SK-07): never below ~0.7, a faint living flicker, blinks,
        tracking the hero; brighter with every court call */
     /* an attack flares them over the idle (1.12-1.18, swelling), so a
@@ -11004,7 +11396,9 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     var glow = glow0;
     if (an.eyeHot > 0) glow += (Math.max(glow0, 1) + 0.15 + 0.03 * Math.sin(tt * 14) - glow0) * an.eyeHot;
     if (an.blinkT >= 0) glow = lordBlink(glow, an.blinkT);
-    P.eyeCore = false;
+    glow = lordEyeC(e, an, glow); /* BB-V7.72 — rise, summon, hurt */
+    P.eyeCore = C.core;
+    P.eyeSq = C.squint;
     if (V) {
       /* release cue: the flicker stills at the top of the attack glow;
          the lunge lock flashes the embers white-hot for two frames */
@@ -11014,7 +11408,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     P.glow = glow;
     /* the ember (0.16u x 0.14u, swelling past glow 1) never leaves its
        socket: centre travel is the socket's slack minus the half size */
-    var eyS = glow > 1 ? 1 + (glow - 1) * 0.75 : 1;
+    var eyS = glow > 1 ? Math.min(1.3, 1 + (glow - 1) * 0.75) : 1;
     var exm = 0.16 - 0.08 * eyS;
     P.eyeDX = Math.max(-exm, Math.min(exm, 0.03 * an.eyeF + an.lookX)) * u;
     P.eyeDY = Math.max(-0.17 + 0.07 * eyS, Math.min(0.15 - 0.07 * eyS, an.lookY)) * u;
@@ -11118,6 +11512,12 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
        0.25-0.45, ribs and grip 0.70, pauldrons 0.78, head 0.90 with crown
        and key nested inside it. */
     var A0 = g.globalAlpha;
+    /* BB-V7.72 — SK-16: he climbs out of his pit at full scale (drawEnemy no
+       longer scales the lord). Nothing shows until the key breaks the floor
+       at 25 %; then the body is clipped at the floor line and raised. */
+    var riseSU = e.spawnT > 0 && e.spawnMax ? 1 - e.spawnT / e.spawnMax : 1;
+    if (riseSU < 0.25) return;
+    var riseH = riseSU < 1 ? lordRiseH(riseSU) : 1;
     var P = lordPose(e, u);
     var LG = P.legacy;
     var thr = P.thr;
@@ -11130,6 +11530,16 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     var ytP = e.y - u * 2.35;
     var L = LG ? 0 : P.L;
     var body = e.flash > 0 ? "#ffffff" : BONE;
+    /* BB-V7.72 — SK-14 flash: two ticks white, then an ember tint; the dark
+       masses pop in value (LORD_HOT); a crossing hit turns the masses, crown
+       and key full white for two ticks. Sword and shield never flash. */
+    var hotM = !LG && P.hf === 2, whM = !LG && P.white;
+    if (!LG) body = P.hf === 2 ? "#ffffff" : P.hf === 1 ? "#ffc8a8" : BONE;
+    var cLin = whM ? "#ffffff" : hotM ? LORD_HOT[LINING] : LINING;
+    var cPurD = whM ? "#ffffff" : hotM ? LORD_HOT[PURPLE_D] : PURPLE_D;
+    var cPur = whM ? "#ffffff" : hotM ? LORD_HOT[PURPLE] : PURPLE;
+    var cBand = whM ? "#ffffff" : hotM ? LORD_HOT[GOLD] : GOLD;
+    var cGold = whM ? "#ffffff" : GOLD;
 
     /* ----- telegraphs ----- */
     if (thr > 0 && e.atk === "cleave" && e.atkT < e.atkWind) {
@@ -11286,7 +11696,9 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
 
     /* weight shadow — wider than any knight */
     var shRx = LG ? u * (1.35 + (e.crouch || 0) * 0.4) : P.shRx;
-    g.save(); g.globalAlpha = (LG ? 0.52 : P.shA) * A0; g.fillStyle = "#0a0806";
+    /* BB-V7.72 — the shadow grows in over the pit as he climbs (no pop) */
+    var shRise = riseSU < 1 ? clamp01((riseSU - 0.25) / 0.6) : 1;
+    g.save(); g.globalAlpha = (LG ? 0.52 : P.shA) * A0 * shRise; g.fillStyle = "#0a0806";
     g.beginPath();
     if (ellipseOk(shRx, u * 0.36)) {
       g.ellipse(x + (LG ? lean : L) * 0.15, e.y + u * 0.3, shRx, u * 0.36, 0, 0, 6.3);
@@ -11316,7 +11728,22 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     }
 
     g.save();
+    if (riseH < 1) {
+      /* BB-V7.72 — SK-16: only the body is clipped at the floor line (the
+         pit's centre), raised by the rise height */
+      g.beginPath();
+      g.rect(x - u * 8, e.y - u * 9, u * 16, u * 9.30);
+      g.clip();
+      g.translate(0, (1 - riseH) * u * 4.75);
+    }
     if (LG) g.translate(lean, 0);
+    else if (P.sqK > 0) {
+      /* BB-V7.72 — SK-14: the hit squash (<= 3 %) about the feet line; the
+         planted legs undo it */
+      g.translate(x, e.y);
+      g.scale(1 + P.sqK, 1 - P.sqK);
+      g.translate(-x, -e.y);
+    }
 
     /* ===== CAPE — dominant width, purple outside / crimson lining ===== */
     var flare = LG ? (e.capeFlare || 0) : P.flare;
@@ -11333,8 +11760,8 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       capeFl = ytP + u * 2.28 - (P.yU + P.hemB);
     }
     /* back lining flaps */
-    lordCapeCube(g, x - u * 1.15 - capeWide + (LG ? sway : P.sw0), yt + u * 0.55, u * 0.42, u * 1.55 + capeDrop, u * 0.08, LINING, capeFl);
-    lordCapeCube(g, x + u * 0.72 + capeWide + (LG ? sway * 0.6 : P.sw1), yt + u * 0.58, u * 0.42, u * 1.48 + capeDrop, u * 0.08, LINING, capeFl);
+    lordCapeCube(g, x - u * 1.15 - capeWide + (LG ? sway : P.sw0), yt + u * 0.55, u * 0.42, u * 1.55 + capeDrop, u * 0.08, cLin, capeFl);
+    lordCapeCube(g, x + u * 0.72 + capeWide + (LG ? sway * 0.6 : P.sw1), yt + u * 0.58, u * 0.42, u * 1.48 + capeDrop, u * 0.08, cLin, capeFl);
     if (!LG) {
       g.restore();
       g.save();
@@ -11342,9 +11769,9 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       capeFl = ytP + u * 2.28 - P.yU;
     }
     /* main cloak panels — much wider than Bone Knight's strip */
-    lordCapeCube(g, x - u * 0.95 - capeWide + (LG ? sway * 0.7 : P.sw2), yt + u * 0.42, u * 0.55, u * 1.72 + capeDrop, u * 0.10, PURPLE_D, capeFl);
-    lordCapeCube(g, x - u * 0.42 + (LG ? sway * 0.5 : P.sw3), yt + u * 0.38, u * 0.84, u * 1.82 + capeDrop, u * 0.12, PURPLE, capeFl);
-    lordCapeCube(g, x + u * 0.40 + capeWide + (LG ? sway * 0.4 : P.sw4), yt + u * 0.42, u * 0.55, u * 1.65 + capeDrop, u * 0.10, PURPLE_D, capeFl);
+    lordCapeCube(g, x - u * 0.95 - capeWide + (LG ? sway * 0.7 : P.sw2), yt + u * 0.42, u * 0.55, u * 1.72 + capeDrop, u * 0.10, cPurD, capeFl);
+    lordCapeCube(g, x - u * 0.42 + (LG ? sway * 0.5 : P.sw3), yt + u * 0.38, u * 0.84, u * 1.82 + capeDrop, u * 0.12, cPur, capeFl);
+    lordCapeCube(g, x + u * 0.40 + capeWide + (LG ? sway * 0.4 : P.sw4), yt + u * 0.42, u * 0.55, u * 1.65 + capeDrop, u * 0.10, cPurD, capeFl);
     /* ragged hem notches */
     g.fillStyle = LORD_HEM_COL; /* BB-V7.72 */
     if (LG) {
@@ -11386,8 +11813,16 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
          and steps each foot, so a foot on the floor never skates. */
       var legH = Math.max(u * 0.10, (u * 0.36 - 0.6 * P.drop * u) * P.legHmul);
       var legBot = ytP + u * 2.14;
+      if (P.sqK > 0) {
+        /* BB-V7.72 — the feet stay planted through the hit squash */
+        g.save();
+        g.translate(x, e.y);
+        g.scale(1 / (1 + P.sqK), 1 / (1 - P.sqK));
+        g.translate(-x, -e.y);
+      }
       cube(g, x - u * 0.42 + P.legLX, legBot - P.legLLift - legH, u * 0.32, legH, u * 0.18, BONE_D);
       cube(g, x + u * 0.10 + P.legRX, legBot - P.legRLift - legH, u * 0.32, legH, u * 0.18, BONE_D);
+      if (P.sqK > 0) g.restore();
     }
 
     /* ===== RIBCAGE — exposed, not a solid cuirass like the knight ===== */
@@ -11396,10 +11831,12 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       g.translate(L * P.wRib + P.trX, P.yU + P.chestB + P.trY);
     }
     cube(g, x - u * 0.48, yt + u * 0.78, u * 0.96, u * 1.00, u * 0.30, body);
+    /* BB-V7.72 — SK-14: the rib bars rattle on a hit (alternate bars) */
+    var ribR = LG ? 0 : P.ribR;
     /* open rib gaps */
     g.fillStyle = shade(body, 0.45);
     for (var ri = 0; ri < 5; ri++) {
-      g.fillRect(x - u * 0.40, yt + u * (0.92 + ri * 0.16), u * 0.80, u * 0.055);
+      g.fillRect(x - u * 0.40, yt + u * (0.92 + ri * 0.16) + (ri & 1 ? -ribR : ribR), u * 0.80, u * 0.055);
     }
     /* dark cavity between ribs */
     g.fillStyle = "#1a100c";
@@ -11407,7 +11844,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     /* redraw ribs over cavity */
     g.fillStyle = shade(body, 0.85);
     for (var rj = 0; rj < 5; rj++) {
-      g.fillRect(x - u * 0.38, yt + u * (0.92 + rj * 0.16), u * 0.76, u * 0.07);
+      g.fillRect(x - u * 0.38, yt + u * (0.92 + rj * 0.16) + (rj & 1 ? -ribR : ribR), u * 0.76, u * 0.07);
     }
     /* sternum gem */
     g.fillStyle = EMBER;
@@ -11423,13 +11860,14 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     }
 
     /* ===== SPIKED PURPLE PAULDRONS — wide silhouette break ===== */
-    cube(g, x - u * 1.05, yt + u * 0.62, u * 0.52, u * 0.42, u * 0.22, PURPLE);
-    cube(g, x + u * 0.53, yt + u * 0.62, u * 0.52, u * 0.42, u * 0.22, PURPLE);
-    /* bone/steel spikes up from pauldrons */
-    cube(g, x - u * 0.98, yt + u * 0.28, u * 0.14, u * 0.38, u * 0.08, BONE);
-    cube(g, x - u * 0.78, yt + u * 0.34, u * 0.12, u * 0.32, u * 0.07, BONE);
-    cube(g, x + u * 0.66, yt + u * 0.28, u * 0.14, u * 0.38, u * 0.08, BONE);
-    cube(g, x + u * 0.86, yt + u * 0.34, u * 0.12, u * 0.32, u * 0.07, BONE);
+    cube(g, x - u * 1.05, yt + u * 0.62, u * 0.52, u * 0.42, u * 0.22, cPur);
+    cube(g, x + u * 0.53, yt + u * 0.62, u * 0.52, u * 0.42, u * 0.22, cPur);
+    /* bone/steel spikes up from pauldrons (BB-V7.72 — they jitter on a hit) */
+    var spk = LG ? 0 : P.spkJ;
+    cube(g, x - u * 0.98, yt + u * 0.28 + spk, u * 0.14, u * 0.38, u * 0.08, BONE);
+    cube(g, x - u * 0.78, yt + u * 0.34 - spk, u * 0.12, u * 0.32, u * 0.07, BONE);
+    cube(g, x + u * 0.66, yt + u * 0.28 - spk, u * 0.14, u * 0.38, u * 0.08, BONE);
+    cube(g, x + u * 0.86, yt + u * 0.34 + spk, u * 0.12, u * 0.32, u * 0.07, BONE);
     if (!LG) g.restore();
 
     /* Greatsword is painted after the crown so the giant blade sits in front.
@@ -11464,8 +11902,8 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       g.fillRect(x + u * 0.16 + face * u * 0.03, yt + u * 0.26, u * 0.16, u * 0.14);
     } else {
       /* embers track the hero inside the sockets; above glow 1 they swell */
-      var eyS = glow > 1 ? 1 + (glow - 1) * 0.75 : 1;
-      var eyW = u * 0.16 * eyS, eyH = u * 0.14 * eyS;
+      var eyS = glow > 1 ? Math.min(1.3, 1 + (glow - 1) * 0.75) : 1;
+      var eyW = u * 0.16 * eyS, eyH = u * 0.14 * eyS * P.eyeSq; /* BB-V7.72 — hurt squint */
       var eyY = yt + u * 0.33 + P.eyeDY;
       g.fillRect(x - u * 0.24 + P.eyeDX - eyW * 0.5, eyY - eyH * 0.5, eyW, eyH);
       g.fillRect(x + u * 0.24 + P.eyeDX - eyW * 0.5, eyY - eyH * 0.5, eyW, eyH);
@@ -11495,19 +11933,19 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
         g.translate(-x, -(ytP - u * 0.14));
       }
     }
-    cube(g, x - u * 0.82, yt - u * 0.34, u * 1.64, u * 0.40, u * 0.20, GOLD);
-    cube(g, x - u * 0.98, yt - u * 0.22, u * 0.24, u * 0.32, u * 0.12, LORD_GOLD_82);
-    cube(g, x + u * 0.74, yt - u * 0.22, u * 0.24, u * 0.32, u * 0.12, LORD_GOLD_82);
-    cube(g, x - u * 0.78, yt - u * 0.70, u * 0.16, u * 0.42, u * 0.08, GOLD);
-    cube(g, x - u * 0.44, yt - u * 0.86, u * 0.18, u * 0.58, u * 0.08, GOLD);
-    cube(g, x - u * 0.12, yt - u * 1.02, u * 0.24, u * 0.74, u * 0.10, GOLD);
-    cube(g, x + u * 0.26, yt - u * 0.86, u * 0.18, u * 0.58, u * 0.08, GOLD);
-    cube(g, x + u * 0.60, yt - u * 0.70, u * 0.16, u * 0.42, u * 0.08, GOLD);
-    g.fillStyle = "#d24ad8";
+    cube(g, x - u * 0.82, yt - u * 0.34, u * 1.64, u * 0.40, u * 0.20, cBand);
+    cube(g, x - u * 0.98, yt - u * 0.22, u * 0.24, u * 0.32, u * 0.12, whM ? cGold : LORD_GOLD_82);
+    cube(g, x + u * 0.74, yt - u * 0.22, u * 0.24, u * 0.32, u * 0.12, whM ? cGold : LORD_GOLD_82);
+    cube(g, x - u * 0.78, yt - u * 0.70, u * 0.16, u * 0.42, u * 0.08, cGold);
+    cube(g, x - u * 0.44, yt - u * 0.86, u * 0.18, u * 0.58, u * 0.08, cGold);
+    cube(g, x - u * 0.12, yt - u * 1.02, u * 0.24, u * 0.74, u * 0.10, cGold);
+    cube(g, x + u * 0.26, yt - u * 0.86, u * 0.18, u * 0.58, u * 0.08, cGold);
+    cube(g, x + u * 0.60, yt - u * 0.70, u * 0.16, u * 0.42, u * 0.08, cGold);
+    g.fillStyle = whM ? cGold : "#d24ad8";
     g.fillRect(x - u * 0.62, yt - u * 0.22, u * 0.16, u * 0.16);
     g.fillRect(x - u * 0.08, yt - u * 0.26, u * 0.16, u * 0.18);
     g.fillRect(x + u * 0.46, yt - u * 0.22, u * 0.16, u * 0.16);
-    g.fillStyle = "#7a32c8";
+    g.fillStyle = whM ? cGold : "#7a32c8";
     g.fillRect(x - u * 0.36, yt - u * 0.18, u * 0.12, u * 0.12);
     g.fillRect(x + u * 0.24, yt - u * 0.18, u * 0.12, u * 0.12);
     /* wind-up key — tall enough to be the head silhouette */
@@ -11527,10 +11965,10 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
         g.translate(-x, -(ytP - u * 0.95));
       }
       var kcw = P.keyCw, kstW = u * 0.22 * Math.max(0.6, kcw);
-      cube(g, x - kstW * 0.5, yt - u * 2.05, kstW, u * 1.10, u * 0.11, GOLD);
-      cube(g, x - u * 0.52 * kcw, yt - u * 2.28, u * 1.04 * kcw, u * 0.28, u * 0.12, P.keyBack ? LORD_KEY_BACK : LORD_GOLD_120);
-      cube(g, x - u * 0.50 * kcw - u * 0.08, yt - u * 2.20, u * 0.16, u * 0.16, u * 0.07, LORD_GOLD_80);
-      cube(g, x + u * 0.50 * kcw - u * 0.08, yt - u * 2.20, u * 0.16, u * 0.16, u * 0.07, LORD_GOLD_80);
+      cube(g, x - kstW * 0.5, yt - u * 2.05, kstW, u * 1.10, u * 0.11, cGold);
+      cube(g, x - u * 0.52 * kcw, yt - u * 2.28, u * 1.04 * kcw, u * 0.28, u * 0.12, whM ? cGold : P.keyBack ? LORD_KEY_BACK : LORD_GOLD_120);
+      cube(g, x - u * 0.50 * kcw - u * 0.08, yt - u * 2.20, u * 0.16, u * 0.16, u * 0.07, whM ? cGold : LORD_GOLD_80);
+      cube(g, x + u * 0.50 * kcw - u * 0.08, yt - u * 2.20, u * 0.16, u * 0.16, u * 0.07, whM ? cGold : LORD_GOLD_80);
       g.restore(); /* key */
       g.restore(); /* crown */
       g.restore(); /* head */
@@ -11559,6 +11997,12 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     if (!LG) {
       g.save();
       g.translate(L * 0.60, P.shieldY);
+      if (P.shRot) {
+        /* BB-V7.72 — SK-14: the shield sways about its grip on a hit */
+        g.translate(shx, shieldMidY);
+        g.rotate(P.shRot);
+        g.translate(-shx, -shieldMidY);
+      }
     }
     g.save();
     g.translate(shx, shieldMidY);
@@ -11749,6 +12193,15 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       g.globalAlpha = A0;
     }
     g.restore();
+    if (!LG && P.halo > 0) {
+      /* BB-V7.72 — SK-15: the roar flares the sternum gem; additive, so it
+         sits over the grip and ribs (it would vanish on the white bone) */
+      g.save();
+      g.globalCompositeOperation = "lighter";
+      glowAt(g, "255,106,40", x + L * P.wRib, ytP + u * 1.21 + P.yU + P.chestB, u * 0.95, u * 0.95, P.halo * A0);
+      glowAt(g, "255,190,120", x + L * P.wRib, ytP + u * 1.21 + P.yU + P.chestB, u * 0.35, u * 0.35, 0.7 * P.halo * A0);
+      g.restore();
+    }
 
     g.restore(); /* lean */
 
@@ -12503,8 +12956,110 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       g.restore();
     }
   }
+  /* BB-V7.72 — SK-16: the Skull Lord's pit, in world coordinates under his
+     body. It opens over the first 25 % of the rise (the key breaks the floor
+     at 25 %), then fades into his shadow from 85 %. */
+  function drawLordPit(g, e) {
+    var s = 1 - e.spawnT / e.spawnMax;
+    var uW = artR(e) * 1.48 * LORD_VIS;
+    var cx = e.x, cy = e.y + 0.30 * uW;
+    var rx = (0.4 + 0.6 * easeOutCubic(Math.min(1, s / 0.25))) * 1.35 * uW, ry = 0.27 * rx;
+    var fa = s < 0.85 ? 1 : Math.max(0, 1 - (s - 0.85) / 0.15);
+    if (fa <= 0 || !ellipseOk(rx, ry)) return;
+    var k, a, h;
+    g.save();
+    /* the blade rests level at chest height, so it breaks the floor as one
+       long edge beyond the pit: a slit opens along it while it passes the
+       floor line (su ~0.56-0.63), then closes */
+    var bY = -1.13 + (1 - lordRiseH(s)) * 4.75;
+    var sa = s < 0.5 ? 0 : clamp01((1.0 - bY) / 0.35) * clamp01((bY + 0.45) / 0.35);
+    if (sa > 0) {
+      var sf = e.an ? e.an.faceTo : (player && player.x < e.x ? -1 : 1);
+      var sx0 = cx + sf * 0.5 * uW, sx1 = cx + sf * 4.7 * uW;
+      var srx = Math.abs(sx1 - sx0) * 0.5, sry = 0.07 * uW * sa;
+      if (ellipseOk(srx, sry)) {
+        g.globalAlpha = 0.8 * sa;
+        g.fillStyle = "#0a0604";
+        g.beginPath();
+        g.ellipse((sx0 + sx1) * 0.5, cy, srx, sry, 0, 0, 6.3);
+        g.fill();
+        g.globalAlpha = 0.7 * sa;
+        g.strokeStyle = "#ff6a28";
+        g.lineWidth = 1.5;
+        g.stroke();
+      }
+    }
+    g.globalAlpha = 0.7 * fa;
+    g.fillStyle = "#0a0604";
+    g.beginPath();
+    g.ellipse(cx, cy, rx, ry, 0, 0, 6.3);
+    g.fill();
+    g.globalAlpha = 0.85 * fa;
+    g.strokeStyle = "#ff6a28";
+    g.lineWidth = 2;
+    g.stroke();
+    /* embers rising out of the pit */
+    g.fillStyle = "#ff6a28";
+    for (k = 0; k < 5; k++) {
+      a = S.t * 1.7 + k * 1.2566 + e.x * 0.01;
+      h = (S.t * 1.1 + k * 0.2) % 1;
+      g.globalAlpha = 0.8 * fa * (1 - h);
+      g.fillRect(cx + Math.cos(a) * rx * 0.7 - 1.5, cy + Math.sin(a) * ry * 0.7 - h * uW * 0.9 - 1.5, 3, 3);
+    }
+    g.restore();
+  }
+  /* BB-V7.72 — SK-15: each summoned add's wisp flies from the lord's sternum
+     gem (stored world coordinates) to its spawn ring over the first 30 % of
+     its rise, arcing over the midpoint. Drawn after the walls and lights, so
+     nothing hides it, and one leaving the screen points at an off-screen
+     add. fxLite keeps the head and two trail squares. Sizes are in the
+     lord's world unit (the spec's 7 px head is a speck next to a 490 px
+     lord): head 0.17 uW (~17 px), core 0.07 uW, trail 0.14..0.065 uW. */
+  var LORD_WISP_S = [0.14, 0.115, 0.09, 0.065], LORD_WISP_A = [0.5, 0.35, 0.22, 0.1];
+  function drawLordWisps(g) {
+    if (!room || !room.enemies) return;
+    var i, e, s, p, q, k, x0, y0, x1, y1, mx, my, r, px, py, sz, uW;
+    for (i = 0; i < room.enemies.length; i++) {
+      e = room.enemies[i];
+      if (e.wispX == null || !e.alive || !(e.spawnT > 0) || !e.spawnMax) continue;
+      s = 1 - e.spawnT / e.spawnMax;
+      if (s >= 0.30) continue;
+      r = artR(e) * enemyVis(e) * (e.boss ? 1.6 : 1.1);
+      x0 = e.wispX;
+      y0 = e.wispY;
+      x1 = e.x;
+      y1 = e.y + r * 0.5;
+      uW = e.wispUW || 100;
+      mx = (x0 + x1) * 0.5;
+      my = (y0 + y1) * 0.5 - (0.5 * uW + 0.15 * Math.hypot(x1 - x0, y1 - y0));
+      p = easeInOutQuad(s / 0.30);
+      g.save();
+      for (k = 4; k >= 1; k--) {
+        if (S.fxLite && k > 2) continue;
+        q = p - 0.05 * k;
+        if (q <= 0) continue;
+        px = (1 - q) * (1 - q) * x0 + 2 * (1 - q) * q * mx + q * q * x1;
+        py = (1 - q) * (1 - q) * y0 + 2 * (1 - q) * q * my + q * q * y1;
+        sz = LORD_WISP_S[k - 1] * uW;
+        g.globalAlpha = LORD_WISP_A[k - 1];
+        g.fillStyle = "#7a32c8";
+        g.fillRect(px - sz * 0.5, py - sz * 0.5, sz, sz);
+      }
+      px = (1 - p) * (1 - p) * x0 + 2 * (1 - p) * p * mx + p * p * x1;
+      py = (1 - p) * (1 - p) * y0 + 2 * (1 - p) * p * my + p * p * y1;
+      g.globalAlpha = 1;
+      sz = 0.21 * uW;
+      g.fillStyle = "#d24ad8";
+      g.fillRect(px - sz * 0.5, py - sz * 0.5, sz, sz);
+      sz = 0.09 * uW;
+      g.fillStyle = "#ffffff";
+      g.fillRect(px - sz * 0.5, py - sz * 0.5, sz, sz);
+      g.restore();
+    }
+  }
   function drawSpawnRing(g, e) {
     if (!e.alive || !(e.spawnT > 0) || !e.spawnMax) return;
+    if (e.boss === "lord") { drawLordPit(g, e); return; } /* BB-V7.72 — SK-16 */
     var u = 1 - e.spawnT / e.spawnMax, r = artR(e) * enemyVis(e) * (e.boss ? 1.6 : 1.1);
     var col = e.col || "#c0a060";
     g.save();
@@ -12930,8 +13485,10 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     /* BB-V7.15 — trash / knight / lord each have their own vis. Hurtboxes are
        fit to the painted torso in fitSilhouette (not a shared r*N halo). */
     g.save();
-    if (e.boss && e.spawnT > 0 && e.spawnMax) {
-      /* knights and bosses rise out of their ring the same way trash does */
+    if (e.boss && e.spawnT > 0 && e.spawnMax && e.boss !== "lord") {
+      /* knights and bosses rise out of their ring the same way trash does
+         (BB-V7.72 — the Skull Lord climbs out of his pit at full scale in
+         drawSkullLord instead) */
       var su = 1 - e.spawnT / e.spawnMax;
       var rise = su < 0.3 ? 0.02 : Math.max(0.02, easeOutBack((su - 0.3) / 0.7));
       g.globalAlpha = a * Math.min(1, su * 2);
