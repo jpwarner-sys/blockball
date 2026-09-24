@@ -3713,6 +3713,7 @@
     burst(en.x, en.y - (en.hitLift || 0), shade(en.col, 0.7), 5);
     floorRing(en.x, en.y + 4, en.boss ? "#f0e0c0" : shade(en.col, 1.3), 6, en.boss ? 70 : 34, en.boss ? 0.5 : 0.32);
     if (en.boss === "bone") en.deadT = BONE_DIE;
+    if (en.boss === "ash") en.deadT = ASH_DIE; /* BB-V7.72 */
     en.deadMax = en.deadT;
     if (en.boss === "slag") slagOnKill(en); /* BB-V7.72 */
     /* BB-V7.69 — a kill freezes the frame for a beat so it lands. */
@@ -4820,6 +4821,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       if (e.boss === "bone" && (e.alive || e.deadT > 0)) boneAnim(e, dt);
       if (e.boss === "mini") knightAnim(e, dt); /* BB-V7.72 — cosmetic knight clock */
       if (e.boss === "slag") slagAnim(e, dt); /* BB-V7.72 */
+      if (e.boss === "ash") ashAnim(e, dt); /* BB-V7.72 — Ash Titan cosmetic clock */
       if (!e.alive) {
         e.deadT -= dt;
         /* BB-V7.72 — SK-20: an add the lord's fall killed breaks up when the
@@ -9763,6 +9765,373 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
         if (pick) startAshAtk(e, pick, dx, dy, dist);
       }
     }
+  }
+
+  /* BB-V7.72 — Ash Titan animation pass (spec_ash.md). Cosmetic only: one clock,
+     ashAnim(e, dt), runs on the fixed sim DT from updateEnemies and keeps its
+     state on e.ashAn; the draw reads a pure pose (ashPose → ASH_P). Nothing
+     here writes a sim field, rolls the seeded gameplay RNG, or touches the
+     screen shake or the hit-stop. Particles roll Math.random (prand) only. */
+  var ASH_DIE = 1.6;          /* BB-V7.72 — corpse clock: stagger, kneel, sink (ASH-13) */
+  var ASH_FLASH_ALL = true;   /* BB-V7.72 — false reverts the whole-silhouette hit flash */
+  var ASH_WP = { x: 0, y: 0 };
+  function ashClamp01(t) { return t < 0 ? 0 : t > 1 ? 1 : t; }
+  function ashEaseOutQuad(t) { t = ashClamp01(t); return 1 - (1 - t) * (1 - t); }
+  function ashEaseInQuad(t) { t = ashClamp01(t); return t * t; }
+  /* upper-body drop in u, soft-clamped where the torso's front face meets the floor */
+  function ashSoftDrop(d) {
+    if (d < -0.08) return -0.08;
+    return d <= 0.18 ? d : 0.18 + 0.06 * (1 - Math.exp(-(d - 0.18) / 0.06));
+  }
+  /* lag a normalised clock by lagQ and still arrive at 1 on time (no pop at the end) */
+  function ashLagQ(q, lagQ) { return lagQ > 0 ? ashClamp01((q - lagQ) / (1 - lagQ)) : ashClamp01(q); }
+  /* local art px → world px about the feet (drawEnemy scales the art by vis) */
+  function ashW(e, lx, ly, vis) { ASH_WP.x = e.x + (lx - e.x) * vis; ASH_WP.y = e.y + (ly - e.y) * vis; return ASH_WP; }
+  /* semi-implicit Euler toward 0; zero the velocity on a clamp */
+  function ashSpring(an, xKey, vKey, k, c, dt, clampAbs) {
+    var v = an[vKey] + (-k * an[xKey] - c * an[vKey]) * dt;
+    var x = an[xKey] + v * dt;
+    if (clampAbs > 0 && (x > clampAbs || x < -clampAbs)) { x = x > 0 ? clampAbs : -clampAbs; v = 0; }
+    an[xKey] = x; an[vKey] = v;
+  }
+  function ashFaceNow(an) {
+    return an.turnP < 0 ? an.faceTo : an.faceFrom + (an.faceTo - an.faceFrom) * easeInOutQuad(an.turnP);
+  }
+  function ashAnimNew(e) {
+    var side = player ? (player.x < e.x ? -1 : 1) : (e.face || 1);
+    var uW = artR(e) * 1.5 * (enemyVis(e) || ASH_VIS);
+    return {
+      t: 0, bPh: (e.bobPhase != null ? e.bobPhase / 6.2832 : Math.random()) % 1,
+      px: e.x, py: e.y, v: 0, vdx: 0, vdy: 0, fire: 0, emN: 0,
+      /* gait (ASH-04): world-anchored feet */
+      fx: [e.x - 0.29 * uW, e.x + 0.31 * uW], fy: [e.y, e.y],
+      sw: -1, swP: 0, swDur: 0.34, swFx: 0, swFy: 0, swKind: 0, swLift: 0.10, swHalf: false,
+      stillT: 0, fromRest: true, plantT: 9, plantSide: 0, plantAmp: 1, lean: 0, leanV: 0, atkW: 0,
+      /* face (ASH-05) */
+      faceTo: side, faceFrom: side, turnP: -1, turnDur: 0.30, faceHold: 0, lookX: 0, lookY: 0, newAtk: false,
+      /* cape (ASH-06) */
+      capeX: [0, 0, 0], capeV: [0, 0, 0], torXPrev: null,
+      /* idle (ASH-03) */
+      blinkT: -1, nextBlink: 4 + 3 * Math.random(), moteT: 2.5 + 1.5 * Math.random(),
+      rs: 1 + Math.floor(Math.random() * 2147483000),
+      /* attacks (B) */
+      atkKind: null, atkTPrev: 0, aev: 0, lead: side, aimX: side, aimY: 0,
+      ringOnPrev: false, atkHitPrev: false,
+      /* hurt (ASH-11) */
+      hx: 0, hv: 0, hh: 0, hf: 0, hitDir: 1, flashPrev: 0, chipCd: 0, hitEdge: false,
+      /* spawn (ASH-12) / death (ASH-13) */
+      suPrev: -1, dieSet: false, dieDir: 0, dieAtk: null, dieAtkT: 0, dieTPrev: 0, dustN: 0,
+      dieSw: -1, dieLift: 0, pl0: 0, pl1: 0
+    };
+  }
+  /* BB-V7.72 — the cosmetic clock. Runs before updateAshTitan on each tick, so
+     it sees the previous tick's atkT / ringOn / atkHit; contact poses are pure
+     in the draw, emitters fire on edges here (one tick after the drawn frame). */
+  function ashAnim(e, dt) {
+    if (!e.alive && !(e.deadT > 0)) return;   /* corpse gone: nothing left to pose */
+    var an = e.ashAn || (e.ashAn = ashAnimNew(e));
+    var u = artR(e) * 1.5, vis = enemyVis(e) || ASH_VIS, uW = u * vis, i;
+    an.t += dt;
+    an.fire = 0;
+    an.newAtk = false;
+    /* room load, skipSpawn, lab stage moves: snap the feet home, no step */
+    if (Math.abs(e.x - an.px) > 0.8 * uW || Math.abs(e.y - an.py) > 0.8 * uW) {
+      an.fx[0] = e.x - 0.29 * uW; an.fx[1] = e.x + 0.31 * uW; an.fy[0] = e.y; an.fy[1] = e.y;
+      an.sw = -1; an.v = 0; an.vdx = 0; an.vdy = 0; an.px = e.x; an.py = e.y;
+    }
+    ashAnimHurt(e, an, dt);
+    an.bPh = (an.bPh + dt / 3.2) % 1;
+    an.atkW += ((e.atk && e.alive ? 1 : 0) - an.atkW) * (1 - Math.exp(-dt / 0.10));
+    if (!e.alive) ashAnimDead(e, an, dt);
+    else {
+      if (e.spawnT > 0 && e.spawnMax) ashAnimSpawn(e, an, uW);
+      ashAnimAtk(e, an);
+      ashAnimFace(e, an, dt, uW);
+      ashAnimGait(e, an, dt, uW);
+      /* ember blink every 4-7 s (ASH-03) */
+      if (an.blinkT >= 0) {
+        an.blinkT += dt;
+        if (an.blinkT > 0.20) {
+          /* private PRNG: blink timing never depends on how many particles rolled Math.random */
+          an.rs = an.rs * 16807 % 2147483647;
+          an.blinkT = -1; an.nextBlink = an.t + 4 + 3 * (an.rs - 1) / 2147483646;
+        }
+      } else if (an.t >= an.nextBlink) {
+        if (!e.atk && !(e.spawnT > 0) && an.turnP < 0) an.blinkT = 0;
+        else an.nextBlink = an.t + 0.5;
+      }
+      /* an ash mote off a crystal now and then (ASH-16) */
+      an.moteT -= dt;
+      if (an.moteT <= 0) {
+        an.moteT = 2.5 + 1.5 * Math.random();
+        if (!e.atk && !(e.spawnT > 0) && !S.fxLite) an.fire |= 8192;
+      }
+    }
+    /* lean spring: slow idle sway over the planted feet plus the travel lean */
+    var lt = 0;
+    if (e.alive && !e.atk && !(e.spawnT > 0)) {
+      lt = 0.035 * Math.sin(6.2832 * an.t / 6.4 + (e.bobPhase || 0)) +
+        0.03 * Math.max(-1, Math.min(1, an.vdx * an.v / 8.3));
+    }
+    an.leanV += (-100 * (an.lean - lt) - 12 * an.leanV) * dt;
+    an.lean += an.leanV * dt;
+    /* pose snapshot: fist / foot world spots for the emitters, torso x for the cape */
+    var P = ashPose(e, u);
+    var dtx = an.torXPrev == null ? 0 : P.tx - an.torXPrev;   /* no drag kick on the first tick */
+    for (i = 0; i < 3; i++) {
+      an.capeX[i] -= 0.6 * dtx;
+      an.capeV[i] += (-60 * an.capeX[i] - 5 * an.capeV[i]) * dt;
+      an.capeX[i] += an.capeV[i] * dt;
+      if (an.capeX[i] > 0.2) { an.capeX[i] = 0.2; an.capeV[i] = 0; }
+      else if (an.capeX[i] < -0.2) { an.capeX[i] = -0.2; an.capeV[i] = 0; }
+    }
+    an.torXPrev = P.tx;
+    if (an.fire) ashAnimEmit(e, an, P, u, vis);
+    an.px = e.x; an.py = e.y;
+    an.atkTPrev = e.atkT || 0;
+    an.ringOnPrev = !!e.ringOn;
+    an.atkHitPrev = !!e.atkHit;
+  }
+  /* ASH-11 — hurt edge: recoil spring away from the ball, head / fist followers, chips */
+  function ashAnimHurt(e, an, dt) {
+    var i;
+    an.hitEdge = false;
+    if (e.flash > 0 && e.flash > an.flashPrev - dt + 1e-4) {   /* vs the decayed previous value: a hit on the next tick counts */
+      var dir = (ball && Math.abs(ball.x - e.x) < 160) ? (e.x >= ball.x ? 1 : -1) : -an.faceTo;
+      an.hitDir = dir;
+      an.hitEdge = true;
+      an.hv += dir * 2.4 * (e.atk && e.alive ? 0.6 : 1);
+      for (i = 0; i < 3; i++) an.capeV[i] += 0.23 * dir;
+      if (an.chipCd <= 0 && !S.fxLite) {
+        an.chipCd = 0.08;
+        for (i = 0; i < 3; i++) {
+          pushPart({ k: "cube", x: e.x - dir * (e.hitR || 40) * 0.7, y: e.y + 2, z: e.hitLift || 50,
+            vx: -dir * (60 + 80 * prand()), vy: (prand() - 0.5) * 60, vz: 60 + 90 * prand(),
+            t: 0.45 + 0.3 * prand(), col: "#9a8c7c", dk: "#5a5248", s: 2.5 + 2 * prand() });
+        }
+      }
+    }
+    an.flashPrev = e.flash || 0;
+    if (an.chipCd > 0) an.chipCd -= dt;
+    ashSpring(an, "hx", "hv", 220, 16, dt, 0.14);
+    an.hh += (an.hx - an.hh) * (1 - Math.exp(-dt / 0.05));
+    an.hf += (an.hx - an.hf) * (1 - Math.exp(-dt / 0.08));
+  }
+  /* ASH-13 — death beats on the corpse clock (dieT keyed to ASH_DIE) */
+  function ashAnimDead(e, an, dt) {
+    var dm = e.deadMax || ASH_DIE, d = Math.max(0, dm - e.deadT) * ASH_DIE / dm, p = an.dieTPrev;
+    if (!an.dieSet) {
+      an.dieSet = true;
+      an.dieDir = an.hitEdge ? an.hitDir : -an.faceTo;
+      /* freeze the attack pose; ignore one the burn-kill fallthrough started post-mortem */
+      an.dieAtk = e.atk && (e.atk !== an.atkKind || e.atkT < an.atkTPrev) ? null : e.atk;
+      an.dieAtkT = e.atkT || 0;
+      /* the swinging foot's lift eases out with the death blend in ashPose */
+      an.dieSw = an.sw; an.dieLift = an.sw >= 0 ? an.swLift * Math.sin(Math.PI * Math.min(1, an.swP)) : 0;
+      an.sw = -1;
+      /* the frozen attack's fist planted weights are constant for the corpse: solve them once */
+      an.pl0 = 0; an.pl1 = 0;
+      if (an.dieAtk) {
+        var Bd = ashBodyZero(ASH_B);
+        if (an.dieAtk === "nova") ashNovaBody(e, an.dieAtkT, 0, Bd);
+        else if (an.dieAtk === "bolts") ashBoltBody(e, an.dieAtkT, an.lead, 0, Bd);
+        an.pl0 = ashFistPw(e, an.dieAtk, an.dieAtkT, -1, an.lead, Bd.lift);
+        an.pl1 = ashFistPw(e, an.dieAtk, an.dieAtkT, 1, an.lead, Bd.lift);
+      }
+      p = d;
+    }
+    if (p < 0.55 && d >= 0.55) an.fire |= 256;
+    if (p < 0.60 && d >= 0.60) an.fire |= 512;
+    if (d >= 0.70 && d < 0.95 && !S.fxLite) { an.emN++; if (an.emN % 2 === 0) an.fire |= 1024; }
+    if ((p < 0.70 && d >= 0.70) || (p < 0.82 && d >= 0.82) || (p < 0.94 && d >= 0.94) ||
+        (p < 1.06 && d >= 1.06) || (p < 1.18 && d >= 1.18)) an.fire |= 2048;
+    if (d >= 0.95 && d < 1.40 && !S.fxLite && an.dustN < 6) {
+      an.emN++;
+      if (an.emN % 4 === 0) { an.dustN++; an.fire |= 4096; }
+    }
+    an.dieTPrev = d;
+  }
+  /* ASH-12 — spawn: su crossings only while spawning, so skipSpawn fires none */
+  function ashAnimSpawn(e, an, uW) {
+    var su = 1 - e.spawnT / e.spawnMax, p = an.suPrev;
+    if (p >= 0) {
+      if (p < 0.12 && su >= 0.12) an.fire |= 16;
+      if (p < 0.62 && su >= 0.62) an.fire |= 32;
+      if (p < 0.66 && su >= 0.66) an.fire |= 64;
+      if (p < 0.86 && su >= 0.86) an.fire |= 128;
+    }
+    an.suPrev = su;
+    an.fx[0] = e.x - 0.29 * uW; an.fx[1] = e.x + 0.31 * uW; an.fy[0] = e.y; an.fy[1] = e.y;
+    an.sw = -1;
+  }
+  /* attack tracking: new-attack edge, lead arm, bolts aim capture, event edges */
+  function ashAnimAtk(e, an) {
+    var dx, dy, n, side;
+    if (e.atk && (e.atk !== an.atkKind || e.atkT < an.atkTPrev)) {
+      an.newAtk = true;
+      an.atkKind = e.atk;
+      an.aev = 0;
+      side = player ? (player.x < e.x ? -1 : 1) : an.faceTo;
+      if (player) {
+        dx = player.x - e.x; dy = player.y - e.y; n = Math.max(1, Math.hypot(dx, dy));
+        an.aimX = dx / n; an.aimY = dy / n;
+        /* the notice beat snaps the look onto the target */
+        an.lookX = Math.max(-1, Math.min(1, dx / 450)) * 0.03;
+        an.lookY = Math.max(-1, Math.min(1, dy / 300)) * 0.02;
+      }
+      if (e.atk === "nova") an.lead = side;
+      else an.lead = Math.abs(an.aimX) < 0.25 ? side : (an.aimX < 0 ? -1 : 1);
+    }
+    if (!e.atk) an.atkKind = null;
+    /* on the fire tick this runs before updateAshTitan with the same positions,
+       so the captured aim equals fireAshBolts' aim */
+    if (e.atk === "bolts" && !e.atkHit && player) {
+      dx = player.x - e.x; dy = player.y - e.y; n = Math.max(1, Math.hypot(dx, dy));
+      an.aimX = dx / n; an.aimY = dy / n;
+    }
+    if (e.atk === "nova" && e.ringOn && !an.ringOnPrev) {
+      if (an.aev & 1) an.fire |= 2;
+      else { an.aev |= 1; an.fire |= 1; }
+    }
+    if (e.atk === "bolts" && e.atkHit && !an.atkHitPrev) an.fire |= 4;
+  }
+  /* ASH-05 — turn: eyes lead, head follows, a replant step finishes it */
+  function ashAnimFace(e, an, dt, uW) {
+    var side = player ? (player.x < e.x ? -1 : 1) : an.faceTo, p0, i;
+    if (side !== an.faceTo) {
+      an.faceHold += dt;
+      if ((player && Math.abs(player.x - e.x) > 16) || an.faceHold >= 0.15 || an.newAtk) {
+        an.faceFrom = ashFaceNow(an);
+        an.faceTo = side;
+        an.turnP = 0;
+        an.turnDur = e.atk ? 0.14 : 0.30;
+        an.faceHold = 0;
+      }
+    } else an.faceHold = 0;
+    if (an.turnP >= 0) {
+      p0 = an.turnP;
+      an.turnP += dt / an.turnDur;
+      if (p0 < 0.5 && an.turnP >= 0.5 && !e.atk && an.sw < 0 && !(e.spawnT > 0)) {
+        i = an.faceTo < 0 ? 0 : 1;
+        an.sw = i; an.swP = 0; an.swDur = 0.30; an.swLift = 0.06; an.swKind = 2;
+        an.swFx = an.fx[i]; an.swFy = an.fy[i];
+      }
+      if (an.turnP >= 1) an.turnP = -1;
+    }
+    var kl = 1 - Math.exp(-dt / 0.15);
+    var lx = player ? Math.max(-1, Math.min(1, (player.x - e.x) / 450)) * 0.03 : 0;
+    var ly = player ? Math.max(-1, Math.min(1, (player.y - e.y) / 300)) * 0.02 : 0;
+    an.lookX += (lx - an.lookX) * kl;
+    an.lookY += (ly - an.lookY) * kl;
+  }
+  /* ASH-04 — heavy trudge: feet anchored in the world, one step when a foot
+     falls 0.16 uW behind its home, a settle step when the Titan stops */
+  function ashAnimGait(e, an, dt, uW) {
+    var h0 = e.x - 0.29 * uW, h1 = e.x + 0.31 * uW;
+    var ddx = e.x - an.px, ddy = e.y - an.py, dd = Math.hypot(ddx, ddy), vi = dd / dt;
+    var kv = 1 - Math.exp(-dt / 0.15), i, p, k, tx, ty, e0, e1;
+    an.v += (vi - an.v) * kv;
+    if (dd > 1e-4) { an.vdx += (ddx / dd - an.vdx) * kv; an.vdy += (ddy / dd - an.vdy) * kv; }
+    if (an.v < 2) an.stillT += dt; else an.stillT = 0;
+    if (an.stillT > 0.3) an.fromRest = true;
+    an.plantT += dt;
+    if (an.sw >= 0) {
+      i = an.sw;
+      an.swP += dt / an.swDur;
+      p = Math.min(1, an.swP);
+      k = easeInOutQuad(p);
+      tx = i ? h1 : h0; ty = e.y;
+      if (an.swKind === 0) {
+        var vm = Math.max(1e-3, Math.hypot(an.vdx, an.vdy)), lead = an.swHalf ? 0.02 : 0.10;
+        tx += an.vdx / vm * lead * uW; ty += an.vdy / vm * lead * uW;
+      } else if (an.swKind === 2) tx += an.faceTo * 0.04 * uW;
+      an.fx[i] = an.swFx + (tx - an.swFx) * k;
+      an.fy[i] = an.swFy + (ty - an.swFy) * k;
+      if (an.swP >= 1) {
+        an.sw = -1; an.plantT = 0; an.plantSide = i;
+        an.plantAmp = an.swKind === 0 ? 1 : 0.5;
+        an.fire |= an.swKind === 2 ? 16384 : 8;
+        var kick = (an.vdx < 0 ? -1 : 1) * (an.swKind === 0 ? 0.155 : 0.08);
+        an.capeV[0] -= kick; an.capeV[1] -= kick; an.capeV[2] -= kick;
+      }
+    }
+    if (an.sw >= 0 || !e.alive || e.atk || e.spawnT > 0) return;
+    e0 = Math.hypot(an.fx[0] - h0, an.fy[0] - e.y);
+    e1 = Math.hypot(an.fx[1] - h1, an.fy[1] - e.y);
+    var th = (an.fromRest ? 0.08 : 0.16) * uW;
+    i = -1;
+    if (e0 > th || e1 > th) {
+      i = e0 >= e1 ? 0 : 1;
+      if (an.fromRest && e0 > th && e1 > th) {
+        /* first step from rest: the rear foot relative to the travel goes first */
+        i = (h0 - e.x) * an.vdx + 0 < (h1 - e.x) * an.vdx ? 0 : 1;
+      }
+      an.swKind = 0; an.swDur = 0.34; an.swLift = 0.10;
+      an.swHalf = an.fromRest;
+      an.fromRest = false;
+    } else if (an.stillT >= 0.40 && (e0 > 0.05 * uW || e1 > 0.05 * uW)) {
+      i = e0 >= e1 ? 0 : 1;
+      an.swKind = 1; an.swDur = 0.30; an.swLift = 0.06;
+    }
+    if (i >= 0) { an.sw = i; an.swP = 0; an.swFx = an.fx[i]; an.swFy = an.fy[i]; }
+  }
+  /* emitters: positions from the pose snapshot (existing particle kinds only) */
+  function ashAnimEmit(e, an, P, u, vis) {
+    var f = an.fire, lite = S.fxLite, yt0 = e.y - 2.30 * u, i, A, w, fl;
+    var DUST = "#6a5a44";
+    if (f & 8) dustPuff(an.fx[an.plantSide], e.y + 2, lite ? 1 : 2, DUST);
+    if ((f & 16384) && !lite) dustPuff(an.fx[an.plantSide], e.y + 2, 1, DUST);
+    if (f & 8192) {
+      A = P.arm[Math.random() < 0.5 ? 0 : 1];
+      w = ashW(e, e.x + A.cx * u, e.y, vis);
+      pushPart({ k: "ember", x: w.x, y: e.y, z: (2.30 - A.cy) * u * vis, vx: (Math.random() < 0.5 ? -6 : 6), vy: 0,
+        vz: 18 + 14 * Math.random(), t: 0.9 + 0.5 * Math.random(), col: "#c06030", s: 1.6 + Math.random() });
+    }
+    for (i = 0; i < 2; i++) {
+      A = P.arm[i];
+      w = ashW(e, e.x + A.fx * u, yt0 + (A.fy + 0.39) * u, vis);
+      fl = (i === 0 ? -1 : 1) === P.lead;
+      if (f & 1) {
+        dustPuff(w.x, w.y, lite ? 1 : 3, DUST);
+        if (!lite) floorRing(w.x, w.y, DUST, 4, 26, 0.3);
+      }
+      if (f & 2) dustPuff(w.x, w.y, lite ? 1 : 2, DUST);
+      if ((f & 4) && fl) dustPuff(w.x, w.y, lite ? 1 : 2, DUST);
+      if (((f & 32) && fl) || ((f & 64) && !fl)) dustPuff(w.x, w.y, lite ? 1 : 3, DUST);
+      if (f & 256) {
+        dustPuff(w.x, w.y, lite ? 1 : 3, DUST);
+        if (!lite) burst(w.x, w.y - 4, "#5a5248", 2);
+      }
+    }
+    if (f & 1) for (i = 0; i < 3; i++) an.capeV[i] += (i - 1) * 0.46;
+    if (f & 16) {
+      w = 0.6 * u * vis;
+      dustPuff(e.x - w, e.y + 2, lite ? 1 : 3, DUST);
+      dustPuff(e.x + w, e.y + 2, lite ? 1 : 2, DUST);
+    }
+    if ((f & 128) || (f & 512)) {
+      dustPuff(an.fx[0], e.y + 2, lite ? 2 : 4, DUST);
+      dustPuff(an.fx[1], e.y + 2, lite ? 2 : 4, DUST);
+      if (!lite) floorRing(e.x, e.y + 4, DUST, (f & 128) ? 10 : 8, 60, 0.35);
+      if (f & 128) for (i = 0; i < 3; i++) an.capeV[i] += (i - 1) * 0.25;
+    }
+    if (f & 1024) {
+      /* cracks going dark shed cyan motes (world points of the three crack rects) */
+      i = an.emN % 3;
+      w = ashW(e, e.x + (P.tx + (i === 0 ? -0.07 : i === 1 ? -0.22 : 0.27)) * u,
+        yt0 + (P.ty + (i === 0 ? 1.22 : i === 1 ? 1.12 : 1.38)) * u, vis);
+      pushPart({ k: "ember", x: w.x + (Math.random() - 0.5) * 6, y: e.y, z: e.y - w.y, vx: (Math.random() - 0.5) * 12, vy: 0,
+        vz: 22 + 20 * Math.random(), t: 0.6 + 0.4 * Math.random(), col: "#9fe8f0", s: 1.4 + Math.random() });
+    }
+    if (f & 2048) {
+      for (i = 0; i < (lite ? 1 : 2); i++) {
+        pushPart({ k: "cube", x: e.x + (Math.random() - 0.5) * 1.4 * u * vis, y: e.y + 2,
+          z: (1.2 + Math.random() * 1.0) * u * vis * (1 - 0.5 * ashClamp01(P.clipDY / 1.2)),
+          vx: (Math.random() - 0.5) * 90, vy: (Math.random() - 0.5) * 40, vz: 60 + 100 * Math.random(),
+          t: 0.5 + 0.35 * Math.random(), col: Math.random() < 0.5 ? "#9a8c7c" : "#5a5248", dk: "#3a3430", s: 2.5 + 2.5 * Math.random() });
+      }
+    }
+    if (f & 4096) dustPuff(e.x + (Math.random() - 0.5) * 1.6 * u * vis, e.y + 2, 1, "#6a6258");
   }
 
   /* BB-V7.44 — Thorn Queen pose clock: lance charge, needle fan, briar ring. */
@@ -16069,9 +16438,498 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     }
   }
 
+  /* BB-V7.72 — Ash Titan pose (spec_ash.md 4.2). Pure: reads e, e.ashAn (null
+     before the first tick), player and the live sim fields (atkT, ringOn, ringR,
+     spawnT, deadT, flash, hitT); writes only ASH_P and its scratch. Units are u
+     (= artR·1.5); offsets are from (x, yt0 = e.y − 2.30u). Layers add up and
+     each is exactly 0 at its ends. Arms move along arcs by translating whole
+     cubes from the shoulder (ashArmSolve plants a fist on a target). */
+  var ASH_HOOD_HI = shade("#2c3038", 1.15), ASH_BAND = shade("#9a8c7c", 0.62), ASH_BAND_W = shade("#ffffff", 0.62);
+  var ASH_CAPE_M = [1.0, 0.6, 0.8];
+  var ASH_P = {
+    faceS: 1, L: 0, drop: 0, tx: 0, ty: 0, rot: 0, rock: 0, rpx: 0, rpy: 0, sq: 0,
+    hx: 0, hy: 0, hrot: 0, roll: 0, ex: 0, ey: 0, capX: 0, hoodX: 0, lead: 1,
+    arm: [{ ux: 0, uy: 0, fx: 0, fy: 0, cx: 0, cy: 0, pw: 0 }, { ux: 0, uy: 0, fx: 0, fy: 0, cx: 0, cy: 0, pw: 0 }],
+    footX: [0, 0], footY: [0, 0], lift: [0, 0],
+    capeX: [0, 0, 0], capeW: [1, 1, 1], capeDY: 0, capeHem: 0,
+    shX: 0, shRx: 1.32, shA: 1, crA: [0.55, 0.55, 0.55], coreA: 0.62, eyeA: 0.78,
+    tellR: 70, tellA: 0, boltGlow: 0, flashAll: false,
+    bodyA: 1, thr: 1, clipDY: 0, clipOn: false, hidden: false
+  };
+  var ASH_ARM = { th: 0, r: 0.71, pw: 0 }, ASH_SOL = { th: 0, r: 0 };
+  var ASH_ST = { spawning: false, su: 1, sm: 1, alive: true, dT: 0, db: 0, atk: null, at: 0, lead: 1, ax: 0, ay: 0, lift: 0, sinkF: 0, pl: [0, 0] };
+  var ASH_ARM2 = { th: 0, r: 0.71, pw: 0 };   /* BB-V7.72 — scratch for ashFistPw */
+  var ASH_B = {}, ASH_BH = {};
+  function ashBodyZero(o) {
+    o.d = 0; o.tx = 0; o.tremT = 0; o.trem = 0; o.L = 0; o.hy = 0; o.tuck = 0; o.sq = 0; o.lift = 0;
+    o.lit = 0; o.litW = 0; o.eye = 0; o.eyeW = 0; o.offDX = 0; o.offDY = 0; o.flare = 0; o.kF = 0; o.pump = 0;
+    return o;
+  }
+  ashBodyZero(ASH_B); ashBodyZero(ASH_BH);
+  /* upper-arm reach: the upper arm slides out with the fist so the two stay joined */
+  function ashReach(r) { var a = 0.28 + 0.35 * (r - 0.71); return a < 0.10 ? 0.10 : a > 0.60 ? 0.60 : a; }
+  /* fist centre F = Ps + (s·0.45·sinθ, cosθ)·r + (s·0.06·cosθ, 0): solve θ, r for a target */
+  function ashArmSolve(s, Tx, Ty, psx, psy) {
+    var dx = s * (Tx - psx), dy = Ty - psy, th = Math.atan2((dx - 0.06) / 0.45, dy), a;
+    a = (dx - 0.06 * Math.cos(th)) / 0.45; th = Math.atan2(a, dy);
+    a = (dx - 0.06 * Math.cos(th)) / 0.45; th = Math.atan2(a, dy);
+    ASH_SOL.th = th; ASH_SOL.r = Math.sqrt(a * a + dy * dy);
+    return ASH_SOL;
+  }
+  /* nova active pose from the live ring: contact, pump, aftershock lift, re-pound */
+  function ashNovaActive(tW, R, on, o) {
+    var restarted = tW > 0.9 && R < 100, kF = restarted ? 1 : ashClamp01((R - 28) / 168), a;
+    o.d = 0.10 + 0.12 * easeOutCubic(tW / 0.05) - 0.10 * easeOutCubic(kF);
+    o.lift = 0;
+    if (restarted) {
+      o.lift = 0.14 * (1 - easeInCubic((R - 28) / 5));
+      o.d += 0.05 * Math.max(0, 1 - (R - 30.5) / 10);
+    } else if ((on && tW > 0.5 && R >= 166) || (!on && R >= 196)) {
+      a = easeOutCubic((Math.min(R, 196) - 166) / 30);
+      o.lift = 0.14 * a; o.d -= 0.03 * a;
+    }
+    o.sq = tW < 0.045 ? 0.03 : 0;
+    o.hy = 0.05 * Math.sin(Math.PI * ashClamp01((tW - 0.03) / 0.09));
+    o.lit = tW < 0.045 ? 1 : 0.4 + 0.6 * (1 - kF);
+    if (restarted) o.lit = Math.max(o.lit, 1 - ashClamp01((R - 28) / 12.5));
+    o.litW = 1;
+    o.eye = 1; o.eyeW = 1 - ashClamp01((tW - 0.045) / 0.15);
+    o.flare = tW < 0.15 ? Math.sin(Math.PI * tW / 0.15) : 0;
+    o.kF = kF; o.pump = on && !restarted ? 1 : 0;
+    return o;
+  }
+  /* ASH-07/09 body terms of the nova at attack time t (lagR: recover-phase lag, s) */
+  function ashNovaBody(e, t, lagR, o) {
+    var W = e.atkWind || 1.35, A = e.atkActive || 1.2, R = e.atkRecover || 0.35, k, n;
+    if (t < 0.12) {
+      n = t < 0.06 ? ashEaseOutQuad(t / 0.06) : 1 - easeInOutQuad((t - 0.06) / 0.06);
+      o.d = 0.04 * n; o.hy = 0.035 * n; o.tuck = 0.03 * n;
+      o.eye = 1; o.eyeW = t < 0.06 ? 1 : 1 - easeInOutQuad((t - 0.06) / 0.06);
+      return o;
+    }
+    if (t < 1.02) { k = easeInOutQuad((t - 0.12) / 0.90); o.d = -0.05 * k; o.hy = -0.03 * k; return o; }
+    if (t < 1.24) {
+      k = ashEaseOutQuad((t - 1.02) / 0.22);
+      o.d = -0.05 - 0.01 * k; o.hy = -0.03;
+      o.trem = o.tremT = 0.012 * Math.sin(6.2832 * 11 * t) * Math.sin(Math.PI * (t - 1.02) / 0.22);
+      return o;
+    }
+    if (t < W) { k = easeInCubic((t - 1.24) / (W - 1.24)); o.d = -0.06 + 0.16 * k; o.hy = -0.03 * (1 - k); return o; }
+    if (t < W + A) return ashNovaActive(t - W, e.ringR || 0, !!e.ringOn, o);
+    /* push-up from the frozen active-end pose (planted, or lifted if the ring never restarted) */
+    ashNovaActive(A, e.ringR || 0, false, o);
+    var q = ashLagQ((t - W - A) / R, lagR / R);
+    o.d *= 1 - easeOutBack(q);
+    o.hy = 0; o.sq = 0; o.flare = 0; o.pump = 0;
+    o.litW = 1 - easeInOutQuad((t - W - A) / R);
+    o.eyeW = 0;
+    return o;
+  }
+  /* ASH-10 body terms of the bolts (s = lead side) */
+  function ashBoltBody(e, t, s, lagR, o) {
+    var W = e.atkWind || 0.48, end = W + (e.atkActive || 0.16) + (e.atkRecover || 0.42), k, m;
+    if (t < W) { o.eye = 1; o.eyeW = t < 0.06 ? 1 - t / 0.06 : 0; }
+    if (t < 0.06) return o;
+    if (t < 0.30) {
+      k = easeOutCubic((t - 0.06) / 0.24);
+      o.tx = -s * 0.04 * k; o.d = -0.02 * k; o.offDX = s * 0.06 * k; o.offDY = 0.06 * k;
+      return o;
+    }
+    o.offDX = s * 0.06; o.offDY = 0.06;
+    if (t < 0.40) { o.tx = -s * 0.04; o.d = -0.02; o.trem = 0.008 * Math.sin(6.2832 * 13 * t) * Math.sin(Math.PI * (t - 0.30) / 0.10); return o; }
+    if (t < W) {
+      k = easeInCubic((t - 0.40) / (W - 0.40));
+      o.tx = -s * 0.04 * (1 - k); o.d = -0.02 + 0.10 * k; o.L = s * 0.06 * k;
+      return o;
+    }
+    o.hy = 0.03 * Math.sin(Math.PI * ashClamp01((t - W) / 0.10));
+    if (t < 0.54) {
+      o.d = 0.08; o.L = s * 0.06; o.offDY = 0.06 - 0.08 * easeOutCubic((t - W) / (0.54 - W));
+      return o;
+    }
+    m = 1 - easeOutBack(ashLagQ((t - 0.54) / (end - 0.54), lagR / (end - 0.54)));
+    o.d = 0.08 * m; o.L = s * 0.06 * m;
+    k = easeInOutQuad((t - 0.54) / (end - 0.54));
+    o.offDX = s * 0.06 * (1 - k); o.offDY = -0.02 * (1 - k);
+    return o;
+  }
+  /* ASH-07/09 nova arm (θ, r) at attack time t; part 0 upper arm, 1 fist, 2 crystal */
+  function ashNovaArm(e, t, s, off, part, psx, psy, lift, o) {
+    var W = e.atkWind || 1.35, A = e.atkActive || 1.2, R = e.atkRecover || 0.35, PI = Math.PI;
+    var peak = (off ? 0.88 : 0.92) * PI, te, k, th0;
+    if (t < W + A) {
+      /* BB-V7.72 — overlap lags only on the slow raise; the slam and the planted beats are rigid */
+      te = t < 1.24 ? t - (part === 2 ? 0.03 : part === 1 ? 0.04 : 0) : t;
+      if (te < 0.12) return o;
+      if (te < 1.02) {
+        k = off ? easeInOutQuad((te - 0.18) / 0.84) : easeInOutQuad((te - 0.12) / 0.90);
+        o.th = peak * k; o.r = 0.71 + 0.09 * k;
+        return o;
+      }
+      th0 = peak + 0.04 * PI * ashEaseOutQuad((te - 1.02) / 0.22);
+      if (te < 1.24) { o.th = th0; o.r = 0.80; return o; }
+      ashArmSolve(s, s * 0.70, 1.96 - (te < W ? 0 : lift), psx, psy);
+      if (te < W) {
+        k = easeInCubic((te - 1.24) / (W - 1.24));
+        o.th = th0 + (ASH_SOL.th - th0) * k; o.r = 0.80 + (ASH_SOL.r - 0.80) * k; o.pw = k;
+        return o;
+      }
+      o.th = ASH_SOL.th; o.r = ASH_SOL.r; o.pw = 1;
+      return o;
+    }
+    ashArmSolve(s, s * 0.70, 1.96 - lift, psx, psy);
+    k = ashLagQ((t - W - A) / R, ((off ? 0.04 : 0) + (part === 1 ? 0.04 : part === 2 ? 0.03 : 0)) / R);
+    k = k < 0.15 ? 0 : easeInOutQuad((k - 0.15) / 0.85);
+    o.th = ASH_SOL.th * (1 - k); o.r = ASH_SOL.r + (0.71 - ASH_SOL.r) * k; o.pw = 1 - k;
+    return o;
+  }
+  /* ASH-10 lead arm: cock past overhead, coil, whip out and down onto the fire point */
+  function ashBoltArm(e, t, s, part, psx, psy, ax, ay, o) {
+    var W = e.atkWind || 0.48, end = W + (e.atkActive || 0.16) + (e.atkRecover || 0.42), PI = Math.PI, te, k;
+    te = t < 0.40 ? t - (part === 2 ? 0.03 : 0) : t;   /* BB-V7.72 — no crystal lag in the whip */
+    if (te < 0.06) return o;
+    if (te < 0.30) { k = easeOutCubic((te - 0.06) / 0.24); o.th = 1.05 * PI * k; o.r = 0.71 + 0.09 * k; return o; }
+    if (te < 0.40) { k = ashEaseOutQuad((te - 0.30) / 0.10); o.th = (1.05 + 0.03 * k) * PI; o.r = 0.80 + 0.03 * k; return o; }
+    ashArmSolve(s, s * Math.max(0.45, Math.min(0.90, Math.max(0, s * ax) * 0.62)), 1.97 + Math.max(0, ay) * 0.20, psx, psy);
+    if (te < W) {
+      k = easeInCubic((te - 0.40) / (W - 0.40));
+      o.th = 1.08 * PI + (ASH_SOL.th - 1.08 * PI) * k; o.r = 0.83 + (ASH_SOL.r - 0.83) * k; o.pw = k;
+      return o;
+    }
+    if (te < 0.54) { o.th = ASH_SOL.th; o.r = ASH_SOL.r; o.pw = 1; return o; }
+    k = easeInOutQuad(ashLagQ((te - 0.54) / (end - 0.54), (part === 1 ? 0.05 : part === 2 ? 0.03 : 0) / (end - 0.54)));
+    o.th = ASH_SOL.th * (1 - k) + 0.15 * Math.sin(PI * k); o.r = ASH_SOL.r + (0.71 - ASH_SOL.r) * k; o.pw = 1 - k;
+    return o;
+  }
+  /* ASH-12 rise: the lead fist, then the other, breaks out and plants beside the hole */
+  function ashRiseArm(su, sm, s, isLead, part, psx, psy, o) {
+    var sue = su - (part === 2 ? 0.03 / sm : 0), a0 = isLead ? 0.56 : 0.60, k;
+    if (sue < a0) return o;
+    ashArmSolve(s, s * 1.20, 1.96, psx, psy);
+    if (sue < a0 + 0.06) k = easeOutCubic((sue - a0) / 0.06);
+    else if (sue < 0.78) k = 1;
+    else k = 1 - easeInOutQuad((sue - 0.78) / 0.14);   /* BB-V7.72 — heavy return, settles with the stomp */
+    o.th = ASH_SOL.th * k; o.r = 0.71 + (ASH_SOL.r - 0.71) * k; o.pw = k;
+    return o;
+  }
+  function ashStagger(d) {
+    if (d < 0.03) return 0;
+    if (d < 0.12) return easeOutCubic((d - 0.03) / 0.09);
+    return 1 - easeInOutQuad((d - 0.12) / 0.13);
+  }
+  /* ASH-13 arms: fly out, then swing down and plant beside the kneel at 0.55 */
+  function ashDeathArm(dT, s, part, psx, psy, sinkF, o) {
+    var te = dT < 0.40 ? dT - (part === 2 ? 0.03 : 0) : dT, k;   /* BB-V7.72 — rigid swing-down */
+    o.th = 0.5 * ashStagger(te); o.r = 0.71; o.pw = 0;
+    if (te < 0.40) return o;
+    ashArmSolve(s, s * 1.05, 1.96 + sinkF, psx, psy);
+    k = easeInCubic((te - 0.40) / 0.15);
+    o.th += (ASH_SOL.th - o.th) * k; o.r += (ASH_SOL.r - o.r) * k; o.pw = k;
+    return o;
+  }
+  /* BB-V7.72 — the fist's planted weight of a frozen attack pose (pw is a pure function of time) */
+  function ashFistPw(e, atk, t, s, lead, lift) {
+    var o = ASH_ARM2;
+    o.th = 0; o.r = 0.71; o.pw = 0;
+    if (atk === "nova") ashNovaArm(e, t, s, s !== lead, 1, s * 0.92, 0.70, lift, o);
+    else if (atk === "bolts" && s === lead) ashBoltArm(e, t, s, 1, s * 0.92, 0.70, 0, 0, o);
+    return o.pw;
+  }
+  /* BB-V7.72 — killed with this fist planted (pw ≥ 0.5): no fly-out. The part's frozen
+     attack spot glides straight to the kneel plant (s·1.05, floor) in world space, so the
+     fist stays on the floor; the splay rides the kneel and settles on the 0.55 fist beat.
+     A fist still above the floor (the last downswing tick, the aftershock lift) drops in 0.10 s.
+     The fist starts from its drawn spot (ashPose's 1.50u extent clamp while pw < 1). */
+  function ashDeadPlant(s, part, psx, psy, o) {
+    var st = ASH_ST, sn = Math.sin(o.th), cs = Math.cos(o.th), fr = o.r, lim;
+    if (part === 1 && o.pw < 1 && sn > 0.05) {
+      lim = (1.26 - s * psx - 0.06 * cs) / (0.45 * sn);
+      if (fr > lim) fr = Math.max(0.3, lim);
+    }
+    var fx = psx + s * (0.45 * sn * fr + 0.06 * cs), fy = psy + cs * fr;
+    var kx = easeInOutQuad((st.dT - 0.20) / 0.35), ky = Math.max(kx, easeInCubic(st.dT / 0.10));
+    ashArmSolve(s, fx + (s * 1.05 - fx) * kx, fy + (1.96 + st.sinkF - fy) * ky, psx, psy);
+    o.th = ASH_SOL.th; o.r = ASH_SOL.r; o.pw += (1 - o.pw) * ky;
+    return o;
+  }
+  /* one arm part's (θ, r, planted weight): spawn | attack, blended into death */
+  function ashArmEval(e, s, part, psx, psy) {
+    var st = ASH_ST, o = ASH_ARM, th, r, pw;
+    o.th = 0; o.r = 0.71; o.pw = 0;
+    if (st.spawning) return ashRiseArm(st.su, st.sm, s, s === st.lead, part, psx, psy, o);
+    if (st.atk === "nova") ashNovaArm(e, st.at, s, s !== st.lead, part, psx, psy, st.lift, o);
+    else if (st.atk === "bolts" && s === st.lead) ashBoltArm(e, st.at, s, part, psx, psy, st.ax, st.ay, o);
+    if (!st.alive) {
+      if (st.pl[s > 0 ? 1 : 0] >= 0.5) return ashDeadPlant(s, part, psx, psy, o);
+      th = o.th; r = o.r; pw = o.pw;
+      ashDeathArm(st.dT, s, part, psx, psy, st.sinkF, o);
+      o.th = th + (o.th - th) * st.db; o.r = r + (o.r - r) * st.db; o.pw = pw + (o.pw - pw) * st.db;
+    }
+    return o;
+  }
+  /* ASH-08 — three accelerating beats, then the tell ring collapses into the live ring */
+  function ashNovaTell(t, tellP, P) {
+    var k = 0, c = 0, r;
+    if (t >= 0.25) k += Math.exp(-(t - 0.25) / 0.10);
+    if (t >= 0.70) k += Math.exp(-(t - 0.70) / 0.10);
+    if (t >= 1.05) k += Math.exp(-(t - 1.05) / 0.10);
+    k = Math.min(1, k);
+    r = 70 + 10 * k;
+    if (t >= 1.05) { c = easeInCubic((t - 1.05) / 0.30); r = r * (1 - c) + 28 * c; }
+    P.tellR = r;
+    P.tellA = P.thr * Math.min(0.85, 0.16 + 0.32 * tellP + 0.30 * k + 0.25 * c);
+    return k;
+  }
+  function ashPose(e, u) {
+    var P = ASH_P, an = e.ashAn, B = ashBodyZero(ASH_B), BH = ashBodyZero(ASH_BH), st = ASH_ST;
+    var PI = Math.PI, i, s, A, o, rA, sn, cs, fr, free, fdx, lim, pwF;
+    var vis = enemyVis(e) || ASH_VIS, uW = u * vis;
+    var alive = !!e.alive, dm = e.deadMax || ASH_DIE;
+    var dieR = alive ? 0 : Math.max(0, dm - (e.deadT || 0)), dT = dieR * ASH_DIE / dm;
+    var spawning = alive && e.spawnT > 0 && e.spawnMax > 0;
+    var suR = e.spawnT > 0 && e.spawnMax > 0 ? 1 - e.spawnT / e.spawnMax : 1;   /* frozen by a kill mid-rise */
+    var su = spawning ? suR : 1;
+    var heroSide = player ? (player.x < e.x ? -1 : 1) : (e.face || 1);
+    var anT = an ? an.t : 0;
+    /* facing: eyes lead, head follows, torso lags (ASH-05) */
+    var faceTo = an ? an.faceTo : (spawning ? heroSide : (e.face || heroSide));
+    var faceS = an ? ashFaceNow(an) : faceTo, faceE = faceS, faceT = faceS, tDip = 0;
+    if (an && an.turnP >= 0) {
+      faceE = an.faceFrom + (an.faceTo - an.faceFrom) * easeInOutQuad(Math.min(1, 1.6 * an.turnP));
+      faceT = an.faceFrom + (an.faceTo - an.faceFrom) * easeInOutQuad(ashLagQ(an.turnP, 0.05 / an.turnDur));
+      tDip = 0.03 * Math.sin(PI * an.turnP);
+    }
+    /* breath (ASH-03): one 3.2 s clock, chest → head → arms */
+    var bP = an ? an.bPh : 0, bOn = an ? 1 : 0, T32 = 6.2832;
+    var b0 = bOn * (0.5 - 0.5 * Math.cos(T32 * bP));
+    var b10 = bOn * (0.5 - 0.5 * Math.cos(T32 * (bP - 0.10 / 3.2)));
+    var b12 = bOn * (0.5 - 0.5 * Math.cos(T32 * (bP - 0.12 / 3.2)));
+    var b18 = bOn * (0.5 - 0.5 * Math.cos(T32 * (bP - 0.18 / 3.2)));
+    var b25 = bOn * (0.5 - 0.5 * Math.cos(T32 * (bP - 0.25 / 3.2)));
+    var b30 = bOn * (0.5 - 0.5 * Math.cos(T32 * (bP - 0.30 / 3.2)));
+    var ampB = bOn * (1 - 0.7 * (an ? an.atkW : 0)) *
+      (spawning ? ashClamp01((su - 0.86) / 0.14) : 1) * (alive ? 1 : 1 - easeInOutQuad(dT / 0.3));
+    /* attack layer (frozen at the kill when dead; a post-mortem burn-kill attack is ignored) */
+    var atk = spawning ? null : alive ? e.atk : (an && an.dieSet ? an.dieAtk : e.atk);
+    var at = alive ? (e.atkT || 0) : (an && an.dieSet ? an.dieAtkT : (e.atkT || 0));
+    var W = e.atkWind || 1.35;
+    var lead = an ? an.lead : (atk === "bolts" ? ((e.aimX || 0) < 0 ? -1 : 1) : faceTo);
+    var db = alive ? 0 : easeOutCubic(dT / 0.30), wa = 1 - db;
+    if (atk === "nova") {
+      ashNovaBody(e, at, 0, B);
+      ashNovaBody(e, at < W + (e.atkActive || 1.2) ? Math.max(0, at - 1 / 60) : at, 0.05, BH);
+    } else if (atk === "bolts") {
+      ashBoltBody(e, at, lead, 0, B);
+      ashBoltBody(e, at < 0.54 ? Math.max(0, at - 1 / 60) : at, lead, 0.05, BH);
+    }
+    /* springs and followers from the clock */
+    var hx = an ? an.hx : 0, hh = an ? an.hh : 0, hf = an ? an.hf : 0;
+    var lookX = an ? an.lookX : 0, lookY = an ? an.lookY : 0;
+    var env = 0, pSide = 0;
+    if (an && an.plantT < 0.22) {
+      env = (an.plantT < 0.04 ? an.plantT / 0.04 : 1 - easeOutCubic((an.plantT - 0.04) / 0.18)) * an.plantAmp;
+      pSide = an.plantSide;
+    }
+    /* death (ASH-13) */
+    var D = an && an.dieDir ? an.dieDir : -faceTo, sg = 0, sgL = 0, dD = 0, dHy = 0, dRot = 0, sink = 0, sinkH = 0, sinkF = 0, sinkP = 0;
+    /* BB-V7.72 — killed with a fist planted (nova slam, bolts strike): the fists' frozen
+       planted weight; the braced body skips the lateral stagger and the head lift by it */
+    var pl0 = 0, pl1 = 0;
+    if (!alive && atk) {
+      if (an && an.dieSet) { pl0 = an.pl0; pl1 = an.pl1; }   /* solved once at the kill (ashAnimDead) */
+      else { pl0 = ashFistPw(e, atk, at, -1, lead, B.lift); pl1 = ashFistPw(e, atk, at, 1, lead, B.lift); }
+    }
+    st.pl[0] = pl0; st.pl[1] = pl1;
+    if (!alive) {
+      sg = ashStagger(dT);
+      sgL = sg * (1 - Math.max(pl0, pl1));
+      dD = -0.03 * sg + 0.24 * easeInCubic((dT - 0.25) / 0.35) - (dT > 0.60 && dT < 0.70 ? 0.03 * Math.sin(PI * (dT - 0.60) / 0.10) : 0);
+      dHy = -0.06 * sgL + 0.10 * easeInCubic((dT - 0.33) / 0.35);
+      dRot = D * 0.04 * easeInOutQuad((dT - 0.62) / 0.20);
+      sinkP = ashEaseInQuad((dT - 0.90) / 0.70);
+      sink = 1.2 * sinkP; sinkH = 1.2 * ashEaseInQuad((dT - 0.95) / 0.70); sinkF = 1.2 * ashEaseInQuad((dT - 1.00) / 0.70);
+    }
+    /* rise (ASH-12): climb out through the floor clip */
+    var h = 1, riseArmDY = 0, rDrop = 0, rSq = 0;
+    if (suR < 1) {
+      if (suR < 0.12) h = 0;
+      else if (suR < 0.52) h = 0.62 * easeOutCubic((suR - 0.12) / 0.40);
+      else if (suR < 0.60) h = 0.62 - 0.02 * easeInOutQuad((suR - 0.52) / 0.08);
+      else if (suR < 0.66) h = 0.60;
+      else h = 0.60 + 0.40 * easeInOutQuad((suR - 0.66) / 0.20);
+    }
+    if (spawning) {
+      riseArmDY = su < 0.66 ? 0.25 * Math.max(0, 1 - h / 0.62) : 0;
+      if (su >= 0.86) {
+        rDrop = 0.035 * (su < 0.90 ? easeOutCubic((su - 0.86) / 0.04) : 1 - easeInOutQuad((su - 0.90) / 0.10));
+        if ((su - 0.86) * e.spawnMax < 0.03) rSq = 0.02;
+      }
+    }
+    var rClip = (1 - h) * 2.9, clip = rClip + sink;   /* a kill mid-rise sinks on from the rise clip */
+    /* drop: gait plant, turn dip, attack, hurt jolt, death, stomp */
+    var dBase = 0.04 * env + tDip + (e.hitT > 0.16 ? 0.02 : 0) + rDrop;
+    var dB = B.d * wa + dD, dBH = BH.d * wa + dD;
+    /* BB-V7.72 — killed in a crouch (slam, strike hold): hold the frozen attack drop and let
+       the kneel continue down from it, instead of fading the crouch out under it */
+    if (!alive && B.d > 0) dB = Math.max(B.d, dD);
+    if (!alive && BH.d > 0) dBH = Math.max(BH.d, dD);
+    var drop = ashSoftDrop(dBase + dB), dropH = ashSoftDrop(dBase + dBH);
+    var L = (an ? an.lean : 0) + B.L * wa;
+    P.faceS = faceS; P.L = L; P.drop = drop; P.lead = lead;
+    P.tx = 0.70 * L + hx + 0.015 * faceT + (B.tx + B.tremT) * wa + D * 0.08 * sgL;
+    P.ty = drop - 0.030 * ampB * b0 + clip;
+    P.hx = 0.90 * L + 0.05 * faceS + 1.3 * hh + lookX + (BH.tx + BH.tremT) * wa + D * 0.08 * sgL;
+    P.hy = dropH - 0.035 * ampB * b12 + BH.hy * wa + dHy + (spawning ? clip : sinkH + rClip);
+    /* the cap never rises above its rest line by more than the old 0.03u bob (soft floor) */
+    if (P.hy < -0.02) P.hy = -0.02 - 0.015 * (1 - Math.exp((P.hy + 0.02) / 0.015));
+    P.capX = 0.02 * faceS; P.hoodX = 0.0075 * faceS;
+    var hr = Math.max(-0.06, Math.min(0.06, 0.3 * (hh - hx))) + D * 0.06 * sg;
+    hr = Math.max(-0.12, Math.min(0.12, hr));
+    P.hrot = Math.abs(hr) > 0.002 ? hr : 0;
+    P.ex = Math.max(-0.055, Math.min(0.055, 0.045 * faceE + 1.5 * lookX));
+    P.ey = Math.max(-0.05, Math.min(0.05, 1.5 * lookY));
+    var rot = Math.max(-0.05, Math.min(0.05, 0.4 * hx)) + dRot;
+    rot = Math.max(-0.10, Math.min(0.10, rot));
+    P.rot = Math.abs(rot) > 0.002 ? rot : 0;
+    P.rpx = P.tx; P.rpy = 1.80 + drop + clip;
+    P.sq = Math.max((alive ? B.sq : 0) * wa, rSq);
+    /* arms: shoulder, then upper arm → crystal → fist along the arc */
+    st.spawning = spawning; st.su = su; st.sm = e.spawnMax || 1; st.alive = alive; st.dT = dT; st.db = db;
+    st.atk = atk; st.at = at; st.lead = lead; st.lift = B.lift; st.sinkF = sinkF;
+    st.ax = an ? an.aimX : (e.aimX || 0); st.ay = an ? an.aimY : (e.aimY || 0);
+    var sh = B.pump ? 0.02 * Math.sin(2 * T32 * bP) * Math.sin(PI * B.kF) : 0;
+    var tremF = B.trem * wa;
+    for (i = 0; i < 2; i++) {
+      s = i ? 1 : -1;
+      A = P.arm[i];
+      var off = s !== lead;
+      var psx = s * 0.92 + 0.75 * L + hx - 0.01 * faceS + (B.tx + B.tremT) * wa + D * 0.08 * sgL - s * B.tuck * wa + (off ? B.offDX * wa : 0);
+      var psy = 0.70 + drop + clip + riseArmDY + sh * wa + (off ? B.offDY * wa : 0) +
+        (env > 0 && (pSide === 0) === (s > 0) ? 0.02 * env : 0);
+      /* rise: the arm group stays 0.05u lower until its fist breaks out (a0), easing out with it */
+      var a0 = off ? 0.60 : 0.56;
+      if (spawning && su < a0 + 0.06) psy += 0.05 * (su < a0 ? 1 : 1 - easeOutCubic((su - a0) / 0.06));
+      /* fist first: the upper arm reaches for the larger of its own and the (lagging) fist's radius */
+      o = ashArmEval(e, s, 1, psx, psy);
+      sn = Math.sin(o.th); cs = Math.cos(o.th); fr = o.r; pwF = o.pw; free = 1 - pwF;
+      var frA = fr;
+      o = ashArmEval(e, s, 0, psx, psy); rA = ashReach(Math.max(o.r, frA));
+      A.ux = psx + s * 0.45 * Math.sin(o.th) * rA; A.uy = psy + Math.cos(o.th) * rA - 0.020 * ampB * b18;
+      o = ashArmEval(e, s, 2, psx, psy); rA = ashReach(o.r);
+      A.cx = psx + s * (0.45 * Math.sin(o.th) * rA + 0.09); A.cy = psy + Math.cos(o.th) * rA - 0.52 - 0.020 * ampB * b30;
+      fdx = (0.8 * hf - hx + (atk !== "bolts" || !off ? tremF : 0)) * free;
+      /* outer extent ≤ 1.50u (fist edge), so an arc never widens the silhouette */
+      if (pwF < 1 && sn > 0.05) {
+        lim = (1.26 - s * (psx + fdx) - 0.06 * cs) / (0.45 * sn);
+        if (fr > lim) fr = Math.max(0.3, lim);
+      }
+      A.fx = psx + s * (0.45 * sn * fr + 0.06 * cs) + fdx;
+      A.fy = psy + cs * fr - 0.012 * ampB * b25 * free;
+      A.pw = pwF;
+    }
+    /* legs: world anchors, splayed by the drop (ASH-04) */
+    var fdrop = Math.max(0, drop);
+    for (i = 0; i < 2; i++) {
+      if (an) {
+        P.footX[i] = (an.fx[i] - (e.x + (i ? 0.31 : -0.29) * uW)) / uW;
+        P.footY[i] = Math.max(-0.08, Math.min(0.08, (an.fy[i] - e.y) / uW));
+        P.lift[i] = an.sw === i ? an.swLift * Math.sin(PI * Math.min(1, an.swP)) : an.dieSw === i && !alive ? an.dieLift * wa : 0;
+      } else { P.footX[i] = 0; P.footY[i] = 0; P.lift[i] = 0; }
+      P.footX[i] += (i ? 0.6 : -0.6) * fdrop;
+    }
+    /* cape (ASH-06): trails the torso on springs, flares at the slam, pools on the floor */
+    var cf = P.tx - 0.25 * L;
+    for (i = 0; i < 3; i++) {
+      P.capeX[i] = cf + (an ? an.capeX[i] * ASH_CAPE_M[i] + 0.01 * Math.sin(2.3 * anT + 1.1 * i) : 0);
+      P.capeW[i] = 1 + 0.08 * B.flare * wa;
+    }
+    P.capeDY = drop;
+    P.capeHem = 0.015 * ampB * (1 - b0);
+    /* shadow */
+    P.shX = 0.12 * L;
+    P.shRx = (1.32 + 0.28 * fdrop) * (1 - 0.015 * ampB * b0) * (1 - 0.4 * sinkP);
+    P.shA = Math.min(1, suR / 0.5);
+    /* fade, threat and floor clip */
+    P.bodyA = alive ? 1 : 1 - easeInOutQuad((dT - 1.20) / 0.40);
+    P.thr = alive ? 1 : Math.max(0, 1 - dieR / 0.10);
+    P.clipDY = clip;
+    P.clipOn = spawning ? h < 1 : clip > 0;
+    P.hidden = suR < 0.12 || P.bodyA <= 0;
+    /* light: one breath clock; tell beats, contact flare, hurt flare; rise ignites, death goes dark */
+    /* BB-V7.72 — between attacks the heartbeat is wide (core 0.30-1, cracks 0.40-0.85): at phone
+       scale light is the idle channel that reads. It narrows to the old band while attacking. */
+    var wI = an ? 1 - an.atkW : 0;
+    var crL = 0.55 + 0.30 * b10 - 0.15 * wI * (1 - b10), coreL = 0.62 + 0.38 * b0 - 0.32 * wI * (1 - b0), eyeL = 0.78 + 0.22 * b0, k;
+    if (an && an.blinkT >= 0) {
+      k = an.blinkT;
+      eyeL *= k < 0.05 ? 1 - 0.85 * (k / 0.05) : k < 0.10 ? 0.15 : 0.15 + 0.85 * easeOutCubic((k - 0.10) / 0.10);
+    }
+    var tellP = e.tell > 0 && e.tellMax > 0 ? 1 - e.tell / e.tellMax : 0;
+    P.tellA = 0; P.tellR = 70; P.boltGlow = 0;
+    if (atk === "nova" && at < W) {
+      k = ashNovaTell(at, tellP, P);
+      if (at >= 0.12) { crL += 0.35 * tellP; coreL += 0.35 * tellP; }
+      crL += 0.3 * k;
+      eyeL = Math.max(eyeL, 0.85 + 0.15 * k);
+    } else if (atk === "bolts") {
+      if (at < W + 0.10) eyeL += (0.9 + 0.1 * Math.sin(14 * anT) - eyeL) * (1 - ashClamp01((at - W) / 0.10));
+      P.boltGlow = wa * (at < W ? 0.5 * ashClamp01((at - W + 0.15) / 0.15) : Math.max(0, 0.5 * (1 - (at - W) / 0.02)));   /* perf: last 0.15 s of the wind only */
+    }
+    crL += (B.lit - crL) * B.litW * wa; coreL += (B.lit - coreL) * B.litW * wa; eyeL += (B.eye - eyeL) * B.eyeW * wa;
+    k = e.hitT > 0 ? Math.min(1, e.hitT / 0.2) : 0;
+    if (crL < k) crL = k;
+    if (coreL < k) coreL = k;
+    eyeL += 0.2 * k;
+    crL = crL > 1 ? 1 : crL; coreL = coreL > 1 ? 1 : coreL; eyeL = eyeL > 1 ? 1 : eyeL;
+    var c0 = crL, c1 = crL, c2 = crL;
+    if (spawning) {
+      k = ashClamp01((su - 0.66) / 0.34);
+      eyeL = ashClamp01((su - 0.54) / 0.03) * (1 + (eyeL - 1) * k);
+      c2 = ashClamp01((su - 0.56) / 0.03) * (1 + (crL - 1) * k);
+      c1 = ashClamp01((su - 0.585) / 0.03) * (1 + (crL - 1) * k);
+      c0 = ashClamp01((su - 0.61) / 0.03) * (1 + (crL - 1) * k);
+      coreL = ashClamp01((su - 0.60) / 0.03) * (1 + (coreL - 1) * k);
+    } else if (!alive) {
+      eyeL = dT < 0.60 ? 1 : dT < 0.82 ? 0.45 : 0;
+      c2 = 1 - ashClamp01((dT - 0.62) / 0.13);
+      c1 = 1 - ashClamp01((dT - 0.72) / 0.13);
+      c0 = 1 - ashClamp01((dT - 0.80) / 0.15);
+      coreL = dT < 0.03 ? 1 : dT < 0.62 ? 0.8 : dT < 0.70 ? 0.8 + 0.2 * (dT - 0.62) / 0.08 : 1 - ashClamp01((dT - 0.70) / 0.20);
+    }
+    P.crA[0] = c0; P.crA[1] = c1; P.crA[2] = c2; P.coreA = coreL; P.eyeA = eyeL;
+    P.flashAll = ASH_FLASH_ALL && e.flash > 0;
+    /* the torso rock (≤ 0.10 rad) is applied as a rigid orbit of the axis-aligned parts
+       about the pelvis: the voxel faces stay crisp and the draw needs no canvas rotate
+       (rotated rects cost 1.7-2× on the bench). Planted fists stay on their targets. */
+    if (P.rot) {
+      var rc = Math.cos(P.rot) - 1, rs = Math.sin(P.rot), qx = P.rpx, qy = P.rpy, dx, dy, w;
+      dx = P.tx - qx; dy = P.ty + 1.24 - qy; P.tx += rc * dx - rs * dy; P.ty += rs * dx + rc * dy;
+      dx = P.hx - qx; dy = P.hy + 0.35 - qy; P.hx += rc * dx - rs * dy; P.hy += rs * dx + rc * dy;
+      for (i = 0; i < 2; i++) {
+        A = P.arm[i];
+        dx = A.ux - qx; dy = A.uy - qy; A.ux += rc * dx - rs * dy; A.uy += rs * dx + rc * dy;
+        dx = A.cx - qx; dy = A.cy - qy; A.cx += rc * dx - rs * dy; A.cy += rs * dx + rc * dy;
+        w = 1 - A.pw;
+        dx = A.fx - qx; dy = A.fy - qy; A.fx += (rc * dx - rs * dy) * w; A.fy += (rs * dx + rc * dy) * w;
+        if (A.fx > 1.26) A.fx = 1.26; else if (A.fx < -1.26) A.fx = -1.26;   /* keep the 1.50u extent */
+      }
+      P.rock = P.rot; P.rot = 0;
+    } else P.rock = 0;
+    /* the head roll (≤ 0.12 rad) the same way: each block of the head stack slides by
+       roll × its height above the neck (head 0.33u, hood 0.77u, cap 1.03u) */
+    if (P.hrot) {
+      P.hx += 0.33 * P.hrot; P.hoodX += 0.44 * P.hrot; P.capX += 0.70 * P.hrot;
+      P.roll = P.hrot; P.hrot = 0;
+    } else P.roll = 0;
+    return P;
+  }
+
   /* BB-V7.44 — Ash Titan rebuilt on cube(). Stone golem, not Ash Knight:
      hooded slab head, wide masonry torso, cyan-ember cracks, dual fists.
-     Nova tell paints the safe wedge; the ring itself is the v4 gap attack. */
+     Nova tell paints the safe wedge; the ring itself is the v4 gap attack.
+     BB-V7.72 — posed by ashPose: the same 15 cubes, colours and rects, moved by
+     translation (rotation only for the hurt rock and the death). The draw
+     integrates nothing, and every alpha is relative to the incoming A0. */
   function drawAshTitan(g, e) {
     ensureAshTitan(e);
     var STONE = "#9a8c7c", STONE_D = "#5a5248", HOOD = "#2c3038";
@@ -16080,126 +16938,162 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     e.artH = u * 3.35;
     var x = e.x;
     if (e.bobPhase == null) e.bobPhase = Math.random() * 6.3;
-    var face = e.face || (player && player.x < e.x ? -1 : 1);
-    var bob = Math.sin(S.t * 1.25 + e.bobPhase) * u * 0.03;
-    var crouch = (e.crouch || 0) * u;
-    var lean = (e.lean || 0) * u;
-    var yt = e.y - u * 2.30 + bob + crouch;
+    var A0 = g.globalAlpha, P = ashPose(e, u), yt = e.y - u * 2.30, an = e.ashAn;
     var body = e.flash > 0 ? "#ffffff" : STONE;
+    var dark = P.flashAll ? "#ffffff" : STONE_D, hood = P.flashAll ? "#ffffff" : HOOD, cap = P.flashAll ? "#ffffff" : ASH_HOOD_HI;
     var tell = 0;
     if (e.tell > 0) {
       tell = e.tellMax > 0 ? 1 - Math.max(0, e.tell) / e.tellMax : Math.min(1, e.tell);
     }
+    var thrA = A0 * P.thr, novaTell = e.atk === "nova" && tell > 0;
 
     /* Nova / ring live in world pixels (v4: 196 + 1.15 rad gap). Undo vis
-       so the painted wedge matches the hurt band. */
-    var vis = enemyVis(e) || ASH_VIS;
-    g.save();
-    g.translate(x, e.y);
-    g.scale(1 / vis, 1 / vis);
-    g.translate(-x, -e.y);
-    if (e.atk === "nova" && tell > 0) {
-      g.globalAlpha = 0.16 + tell * 0.32;
-      g.strokeStyle = "#ff5030";
-      g.lineWidth = 3;
-      g.beginPath();
-      g.arc(x, e.y, 70 + Math.sin(S.t * 12) * 6, 0, 6.3);
-      g.stroke();
-      g.globalAlpha = 1;
-      g.fillStyle = "rgba(80,200,80,0.20)";
-      g.beginPath();
-      g.moveTo(x, e.y);
-      g.arc(x, e.y, 196, e.gap - 0.575, e.gap + 0.575);
-      g.closePath();
-      g.fill();
-      g.strokeStyle = "rgba(128,240,128," + (0.35 + tell * 0.45) + ")";
-      g.lineWidth = 3;
-      g.beginPath();
-      g.arc(x, e.y, 196, e.gap - 0.575, e.gap + 0.575);
-      g.stroke();
-    }
-    if (e.ringOn) {
-      g.globalAlpha = 1;
-      g.strokeStyle = "#ff6030";
-      g.lineWidth = 8;
-      g.beginPath();
-      g.arc(e.x, e.y, e.ringR, e.gap + 0.575, e.gap - 0.575 + Math.PI * 2);
-      g.stroke();
-      g.strokeStyle = "#80f080";
-      g.lineWidth = 6;
-      g.beginPath();
-      g.arc(e.x, e.y, e.ringR, e.gap - 0.575, e.gap + 0.575);
-      g.stroke();
-    }
-    g.restore();
-    if (tell > 0 && e.atk === "bolts") {
+       so the painted wedge matches the hurt band. BB-V7.72 — threats fade with
+       the corpse (thr) instead of hanging on for the whole death fade. */
+    if (thrA > 0 && (novaTell || e.ringOn)) {
+      var vis = enemyVis(e) || ASH_VIS;
       g.save();
-      g.globalAlpha = 0.18 + tell * 0.34;
+      g.translate(x, e.y);
+      g.scale(1 / vis, 1 / vis);
+      g.translate(-x, -e.y);
+      if (novaTell) {
+        /* BB-V7.72 — ASH-08: three beats, then the tell collapses into the live ring */
+        g.globalAlpha = A0 * P.tellA;
+        g.strokeStyle = "#ff5030";
+        g.lineWidth = 3;
+        g.beginPath();
+        g.arc(x, e.y, P.tellR, 0, 6.3);
+        g.stroke();
+        g.globalAlpha = thrA;
+        g.fillStyle = "rgba(80,200,80,0.20)";
+        g.beginPath();
+        g.moveTo(x, e.y);
+        g.arc(x, e.y, 196, e.gap - 0.575, e.gap + 0.575);
+        g.closePath();
+        g.fill();
+        g.strokeStyle = "rgba(128,240,128," + (0.35 + tell * 0.45) + ")";
+        g.lineWidth = 3;
+        g.beginPath();
+        g.arc(x, e.y, 196, e.gap - 0.575, e.gap + 0.575);
+        g.stroke();
+      }
+      if (e.ringOn) {
+        g.globalAlpha = thrA;
+        g.strokeStyle = "#ff6030";
+        g.lineWidth = 8;
+        g.beginPath();
+        g.arc(e.x, e.y, e.ringR, e.gap + 0.575, e.gap - 0.575 + Math.PI * 2);
+        g.stroke();
+        g.strokeStyle = "#80f080";
+        g.lineWidth = 6;
+        g.beginPath();
+        g.arc(e.x, e.y, e.ringR, e.gap - 0.575, e.gap + 0.575);
+        g.stroke();
+      }
+      g.restore();
+    }
+    if (tell > 0 && e.atk === "bolts" && thrA > 0) {
+      g.globalAlpha = thrA * (0.18 + tell * 0.34);
       g.strokeStyle = CYAN;
       g.lineWidth = 2.4;
       g.beginPath();
-      g.arc(x, e.y - u * 0.3, u * (1.05 + tell * 0.4) + Math.sin(S.t * 15) * u * 0.05, 0, 6.3);
+      g.arc(x, e.y - u * 0.3, u * (1.05 + tell * 0.4) + Math.sin((an ? an.t : 0) * 15) * u * 0.05, 0, 6.3);
       g.stroke();
-      g.restore();
     }
 
-    g.save(); g.globalAlpha = 0.52; g.fillStyle = "#0a0806";
-    g.beginPath();
-    g.ellipse(x + lean * 0.12, e.y + u * 0.30, u * (1.32 + (e.crouch || 0) * 0.28), u * 0.36, 0, 0, 6.3);
-    g.fill(); g.restore();
+    var BA = A0 * P.bodyA, shRx = u * P.shRx, shRy = u * 0.36;
+    g.globalAlpha = BA * 0.52 * P.shA;
+    g.fillStyle = "#0a0806";
+    if (ellipseOk(shRx, shRy)) {
+      g.beginPath();
+      g.ellipse(x + P.shX * u, e.y + u * 0.30, shRx, shRy, 0, 0, 6.3);
+      g.fill();
+    }
+    if (P.hidden) { g.globalAlpha = A0; return; }
+    /* rise / sink: everything below the floor line is clipped (no squash) */
+    var cy = P.clipDY * u, i;
+    if (P.clipOn) {
+      g.save();
+      g.beginPath();
+      g.rect(x - 2.0 * u, e.y - 4.4 * u, 4.0 * u, 4.45 * u);
+      g.clip();
+    }
+    g.globalAlpha = BA;
 
-    g.save();
-    g.translate(lean, 0);
+    /* cape: three slabs on springs; the hem pools on the floor line */
+    var floorY = e.y + u * 0.04, cx0, cy0, cw, ch, cz, over;
+    for (i = 0; i < 3; i++) {
+      cw = i === 0 ? 0.42 : i === 1 ? 0.84 : 0.50;
+      cx0 = (i === 0 ? -1.05 : i === 1 ? -0.42 : 0.42) + P.capeX[i] - cw * (P.capeW[i] - 1) * 0.5;
+      cw *= P.capeW[i];
+      cy0 = yt + ((i === 0 ? 0.48 : i === 1 ? 0.40 : 0.50) + P.capeDY) * u;
+      ch = ((i === 0 ? 1.55 : i === 1 ? 1.68 : 1.48) + P.capeHem) * u;
+      cz = (i === 1 ? 0.10 : 0.08) * u;
+      over = cy0 + ch + cz - floorY;
+      cx0 = x + cx0 * u; cw *= u;
+      if (over > 0) { ch = Math.max(u * 0.2, ch - over); cw += 0.5 * over; cx0 -= 0.25 * over; }
+      cube(g, cx0, cy0 + cy, cw, ch, cz, i === 1 ? CLOAK : HOOD);
+    }
 
-    var sway = Math.sin((e.capesway || 0) * 1.1) * u * 0.05 - lean * 0.08;
-    var capeDrop = (e.crouch || 0) * u * 0.16;
-    cube(g, x - u * 1.05 + sway, yt + u * 0.48, u * 0.42, u * 1.55 + capeDrop, u * 0.08, HOOD);
-    cube(g, x - u * 0.42 + sway * 0.4, yt + u * 0.40, u * 0.84, u * 1.68 + capeDrop, u * 0.10, CLOAK);
-    cube(g, x + u * 0.42 + sway * 0.3, yt + u * 0.50, u * 0.50, u * 1.48 + capeDrop, u * 0.08, HOOD);
+    /* legs: planted on world anchors; only the swing foot lifts */
+    cube(g, x + (P.footX[0] - 0.48) * u, yt + (1.78 + P.footY[0] - P.lift[0]) * u + cy, u * 0.38, u * 0.38, u * 0.18, dark);
+    cube(g, x + (P.footX[1] + 0.12) * u, yt + (1.78 + P.footY[1] - P.lift[1]) * u + cy, u * 0.38, u * 0.38, u * 0.18, dark);
 
-    var stride = (e.stride || 0) * u;
-    cube(g, x - u * 0.48, yt + u * 1.78 + stride, u * 0.38, u * 0.38, u * 0.18, STONE_D);
-    cube(g, x + u * 0.12, yt + u * 1.78 - stride, u * 0.38, u * 0.38, u * 0.18, STONE_D);
-
-    cube(g, x - u * 0.62, yt + u * 0.68, u * 1.24, u * 1.12, u * 0.32, body);
-    g.fillStyle = shade(body, 0.62);
-    g.fillRect(x - u * 0.52, yt + u * 0.92, u * 1.04, u * 0.08);
-    g.fillRect(x - u * 0.52, yt + u * 1.22, u * 1.04, u * 0.08);
-    g.fillRect(x - u * 0.52, yt + u * 1.50, u * 1.04, u * 0.08);
+    /* upper body: the ≤3 % squash about the floor line (3 ticks at the slam, 2 at the
+       stomp). The torso rock is already in the part positions (ashPose orbit). */
+    var wrap = P.sq !== 0;
+    if (wrap) {
+      g.save();
+      var sqY = floorY + cy;
+      g.translate(x, sqY); g.scale(1 + P.sq, 1 - P.sq); g.translate(-x, -sqY);
+    }
+    var tX = x + P.tx * u, tY = yt + P.ty * u;
+    cube(g, tX - u * 0.62, tY + u * 0.68, u * 1.24, u * 1.12, u * 0.32, body);
+    g.fillStyle = e.flash > 0 ? ASH_BAND_W : ASH_BAND;
+    g.fillRect(tX - u * 0.52, tY + u * 0.92, u * 1.04, u * 0.08);
+    g.fillRect(tX - u * 0.52, tY + u * 1.22, u * 1.04, u * 0.08);
+    g.fillRect(tX - u * 0.52, tY + u * 1.50, u * 1.04, u * 0.08);
     g.fillStyle = CRACK;
-    g.globalAlpha = 0.55 + 0.35 * Math.sin(S.t * 3.0 + e.bobPhase);
-    g.fillRect(x - u * 0.10, yt + u * 0.86, u * 0.06, u * 0.72);
-    g.fillRect(x - u * 0.36, yt + u * 1.10, u * 0.28, u * 0.05);
-    g.fillRect(x + u * 0.12, yt + u * 1.36, u * 0.30, u * 0.05);
-    g.globalAlpha = 1;
+    g.globalAlpha = BA * P.crA[0];
+    g.fillRect(tX - u * 0.10, tY + u * 0.86, u * 0.06, u * 0.72);
+    if (P.crA[1] !== P.crA[0]) g.globalAlpha = BA * P.crA[1];
+    g.fillRect(tX - u * 0.36, tY + u * 1.10, u * 0.28, u * 0.05);
+    if (P.crA[2] !== P.crA[1]) g.globalAlpha = BA * P.crA[2];
+    g.fillRect(tX + u * 0.12, tY + u * 1.36, u * 0.30, u * 0.05);
     g.fillStyle = EMBER;
-    g.globalAlpha = 0.6 + 0.4 * Math.sin(S.t * 3.8 + e.bobPhase);
-    g.fillRect(x - u * 0.12, yt + u * 1.12, u * 0.24, u * 0.20);
-    g.globalAlpha = 1;
+    g.globalAlpha = BA * P.coreA;
+    g.fillRect(tX - u * 0.12, tY + u * 1.12, u * 0.24, u * 0.20);
+    g.globalAlpha = BA;
 
-    var armLift = (e.armLift || 0) * u;
-    cube(g, x - u * 1.18, yt + u * 0.62 - armLift * 0.55, u * 0.52, u * 0.72, u * 0.24, STONE_D);
-    cube(g, x + u * 0.66, yt + u * 0.62 - armLift * 0.4, u * 0.52, u * 0.72, u * 0.24, STONE_D);
-    cube(g, x - u * 1.22, yt + u * 1.22 - armLift * 0.55, u * 0.48, u * 0.38, u * 0.20, body);
-    cube(g, x + u * 0.74, yt + u * 1.22 - armLift * 0.4, u * 0.48, u * 0.38, u * 0.20, body);
-    cube(g, x - u * 1.08, yt + u * 0.28, u * 0.14, u * 0.36, u * 0.07, CRACK);
-    cube(g, x + u * 0.94, yt + u * 0.28, u * 0.14, u * 0.36, u * 0.07, CRACK);
+    /* arms, per side: upper arm → crystal → fist (the crystal tucks behind a raised fist) */
+    var AR;
+    for (i = 0; i < 2; i++) {
+      AR = P.arm[i];
+      cube(g, x + (AR.ux - 0.26) * u, yt + (AR.uy - 0.36) * u, u * 0.52, u * 0.72, u * 0.24, dark);
+      cube(g, x + (AR.cx - 0.07) * u, yt + (AR.cy - 0.18) * u, u * 0.14, u * 0.36, u * 0.07, CRACK);
+      cube(g, x + (AR.fx - 0.24) * u, yt + (AR.fy - 0.19) * u, u * 0.48, u * 0.38, u * 0.20, body);
+      if (P.boltGlow > 0 && !S.fxLite && (i ? 1 : -1) === P.lead) {
+        glowAt(g, "159,232,240", x + AR.fx * u, yt + AR.fy * u, u * 0.35, u * 0.35, BA * P.thr * P.boltGlow);
+        g.globalAlpha = BA;
+      }
+    }
 
-    cube(g, x - u * 0.48, yt + u * 0.02, u * 0.96, u * 0.66, u * 0.26, body);
-    cube(g, x - u * 0.58, yt - u * 0.28, u * 1.16, u * 0.38, u * 0.14, HOOD);
-    cube(g, x - u * 0.50, yt - u * 0.46, u * 1.00, u * 0.22, u * 0.10, shade(HOOD, 1.15));
+    /* head group: head, hood and cap (parallax on turns), sockets, eyes */
+    var hX = x + P.hx * u, hY = yt + P.hy * u;
+    cube(g, hX - u * 0.48, hY + u * 0.02, u * 0.96, u * 0.66, u * 0.26, body);
+    cube(g, hX + (P.hoodX - 0.58) * u, hY - u * 0.28, u * 1.16, u * 0.38, u * 0.14, hood);
+    cube(g, hX + (P.capX - 0.50) * u, hY - u * 0.46, u * 1.00, u * 0.22, u * 0.10, cap);
     g.fillStyle = "#0a0808";
-    g.fillRect(x - u * 0.30, yt + u * 0.20, u * 0.24, u * 0.22);
-    g.fillRect(x + u * 0.06, yt + u * 0.20, u * 0.24, u * 0.22);
+    g.fillRect(hX - u * 0.30, hY + u * 0.20, u * 0.24, u * 0.22);
+    g.fillRect(hX + u * 0.06, hY + u * 0.20, u * 0.24, u * 0.22);
     g.fillStyle = CYAN;
-    var glow = 0.55 + 0.45 * Math.sin(S.t * 2.8 + e.bobPhase);
-    if (tell > 0) glow = 0.9 + 0.1 * Math.sin(S.t * 14);
-    g.globalAlpha = Math.min(1, glow);
-    g.fillRect(x - u * 0.24 + face * u * 0.03, yt + u * 0.26, u * 0.13, u * 0.11);
-    g.fillRect(x + u * 0.12 + face * u * 0.03, yt + u * 0.26, u * 0.13, u * 0.11);
-    g.globalAlpha = 1;
-
-    g.restore();
+    g.globalAlpha = BA * P.eyeA;
+    g.fillRect(hX + (P.ex - 0.24) * u, hY + (0.26 + P.ey) * u, u * 0.13, u * 0.11);
+    g.fillRect(hX + (P.ex + 0.12) * u, hY + (0.26 + P.ey) * u, u * 0.13, u * 0.11);
+    g.globalAlpha = BA;
+    if (wrap) g.restore();
+    if (P.clipOn) g.restore();
+    g.globalAlpha = A0;
   }
 
   /* BB-V7.44 — Thorn Queen rebuilt on cube(). Briar monarch: bloom crown,
@@ -17156,6 +18050,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
        shadow fades in, as the ring opens. */
     if (!e.alive && e.dieDelay != null && e.boss === "court") a = Math.min(1, Math.max(0, e.deadT) / 0.40);
     if (e.boss === "court" && e.spawnT > 0 && e.spawnMax) a *= Math.min(1, (1 - e.spawnT / e.spawnMax) / 0.3);
+    if (e.boss === "ash" && !e.alive) a = 1; /* BB-V7.72 — the Titan owns its death fade (ASH-13) */
     g.globalAlpha = a;
     if (!e.alive && e.boss === "slag" && SLAG_ANIM) g.globalAlpha = 1; /* BB-V7.72 slag owns its death fade */
     /* BB-V7.15 — trash / knight / lord each have their own vis. Hurtboxes are
@@ -17168,6 +18063,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       var su = 1 - e.spawnT / e.spawnMax;
       var rise = su < 0.3 ? 0.02 : Math.max(0.02, easeOutBack((su - 0.3) / 0.7));
       if (e.boss === "slag" && SLAG_ANIM) { rise = 1; su = 1; a = 1; } /* BB-V7.72 slag rises at scale 1 and owns its alpha */
+      if (e.boss === "ash") rise = 1; /* BB-V7.72 — the Titan climbs out itself; the spawn fade stays (ASH-12) */
       g.globalAlpha = a * Math.min(1, su * 2);
       g.translate(e.x, e.y);
       g.scale(1 + (1 - Math.min(1, rise)) * 0.3, rise);
