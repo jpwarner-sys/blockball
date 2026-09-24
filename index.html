@@ -3906,15 +3906,18 @@
            grows with distance keeps the far rim off one frame. One still
            rising dies at once. alive is false right now, so the clear,
            contacts and the ball are unchanged — only the break-up (sparks,
-           then a court guard's landing burst, in updateEnemies; the pose in
+           and burst, in updateEnemies; the pose in
            the draw) waits. */
         if (en.boss === "lord") {
           var rk = 1 - Math.exp(-Math.hypot(tr.x - en.x, tr.y - en.y) / 560);
           tr.dieDelay = tr.spawnT > 0 ? 0 : 0.25 + 0.4 * rk + (prand() - 0.5) * 0.05 * rk;
+          /* cosmetic kill-frame snapshot for the stiffened pose (draw only) */
+          tr.dieS = S.t; tr.diePX = player ? player.x : tr.x;
+          tr.dieFace = (tr.aimX != null && tr.atk) ? (tr.aimX < 0 ? -1 : 1) : (tr.diePX < tr.x ? -1 : 1);
         }
         tr.deadT = 0.55 + (tr.dieDelay || 0);
         tr.deadMax = tr.deadT;
-        if (tr.dieDelay) { tr.dieBurst = true; tr.dieLand = tr.boss === "court"; }
+        if (tr.dieDelay) tr.dieBurst = true;
         else burst(tr.x, tr.y, tr.col, 8);
       }
     }
@@ -4771,17 +4774,11 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
         e.deadT -= dt;
         /* BB-V7.72 — SK-20: an add the lord's fall killed breaks up when the
            ripple reaches it (startBossDeath set dieDelay), not on his kill.
-           A court guard's life leaves first (gold sparks from the chest);
-           its burst and floor ring land with its crushed body at el 0.33. */
+           A court guard also sheds gold sparks from the chest. */
         if (e.dieBurst && e.deadMax - e.deadT >= e.dieDelay) {
           e.dieBurst = false;
-          if (e.boss === "court") sparks(e.x, e.y - artR(e) * 1.35 * COURT_VIS * 1.2, "#ffd24a", S.fxLite ? 3 : 6, -Math.PI / 2, 2.4);
-          else burst(e.x, e.y, e.col, 8);
-        }
-        if (e.dieLand && e.deadMax - e.deadT >= e.dieDelay + 0.33) {
-          e.dieLand = false;
           burst(e.x, e.y, e.col, 8);
-          floorRing(e.x, e.y + 4, "#6a5a44", 6, 34, 0.3);
+          if (e.boss === "court") sparks(e.x, e.y - artR(e) * 1.35 * COURT_VIS * 1.2, "#ffd24a", S.fxLite ? 3 : 6, -Math.PI / 2, 2.4);
         }
         continue;
       }
@@ -10647,21 +10644,23 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
              : (player && player.x < e.x ? -1 : 1);
     /* BB-V7.72 — SK-20 (draw only): a guard the lord's fall killed (dieDelay
        set in startBossDeath; a hero's kill keeps its plain fade) stiffens on
-       his kill frame: its S.t idle (breath, cape sway, gem pulse) freezes at
-       the kill (cT) and any attack tell (blade lift, swing) sags to rest over
-       0.15 s. cEl is the time since the ripple reached it (< 0 while it waits). */
+       his kill frame: its facing and S.t idle (breath, cape sway, gem pulse)
+       freeze at the kill (dieFace, dieS: snapshots, so hitStop and pause
+       do not drift them), a swing holds, and its lift, lean and crouch sag
+       to rest over 0.15 s. cEl is the time since the ripple reached it (< 0 while it waits). */
     var cDie = !e.alive && e.dieDelay != null && e.deadMax != null;
     var cEl = cDie ? e.deadMax - e.deadT - e.dieDelay : null;
-    var cT = cDie ? S.t - Math.max(0, e.deadMax - e.deadT) : S.t;
+    if (cDie && e.dieFace) face = e.dieFace;
+    var cT = (cDie && e.dieS != null) ? e.dieS : S.t;
     var cSag = 1, cQ;
     if (cDie) { cQ = Math.min(1, Math.max(0, (e.deadMax - e.deadT) / 0.15)); cSag = 1 - cQ * (2 - cQ); }
     var liftPose = (e.bladeLift != null && e.bladeLift > 0) ? e.bladeLift * cSag : 0;
     var bob = Math.sin(cT * 1.8 + e.bobPhase) * u * 0.04 - liftPose * u * 0.06;
-    var crouch = (e.crouch || 0) * u;
-    var lean = (e.lean || 0) * u;
+    var crouch = (e.crouch || 0) * cSag * u;
+    var lean = (e.lean || 0) * cSag * u;
     var yt = e.y - u * 2.15 + bob + crouch;
     var body = e.flash > 0 ? "#ffffff" : BONE;
-    var swing = (e.swing || 0) * cSag;
+    var swing = e.swing || 0;
     /* BB-V7.72 — alpha root: every alpha is relative to the fade drawEnemy
        handed in, so the guard fades as one piece instead of bottom-up. */
     var A0 = g.globalAlpha;
@@ -10924,9 +10923,10 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
   function drawMob(g, e, a) {
     var r = artR(e), x = e.x, y = e.y, gy = y + r * 1.05;
     if (e.bobPhase == null) e.bobPhase = Math.random() * 6.3;
-    var ph = e.bobPhase, t = S.t, f = e.facing || 1;
+    var ph = e.bobPhase, f = e.facing || 1;
     var col = e.col, u = mobWind(e);
     var flash = e.flash > 0, sx = 1, sy = 1, alpha = a, dead = !e.alive;
+    var t = (dead && e.dieS != null) ? e.dieS : S.t; /* BB-V7.72 — SK-20: stiffen at the kill */
     /* BB-V7.72 — SK-20: an add the lord's fall killed keeps its live pose
        until the ripple reaches it (el < 0), then pops; one caught half-risen
        pops from its frozen rise instead of snapping to full height. */
@@ -10954,7 +10954,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     }
     if (alpha <= 0.01) return;
     function P(c) { return flash ? "#ffffff" : c; }
-    var moving = !!e.moving && !dead && !(e.spawnT > 0);
+    var moving = !!e.moving && (!dead || e.dieS != null) && !(e.spawnT > 0);
     var step = moving ? Math.sin(e.walkT || 0) : 0;
     var bob = Math.sin(t * (e.wob || 4) + ph) * r * 0.06;
     var fly = e.kind === "swoop" || e.type === "cinder" || e.type === "voider" || e.type === "witchling";
@@ -10969,7 +10969,8 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     g.translate(x, gy); g.scale(sx, sy); g.translate(-x, -gy);
     if (e.daze > 0) g.translate(Math.sin(t * 9) * r * 0.06, 0);
     var tp = e.type, dark = shade(col, 0.6), lite = shade(col, 1.3), i;
-    var eyeCol = "#111", lookX = player ? Math.max(-1, Math.min(1, (player.x - x) / 160)) * r * 0.06 : 0;
+    var lkX = (dead && e.diePX != null) ? e.diePX : (player ? player.x : x);
+    var eyeCol = "#111", lookX = player ? Math.max(-1, Math.min(1, (lkX - x) / 160)) * r * 0.06 : 0;
     if (tp === "slime") {
       var hop = moving ? Math.abs(Math.sin((e.walkT || 0) * 0.85)) : 0;
       var squish = moving ? Math.max(0, 1 - hop * 3) : 0.5 + 0.5 * Math.sin(t * 3 + ph);
@@ -11317,13 +11318,13 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     var a = !e.alive ? Math.max(0, e.deadT) : 1;
     drawSpawnRing(g, e);
     if (!e.boss && e.alive) drawMobTell(g, e);
-    /* BB-V7.72 — SK-20: an add the lord's fall killed stays solid through its
-       ripple delay, then fades over its last 0.55 s; a court guard holds
-       solid through most of its crush (to el 0.15) and dissolves as a pile
-       over its last 0.40 s. SK-19: a rising court guard climbs out of the
+    /* BB-V7.72 — SK-20: a court guard the lord's fall killed stays solid
+       through its ripple delay and most of its crush (to el 0.15), then
+       dissolves as a pile over its last 0.40 s (trash sets its own alpha in
+       drawMob: solid while it waits, then its 0.26 s pop). SK-19: a rising court guard climbs out of the
        floor in drawSkullCourt (not the squash-scale below); only its floor
        shadow fades in, as the ring opens. */
-    if (!e.alive && e.dieDelay != null) a = Math.min(1, Math.max(0, e.deadT) / (e.boss === "court" ? 0.40 : 0.55));
+    if (!e.alive && e.dieDelay != null && e.boss === "court") a = Math.min(1, Math.max(0, e.deadT) / 0.40);
     if (e.boss === "court" && e.spawnT > 0 && e.spawnMax) a *= Math.min(1, (1 - e.spawnT / e.spawnMax) / 0.3);
     g.globalAlpha = a;
     /* BB-V7.15 — trash / knight / lord each have their own vis. Hurtboxes are
