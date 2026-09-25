@@ -1148,7 +1148,9 @@
      old bottom strip also soaked up lordZ's easing lag while the hero ran
      out of the band; the cap now looks LORD_CAM_LEAD s ahead of his run
      instead. When the band is still short, the hero's feet stay on screen
-     first, then the tops clear the HUD, then the foot margins give. */
+     first, then the tops clear the HUD, then the foot margins give.
+     BB-V7.74 r2 — the band's top also takes in the wind-up key's top
+     (LORD_CAM_KEY_CLEAR), lowered by the HUD over the key. */
   var LORD_CAM_TOP = "crown";
   var LORD_CAM_CROWN_U = 3.37;  /* feet -> crown peak */
   var LORD_CAM_KEY_U = 4.63;    /* feet -> key top */
@@ -1167,6 +1169,21 @@
   var LORD_CAM_LEAD = 0.3;      /* BB-V7.74: s of the hero's run the cap looks ahead (lordZ's own lag) */
   var LORD_CAM_LEAD_MAX = 90;   /* BB-V7.74: world px, at most (a knockback is not a run) */
   var LORD_CAM_FOOT = 12;       /* BB-V7.74: CSS px (+ safe-area inset) below the hero's feet pad */
+  /* BB-V7.74 r2 — the wind-up key's top in the band, whatever
+     LORD_CAM_TOP: "hud" (shipped) keeps it below the bar strip and any
+     chip over the key (lordCamClear over its bow's width), "edge" only
+     below the safe-area inset (it may cross the bar), "none" leaves it
+     best effort as in v7.73 and round 1. Measured on the scripted fight
+     (keyCut = frames where the key's top is off the top edge; tile = CSS
+     px per TILE, mean): 844x390 none 65 % / 21.3, edge 0 % (20 % under
+     the bar) / 18.5, hud 0 % / 17.0; 667x375 none 63 % / 19.7, hud 0 % /
+     15.7; 960x540 none 75 % / 30.1, hud 0 % / 23.7. v7.73 cut it in 85-88 %
+     at all three. The pose raises the key up to about 0.17 U (a roar or
+     wind-up); LORD_CAM_KEY_RISE_U covers most of it and the gap the rest. */
+  var LORD_CAM_KEY_CLEAR = "hud";
+  var LORD_CAM_KEY_HALF_U = 0.62; /* bow half width, nubs included */
+  var LORD_CAM_KEY_RISE_U = 0.12; /* pose headroom over the rest-pose key top */
+  var LORD_CAM_KEY_PAD = 10;      /* world px above it at least */
   /* BB-V7.15 — draw scale and hurtboxes follow what is painted, not one shared
      boss multiplier. Trash / knights / Skull Lord each get their own vis, and
      contact boxes are authored from the silhouette (torso), not r*N. */
@@ -11528,8 +11545,13 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      still on a phone, the south gives up to 0.8 tile), the name gets a dim
      plate so a backboard the view scrolls under it never shows between the
      letters, and the bar keeps 12 px from a chip just under it when it
-     can stay at 80 % width. Draw and camera only; the fight is unchanged
-     tick for tick. */
+     can stay at 80 % width. Review round 2: the Skull Lord camera now
+     frames his whole wind-up key, not just the crown, below the bar and
+     any chip over it (on a phone the key used to run through the bar and
+     off the top in most fight frames; the view is about a fifth wider
+     there), and it keeps his court's backboard off the bar strip when the
+     view can (lordCamHoopY, lordCamHoopTop). Draw and camera only; the
+     fight is unchanged tick for tick. */
   var BUILD = "v7.74";
   var FEEL_DEF = { spd: 250, accel: 2600, brake: 3600, throwSpd: 620, aimMode: "drag", aimDead: 2, aimHold: 64 };
   var FEEL = (function () {
@@ -11845,6 +11867,17 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     var hTop = hy - LORD_CAM_HERO_UP - Math.max(LORD_CAM_PAD_TOP, rh);
     var crown = lord.y - U * LORD_CAM_CROWN_U - Math.max(LORD_CAM_PAD_TOP, rc);
     var key = lord.y - U * LORD_CAM_KEY_U - Math.max(LORD_CAM_PAD_KEY, rc);
+    /* BB-V7.74 r2 — the key's own top (LORD_CAM_KEY_CLEAR): at least the
+       safe-area inset plus LORD_CAM_HUD_GAP down, and under the HUD over
+       its bow ("hud"), with pose headroom; it tops crown and key both. */
+    if (LORD_CAM_KEY_CLEAR !== "none") {
+      var kh = U * LORD_CAM_KEY_HALF_U;
+      var rk = Math.max(M.safeT + LORD_CAM_HUD_GAP * L.dpr, LORD_CAM_KEY_CLEAR === "hud" ?
+        lordCamClear((lord.x - kh - camX) * s, (lord.x + kh - camX) * s, L, M) : 0);
+      var kf = lord.y - U * (LORD_CAM_KEY_U + LORD_CAM_KEY_RISE_U) - Math.max(LORD_CAM_KEY_PAD, rk / s);
+      if (kf < crown) crown = kf;
+      if (kf < key) key = kf;
+    }
     return { top: Math.min(LORD_CAM_TOP === "key" ? key : crown, hTop), key: Math.min(key, hTop) };
   }
 
@@ -11866,7 +11899,24 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     var tp = lordCamTops(lord, hx, hy, cx, s, L, M), ta = lordCamTops(lord, ax, ay, cx, s, L, M);
     var top = Math.max(Math.min(tp.top, ta.top), t.worldTop);
     var bot = Math.max(Math.min(b.botL, t.hh), Math.min(b.botH + rb / s, t.hh));
+    var hp = lordCamHoopTop(top, s, cx, L);
+    if (hp < top) top = hp;
     return (bot - top) * s;
+  }
+
+  /* BB-V7.74 r2 — the band's top at scale s with the view's left edge at
+     camX, taken up to the hoop when the court's backboard is over the top
+     boss bar strip on that screen and would still show under it with the
+     view's top at top (so the view could not hide it above the strip):
+     then the backboard's top has to clear the strip (lordCamHoopY's "up"),
+     which is the band's top instead. Else top. Camera-only. */
+  function lordCamHoopTop(top, s, camX, L) {
+    var h = room && room.hoop;
+    if (!h || S.mode !== "play") return top;
+    var gap = BAR_HOOP_GAP * L.dpr, hw = TILE * HOOP_BOARD_W * 0.5;
+    if ((h.x + hw - camX) * s <= L.l - gap || (h.x - hw - camX) * s >= L.r + gap) return top;
+    if (h.y + h.r + 6 - (L.top - gap) / s <= top) return top;
+    return Math.min(top, h.boardY - TILE * HOOP_BOARD_H * 0.5 - (L.bottom + gap) / s);
   }
 
   /* BB-V7.73 — the most zoom that fits the band on the canvas. It is a
@@ -11963,6 +12013,30 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     return room && room.spec && room.spec.piece === "skullLair" ? 0 : HOOP_CROP * TILE;
   }
 
+  /* BB-V7.74 r2 — the Skull Lord camera frames its own band (lordCamTops),
+     not the hoop-clear fit, so his court's backboard could scroll under the
+     top boss bar strip (a hero coming in from the north door; the backboard
+     sits above the nave). When the view's top edge y0 = py - vH / 2 would
+     put the backboard (its top down to the net) across the strip (x and y,
+     with BAR_HOOP_GAP), move it to the nearer edge that clears it: up until
+     the board's top is under the strip, as long as the feet line lbot stays
+     on screen, or down until the net is hidden above the strip, as long as
+     the lowered tops (lordTop) stay on screen (and the view stays inside
+     the floor's south edge). If neither is free, it stays. The follow eases the move. Camera-only (reads room.hoop). */
+  function lordCamHoopY(py, vH, s, camX, L, lordTop, lbot) {
+    var h = room && room.hoop;
+    if (!h || S.mode !== "play") return py;
+    var gap = BAR_HOOP_GAP * L.dpr, hw = TILE * HOOP_BOARD_W * 0.5;
+    if ((h.x + hw - camX) * s <= L.l - gap || (h.x - hw - camX) * s >= L.r + gap) return py;
+    var bt = h.boardY - TILE * HOOP_BOARD_H * 0.5, bb = h.y + h.r + 6;
+    var y0 = py - vH * 0.5, up = bt - (L.bottom + gap) / s, dn = bb - (L.top - gap) / s;
+    if (y0 <= up || y0 >= dn) return py;
+    var okU = up + vH >= lbot, okD = dn <= lordTop && dn + vH <= playH();
+    if (okU && (!okD || y0 - up <= dn - y0)) return up + vH * 0.5;
+    if (okD) return dn + vH * 0.5;
+    return py;
+  }
+
   function cameraTarget() {
     var cw = canvas.width, ch = canvas.height;
     var cssW = Math.max(1, window.innerWidth);
@@ -12044,11 +12118,13 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       if (lordF) {
         var lb = lordCamBand(lordF, px, py);
         var lvH = ch / scale;
-        var ltp = lordCamTops(lordF, px, py, lordCamX(lb, scale, ww), scale, bossBarLayout(cw, ch, lordF), hudBoxes());
+        var lL = bossBarLayout(cw, ch, lordF), lcx = lordCamX(lb, scale, ww);
+        var ltp = lordCamTops(lordF, px, py, lcx, scale, lL, hudBoxes());
         var lbot = Math.max(lb.botL, lb.botH + lordCamFoot(cw) / scale);
         px = (lb.left + lb.right) * 0.5;
         py = Math.min(Math.max((ltp.key + lbot) * 0.5, lbot - lvH * 0.5), ltp.top + lvH * 0.5);
         py = Math.max(py, lb.botH - lvH * 0.5);
+        py = lordCamHoopY(py, lvH, scale, lcx, lL, ltp.top, lbot);
       }
     }
     S.lordZoom = lz;
@@ -12065,8 +12141,13 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
        nothing once the court is taller than the view by as much, so a
        scrolling view still reaches the south wall. */
     var camTop = worldTop, camBot = hh, camH = worldH;
-    if (hoopR > 0) {
-      camTop = Math.min(worldTop, hoopT - hoopR / scale);
+    /* BB-V7.74 r2 — the Skull Lord camera eases on its own follow, so its
+       clamp takes the full hoop clearance at once (lordCamHoopY may need
+       it while hoopR is still easing in from 0 at the fight's start). */
+    var hoopRT = lordF && room.hoop ? Math.max(hoopR, hoopClearR()) : hoopR;
+    if (hoopRT > 0) {
+      hoopT = room.hoop.boardY - TILE * HOOP_BOARD_H * 0.5;
+      camTop = Math.min(worldTop, hoopT - hoopRT / scale);
       var hq = viewH - worldH, hc = camHoopCrop() * idle;
       camBot = hh - Math.max(0, Math.min(worldTop - camTop - hq, hc, hc + hq));
       camH = camBot - camTop;
