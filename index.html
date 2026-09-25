@@ -11522,8 +11522,14 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      Lord camera's reserved strip moved to the top with it (his crown and
      the hero's hat stay below the bar and any chip over them), the hero's
      feet keep a small margin off the foot, and the zoom cap looks 0.3 s
-     ahead of the hero's run so the eased zoom keeps up. Draw and camera
-     only; the fight is unchanged tick for tick. */
+     ahead of the hero's run so the eased zoom keeps up. Review round 1:
+     a big boss court's camera keeps the hoop's backboard below the bar
+     (the court fit, and the clamp may look above the north wall; standing
+     still on a phone, the south gives up to 0.8 tile), the name gets a dim
+     plate so a backboard the view scrolls under it never shows between the
+     letters, and the bar keeps 12 px from a chip just under it when it
+     can stay at 80 % width. Draw and camera only; the fight is unchanged
+     tick for tick. */
   var BUILD = "v7.74";
   var FEEL_DEF = { spd: 250, accel: 2600, brake: 3600, throwSpd: 620, aimMode: "drag", aimDead: 2, aimHold: 64 };
   var FEEL = (function () {
@@ -11931,6 +11937,32 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     return zg < follow.lordCap ? zg : follow.lordCap;
   }
 
+  /* BB-V7.74 — canvas px from the top of the screen that the boss court's
+     backboard top keeps below: the foot of the top boss bar strip (bar and
+     name, bossBarLayout) plus BAR_HOOP_GAP, while a big boss lives in a
+     room with a hoop; else 0. The hoop sits at the top centre of every big
+     boss court, right under the bar. camHoopR is the eased value the
+     camera uses (camera-local state on camFollow, fresh per room). */
+  var BAR_HOOP_GAP = 6;
+  var CAM_HOOP_RATE = 2.5;
+  function hoopClearR() {
+    if (!room || !room.hoop || S.mode !== "play") return 0;
+    var e = liveBigBoss();
+    if (!e) return 0;
+    var L = bossBarLayout(canvas.width, canvas.height, e);
+    return L.bottom + BAR_HOOP_GAP * L.dpr;
+  }
+  function camHoopR() {
+    return (room && room.hoop && S.mode === "play" && S.camFollow && S.camFollow.hoopR) || 0;
+  }
+  /* BB-V7.74 — world px of the south a nearly fitting court may give up
+     for the hoop (cameraTarget); none in the Skull Lord's nave, whose
+     camera keeps the hero's feet off the foot (lordCamFoot). */
+  var HOOP_CROP = 0.8;
+  function camHoopCrop() {
+    return room && room.spec && room.spec.piece === "skullLair" ? 0 : HOOP_CROP * TILE;
+  }
+
   function cameraTarget() {
     var cw = canvas.width, ch = canvas.height;
     var cssW = Math.max(1, window.innerWidth);
@@ -11956,6 +11988,13 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     var wantFrame = (TILE_CSS_FRAME * dpr) / TILE;
     var wantMin = (TILE_CSS_MIN * dpr) / TILE;
     var fit = Math.min(cw / Math.max(1, ww), ch / Math.max(1, fitH));
+    /* BB-V7.74 — a big boss court: while his top boss bar is up, the whole
+       room fit takes the backboard's top hoopR canvas px down (clear of the
+       bar and its name) and the floor's south edge plus half the air, so
+       the hoop is not painted over. hoopR eases (updateCamera), so the fit
+       and every scale built on it stay continuous. */
+    var hoopR = camHoopR(), hoopT = hoopR > 0 ? room.hoop.boardY - TILE * HOOP_BOARD_H * 0.5 : 0;
+    if (hoopR > 0) fit = Math.min(fit, (ch - hoopR) / Math.max(1, hh - hoopT + frameAir * 0.5));
     var viewAtWantW = cw / Math.max(1e-6, want);
     var viewAtWantH = ch / Math.max(1e-6, want);
     var overshoot = Math.max(ww / Math.max(1, viewAtWantW), fitH / Math.max(1, viewAtWantH));
@@ -12018,12 +12057,27 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     /* Frame includes the lifted north-wall top (negative Y), or height reads as a thin edge.
        BB-V7.40 — clamp continuously; the old camY < wallPad snap flipped between
        north-wall and south-wall views at the vertical midpoint of oversized rooms. */
-    var camY = clampCamY(py - viewH * 0.5, viewH, hh, worldTop, worldH);
+    /* BB-V7.74 — and the clamp may look above the painted north wall until
+       the backboard's top is hoopR canvas px down (camTop). When the court
+       nearly fits in the idle look-wider (a phone), the south may give up
+       to camHoopCrop world px (camBot, scaled by idle, so never while the
+       hero moves) so it fits with the hoop clear; that allowance tapers to
+       nothing once the court is taller than the view by as much, so a
+       scrolling view still reaches the south wall. */
+    var camTop = worldTop, camBot = hh, camH = worldH;
+    if (hoopR > 0) {
+      camTop = Math.min(worldTop, hoopT - hoopR / scale);
+      var hq = viewH - worldH, hc = camHoopCrop() * idle;
+      camBot = hh - Math.max(0, Math.min(worldTop - camTop - hq, hc, hc + hq));
+      camH = camBot - camTop;
+    }
+    var camY = clampCamY(py - viewH * 0.5, viewH, camBot, camTop, camH);
     return {
       scale: scale, camX: camX, camY: camY, viewW: viewW, viewH: viewH,
       ww: ww, hh: hh, wallPad: wallPad, worldTop: worldTop, worldH: worldH,
       overshoot: overshoot, softWant: softWant, want: want, wantMin: wantMin,
-      wantFrame: wantFrame, fit: fit, framed: viewH + 0.5 >= worldH, idle: idle
+      wantFrame: wantFrame, fit: fit, framed: viewH + 0.5 >= worldH, idle: idle,
+      camTop: camTop, camH: camH, camBot: camBot
     };
   }
 
@@ -12031,7 +12085,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     var t = cameraTarget();
     var camX = t.camX, camY = t.camY;
     var scale = t.scale, viewW = t.viewW, viewH = t.viewH;
-    var ww = t.ww, hh = t.hh, worldTop = t.worldTop, worldH = t.worldH;
+    var ww = t.ww, hh = t.camBot, worldTop = t.camTop, worldH = t.camH; /* BB-V7.74 — the hoop-clear clamp */
     /* BB-V7.24 — lerp camX/camY so remaining follow does not snap. */
     var follow = S.camFollow;
     var useSmooth = follow && follow.on && S.mode === "play" && !(S.cine && S.cine.active);
@@ -12059,6 +12113,11 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     if (follow.idle == null) follow.idle = 0;
     if (follow.idleT == null) follow.idleT = 0;
     if (follow.lordZ == null) follow.lordZ = 1;
+    /* BB-V7.74 — the hoop reserve eases to hoopClearR (snaps as the follow does). */
+    var hr = hoopClearR();
+    if (!follow.on || follow.hoopR == null) follow.hoopR = hr;
+    else follow.hoopR += (hr - follow.hoopR) * (1 - Math.exp(-CAM_HOOP_RATE * dt));
+    if (Math.abs(follow.hoopR - hr) < 0.01) follow.hoopR = hr;
     var zg = lordZoomGoal(follow, dt); /* BB-V7.73 — skullZoomGoal, capped */
     follow.lordZ += (zg - follow.lordZ) * (1 - Math.exp(-3.2 * dt));
     if (Math.abs(follow.lordZ - zg) < 0.002) follow.lordZ = zg;
@@ -20214,12 +20273,17 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
   function bigBoss(e) {
     return !!(e && (e.boss === "bone" || e.boss === "slag" || e.boss === "ash" || e.boss === "thorn" || e.boss === "lord"));
   }
+  /* BB-V7.74 — the first living big boss in the room, or null. */
+  function liveBigBoss() {
+    var i;
+    for (i = 0; i < room.enemies.length; i++) {
+      if (room.enemies[i].alive && bigBoss(room.enemies[i])) return room.enemies[i];
+    }
+    return null;
+  }
   function drawBossBar(g, cw, ch) {
     if (!room || S.mode !== "play") return;
-    var e = null, i;
-    for (i = 0; i < room.enemies.length; i++) {
-      if (room.enemies[i].alive && bigBoss(room.enemies[i])) { e = room.enemies[i]; break; }
-    }
+    var e = liveBigBoss(), i;
     if (!e) { S.bossBarA = 0; return; }
     var target = e.spawnT > 0 ? 0 : 1;
     S.bossBarA = (S.bossBarA || 0) + (target - (S.bossBarA || 0)) * 0.08;
@@ -20235,6 +20299,13 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     g.save();
     g.setTransform(1, 0, 0, 1, 0, 0);
     g.globalAlpha = A;
+    /* BB-V7.74 r1 — a dim plate under the spaced name, down to the bar's
+       backing, so a backboard or torch the view scrolls under the strip
+       never shows between the letters (the camera keeps the hoop clear of
+       the strip when it can: camHoopR). */
+    var nameHalf = bossBarNameW(bossBarName(e), L.fs) * 0.5 + 1.5 * dpr;
+    g.fillStyle = "rgba(12,8,6,0.62)";
+    g.fillRect(cw * 0.5 - nameHalf - 5 * dpr, L.top - 2 * dpr, 2 * nameHalf + 10 * dpr, y - 3 * dpr - (L.top - 2 * dpr));
     g.fillStyle = "rgba(12,8,6,0.82)";
     g.fillRect(x - 3 * dpr, y - 3 * dpr, w + 6 * dpr, h + 6 * dpr);
     g.fillStyle = "#3a2a20";
@@ -20311,15 +20382,20 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      within BAR_CHIP_GAP d of it: then it narrows to clear that chip, and
      if that would leave the bar under BAR_MIN_W d (or cut the name) the
      strip drops below the chip instead. The chips are the live DOM boxes
-     (hudBoxes), so a longer score or a buff chip is seen too. At
-     1280x720, 1024x768, 960x540, 844x390 and 667x375 the strip ends
+     (hudBoxes), so a longer score or a buff chip is seen too. A chip
+     just under the strip (within BAR_CHIP_SOFT d) narrows it too, when
+     that leaves it at least BAR_SOFT_FRAC of its width (never drops it).
+     At 1280x720, 1024x768, 960x540, 844x390 and 667x375 the strip ends
      above the floor/score row, between the HP pips and the place pips,
-     at full width. Layout only: canvas px { x, y, w, h (the bar), labelY
+     at full width (844x390: about 90 %, 15 d clear of the score row).
+     Layout only: canvas px { x, y, w, h (the bar), labelY
      (the name's "bottom" baseline), fs, dpr, and the whole strip (the
      bar's frame and the name's ink): l, r, top, bottom }. */
   var BAR_TOP = 6;
   var BAR_CHIP_GAP = 6;
   var BAR_MIN_W = 160;
+  var BAR_CHIP_SOFT = 12;  /* BB-V7.74 r1: d of air the bar keeps from a chip just under it... */
+  var BAR_SOFT_FRAC = 0.8; /* ...when that leaves it at least this share of its width */
   function bossBarFont(fs) { return "800 " + fs + "px -apple-system, 'Segoe UI', sans-serif"; }
   function bossBarName(e) { return String(e.name || "").split("").join(" "); }
   var barNameMemo = { key: "", w: 0 };
@@ -20338,7 +20414,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     var dpr = cw / Math.max(1, window.innerWidth);
     var M = hudBoxes();
     var h = Math.max(8, 11 * dpr), fs = Math.round(13 * dpr), sw = 1.5 * dpr;
-    var gap = BAR_CHIP_GAP * dpr, cx = cw * 0.5;
+    var gap = BAR_CHIP_GAP * dpr, soft = BAR_CHIP_SOFT * dpr, cx = cw * 0.5, sRoom;
     var frame = Math.min(cw * 0.46, 560 * dpr) * 0.5 + 3 * dpr;
     var nameHalf = bossBarNameW(bossBarName(e), fs) * 0.5 + sw;
     var minHalf = Math.max(BAR_MIN_W * 0.5 * dpr + 3 * dpr, nameHalf);
@@ -20347,9 +20423,16 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       bottom = top + fs + sw + 6 * dpr + h + 3 * dpr;
       half = Math.max(frame, nameHalf);
       drop = -1;
+      sRoom = 1e9;
       for (i = 0; i < M.list.length; i++) {
         c = M.list[i];
-        if (c.t >= bottom + gap || c.b <= top - gap) continue;
+        if (c.t >= bottom + gap || c.b <= top - gap) {
+          if (c.t < bottom + soft && c.b > top - soft) {
+            room = c.l + c.r < cw ? cx - c.r - soft : c.l - soft - cx;
+            if (room < sRoom) sRoom = room;
+          }
+          continue;
+        }
         room = c.l + c.r < cw ? cx - c.r - gap : c.l - gap - cx;
         if (room < half) half = room;
         if (room < minHalf && c.b + gap > drop) drop = c.b + gap;
@@ -20357,6 +20440,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       if (drop < 0 || k === 3) break;
       top = drop;
     }
+    if (sRoom < half && sRoom >= Math.max(minHalf, BAR_SOFT_FRAC * frame)) half = sRoom;
     var labelY = top + fs + sw, y = labelY + 6 * dpr;
     var bw = Math.max(2 * (Math.min(half, frame) - 3 * dpr), 0);
     return {
