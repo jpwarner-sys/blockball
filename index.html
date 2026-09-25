@@ -11467,8 +11467,14 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      longer trips on 30Hz-capped phones (Low Power Mode); reduced motion
      also stills the toast pulse and fade; the PLAY label gets its size;
      the returning ball isn't drawn squashed; holdLord / fieldGlimpse pose
-     helpers see past the spawn rise and the room fade. */
-  var BUILD = "v7.71";
+     helpers see past the spawn rise and the room fade.
+     BB-V7.72 — the animation pass: the Skull Lord (rig, attacks, hit
+     reactions, summon, entrance, a 2.6 s death, court guards), the Bone
+     King, Bone Knight (and its floor 4/7/10 kits), Slag King, Ash Titan and
+     Thorn Queen, the hero, and all 16 trash mob types. Draw-only: every
+     cosmetic clock ticks on the fixed step from one guarded hook, and the
+     fight itself is unchanged tick for tick. */
+  var BUILD = "v7.72";
   var FEEL_DEF = { spd: 250, accel: 2600, brake: 3600, throwSpd: 620, aimMode: "drag", aimDead: 2, aimHold: 64 };
   var FEEL = (function () {
     var f = {};
