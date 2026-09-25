@@ -1122,6 +1122,29 @@
   var CAM_IDLE_OUT = 0.14;
   var CAM_IDLE_IN_RATE = 2.2;
   var CAM_IDLE_OUT_RATE = 9;
+  /* BB-V7.73 — Skull Lord fight camera. The approach zoom (lordZ) is capped
+     so a band from his crown peak (LORD_CAM_TOP "crown", shipped) or his
+     wind-up key top ("key": wider, kept to record the comparison) down to
+     his feet and the hero's, and across both of them, fits the view; the
+     view frames that band instead of 62-80 % of the way to his feet.
+     The hero's feet also stay above the boss bar's strip at the foot of
+     the screen. Heights are drawSkullLord's rest pose in art units
+     u = artR * 1.48, scaled by LORD_VIS about his feet: head cube
+     yt - 0.06u, crown spike yt - 1.02u, key crossbar yt - 2.28u, with
+     yt = y - 2.35u. Pads are world px. Camera-only: the sim never reads
+     any of it back. */
+  var LORD_CAM_TOP = "crown";
+  var LORD_CAM_CROWN_U = 3.37;  /* feet -> crown peak */
+  var LORD_CAM_KEY_U = 4.63;    /* feet -> key top */
+  var LORD_CAM_HALF_U = 0.98;   /* crown half width (side nubs) */
+  var LORD_CAM_PAD_TOP = 24;    /* above the crown peak ("crown") and the hero's hat */
+  var LORD_CAM_PAD_KEY = 34;    /* above the key top ("key") */
+  var LORD_CAM_PAD_FOOT = 40;   /* below his feet (shadow) */
+  var LORD_CAM_PAD_HERO = 12;   /* between the hero's feet and the boss bar strip */
+  var LORD_CAM_PAD_X = 38;      /* beside the crown and the hero box */
+  var LORD_CAM_HERO_UP = 80;    /* hero box: hat top above player.y (sc*1.55 + head + cap) */
+  var LORD_CAM_HERO_DN = 10;    /* hero box: shadow below player.y */
+  var LORD_CAM_HERO_HALF = 22;  /* hero box: half width */
   /* BB-V7.15 — draw scale and hurtboxes follow what is painted, not one shared
      boss multiplier. Trash / knights / Skull Lord each get their own vis, and
      contact boxes are authored from the silhouette (torso), not r*N. */
@@ -11462,8 +11485,14 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      King, Bone Knight (and its floor 4/7/10 kits), Slag King, Ash Titan and
      Thorn Queen, the hero, and all 16 trash mob types. Draw-only: every
      cosmetic clock ticks on the fixed step from one guarded hook, and the
-     fight itself is unchanged tick for tick. */
-  var BUILD = "v7.72";
+     fight itself is unchanged tick for tick.
+     BB-V7.73 — the Skull Lord fight camera keeps his crowned head and the
+     hero on screen: the approach zoom is capped so his crown peak, his
+     feet and the hero (feet above the boss bar) fit, and the view frames
+     that band instead of centring toward his ankles. The wind-up key is
+     best effort (LORD_CAM_TOP "key" guarantees it too, wider). Camera-
+     only; the fight is unchanged tick for tick. */
+  var BUILD = "v7.73";
   var FEEL_DEF = { spd: 250, accel: 2600, brake: 3600, throwSpd: 620, aimMode: "drag", aimDead: 2, aimHold: 64 };
   var FEEL = (function () {
     var f = {};
@@ -11716,7 +11745,59 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     if (t < 0) t = 0;
     if (t > 1) t = 1;
     t = t * t * (3 - 2 * t);
-    return 1.22 + 0.9 * t;
+    /* BB-V7.73 — capped so his crowned head and the hero fit (lordCamCap);
+       the lordZ ease in updateCamera smooths the cap like the approach. */
+    return lordCamCap(lord, 1.22 + 0.9 * t);
+  }
+
+  /* BB-V7.73 — world band the fight camera keeps in view for a living lord
+     and a hero standing at (hx, hy). top: the crown peak (the key top when
+     LORD_CAM_TOP is "key") plus pad, or the hero's hat if that is higher;
+     key: the same with the key top (best effort in "crown"). botL: his
+     feet plus pad; botH: the hero's feet plus pad, which must also clear
+     the boss bar strip (lordCamReserve, added by the callers because it is
+     screen px). left/right: the crown's width and the hero box, plus pad. */
+  function lordCamBand(lord, hx, hy) {
+    var U = artR(lord) * 1.48 * enemyVis(lord);
+    var hTop = hy - LORD_CAM_HERO_UP - LORD_CAM_PAD_TOP;
+    var crown = lord.y - U * LORD_CAM_CROWN_U - LORD_CAM_PAD_TOP;
+    var key = lord.y - U * LORD_CAM_KEY_U - LORD_CAM_PAD_KEY;
+    if (hTop < crown) crown = hTop;
+    if (hTop < key) key = hTop;
+    var half = U * LORD_CAM_HALF_U;
+    return {
+      top: LORD_CAM_TOP === "key" ? key : crown,
+      key: key,
+      botL: lord.y + LORD_CAM_PAD_FOOT,
+      botH: hy + LORD_CAM_HERO_DN + LORD_CAM_PAD_HERO,
+      left: Math.min(lord.x - half, hx - LORD_CAM_HERO_HALF) - LORD_CAM_PAD_X,
+      right: Math.max(lord.x + half, hx + LORD_CAM_HERO_HALF) + LORD_CAM_PAD_X
+    };
+  }
+
+  /* BB-V7.73 — canvas px at the foot of the screen taken by the boss bar
+     and its name (drawBossBar's bar offset, bar height, name gap + text). */
+  function lordCamReserve(cw, ch) {
+    var dpr = cw / Math.max(1, window.innerWidth);
+    return Math.max(26 * dpr, ch * 0.07) + Math.max(8, 11 * dpr) + 20 * dpr;
+  }
+
+  /* BB-V7.73 — the approach zoom, capped so the band fits the canvas. The
+     cap is a scale; lordZ multiplies the room's pre-idle frame scale
+     (max(fit, softWant) in cameraTarget), so it is returned as that ratio.
+     Never wider than the whole-room fit. It can drop below 1 on a small
+     screen or with the hero far from him (cameraTarget allows that). */
+  function lordCamCap(lord, goal) {
+    var cw = canvas.width, ch = canvas.height;
+    var t = cameraTarget();
+    var frame = Math.max(t.fit, t.softWant);
+    var b = lordCamBand(lord, player.x, player.y);
+    var cap = Math.min(ch / Math.max(1, b.botL - b.top),
+      (ch - lordCamReserve(cw, ch)) / Math.max(1, b.botH - b.top),
+      cw / Math.max(1, b.right - b.left));
+    if (cap < t.fit) cap = t.fit;
+    cap = cap / Math.max(1e-6, frame);
+    return goal < cap ? goal : cap;
   }
 
   function cameraTarget() {
@@ -11773,13 +11854,24 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     var px = (player && S.mode === "play") ? player.x : ww * 0.5;
     var py = (player && S.mode === "play") ? player.y : hh * 0.5;
     var lz = (S.camFollow && S.camFollow.lordZ) || 1;
-    if (lz > 1.001) {
+    /* BB-V7.73 — while he lives lz is the capped zoom (lordCamCap), which
+       can sit below 1, so it always applies, and the view frames the band
+       (lordCamBand), not 62-80 % of the way to his feet: centred across
+       it; vertically centred on key..feet when that fits, else held to
+       the band's foot so the spare height goes up toward the key, and
+       while the eased zoom is still short of the band, held to the crown
+       (the foot's pad and the boss bar strip give first). After he dies
+       lz eases back to 1 from either side, as it did from above. */
+    var lordF = skullLordFocus();
+    if (lordF || lz > 1.001 || lz < 0.999) {
       scale *= lz;
-      var lordF = skullLordFocus();
+      if (lz < 1 && scale < fit) scale = fit; /* BB-V7.73 — never wider than the whole room */
       if (lordF) {
-        var pull = Math.min(1, 0.58 + (lz - 1) * 0.2);
-        px = px + (lordF.x - px) * pull;
-        py = py + (lordF.y - py) * pull;
+        var lb = lordCamBand(lordF, px, py);
+        var lvH = ch / scale;
+        var lbot = Math.max(lb.botL, lb.botH + lordCamReserve(cw, ch) / scale);
+        px = (lb.left + lb.right) * 0.5;
+        py = Math.min(Math.max((lb.key + lbot) * 0.5, lbot - lvH * 0.5), lb.top + lvH * 0.5);
       }
     }
     S.lordZoom = lz;
