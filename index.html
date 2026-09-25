@@ -6928,7 +6928,6 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       dustPuff(x - 0.45 * uW, e.y, fxN(6), "#6a5a44");
       dustPuff(x + 0.45 * uW, e.y, fxN(6), "#6a5a44");
       floorRing(x, e.y + 4, "#6a5a44", 0.3 * uW, 1.1 * uW, 0.4);
-      S.shake = Math.max(S.shake, 0.2);
     }
     if (lordDieX(t0, t, 0.80)) {
       /* the skull tip touches down */
@@ -6962,7 +6961,6 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       }
       lordW(e, bx - D * u * 0.98, e.y, W);
       floorRing(W.x, e.y + 4, "#8a9098", 0.3 * uW, 1.3 * uW, 0.35);
-      S.shake = Math.max(S.shake, 0.15);
     }
     if (lordDieX(t0, t, 1.05)) {
       /* the blade clangs flat: sparks at the crossguard, dust along it */
@@ -6974,7 +6972,6 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
         lordW(e, P.hx + k * Math.sin(P.bang), P.hy - k * Math.cos(P.bang) + 0.3 * u, W);
         dustPuff(W.x, W.y, 1, "#8a7a64");
       }
-      S.shake = Math.max(S.shake, 0.18);
     }
     if (lordDieX(t0, t, 1.18)) {
       /* the break: the body comes apart where it falls */
@@ -6994,14 +6991,12 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
         for (i = 0; i < 4; i++) lordChip(bx, e.y, 0.7 * uW, "#7a32c8", "#4a1888", 5, 8, 130, 80, 180);
         for (i = 0; i < 3; i++) lordChip(bx, e.y, 0.9 * uW, "#e0b44a", LORD_GOLD_80, 4, 7, 130, 100, 200);
       }
-      S.shake = Math.max(S.shake, 0.4);
     }
     if (lordDieX(t0, t, 1.38)) {
       /* the crown lands on its rim */
       lordW(e, P.crX, e.y, W);
       sparks(W.x, e.y, "#ffd24a", lite ? 4 : 10, -Math.PI / 2, 2.2);
       floorRing(W.x, e.y + 4, "#e0b44a", 0.2 * uW, 0.9 * uW, 0.3);
-      S.shake = Math.max(S.shake, 0.12);
     }
     if (!lite && lordDieX(t0, t, 2.02)) {
       /* the key's last half-turn seats */
@@ -7012,7 +7007,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
   /* BB-V7.72 batch B — attack events. Each fires once, on the tick its
      threshold is crossed (the clock on this tick vs the previous one; an.aev
      marks it done), one tick after the drawn frame reaches it. Cosmetic
-     only: particles, shake and spring kicks; nothing here is gameplay. */
+     only: particles and spring kicks (no new camera shake); nothing here is gameplay. */
   function lordAev(an, bit, p, t, thr) {
     if ((an.aev & bit) || !(p < thr && t >= thr)) return false;
     an.aev |= bit;
@@ -7049,7 +7044,6 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
         if (!S.fxLite) burst(bx, by, "#5a4e44", 4);
         sparks(bx, by, "#ffd080", fxN(5), a + face * Math.PI / 2, 0.8);
         floorRing(bx, by, "#f0d8a0", 12, 90, 0.28);
-        S.shake = Math.max(S.shake, 0.22);
       }
     } else if (e.atk === "lunge") {
       /* the lock clock starts on the tick the lane commits (the draw
@@ -7376,7 +7370,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
 
   /* BB-V7.72 — Skull Lord batch C: hurt reaction (SK-14), phase stagger and
      summon performance (SK-15), floor emergence (SK-16). Cosmetic only: these
-     write e.an and particles/shake, never a gameplay field. */
+     write e.an and particles (no new camera shake), never a gameplay field. */
   /* the hit that crosses a court call (an unset mark between the hp before
      and after it) is the big one: white frame, buckle, roar */
   function lordCrossing(e, dealt) {
@@ -7456,10 +7450,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     /* 0.15 the crank: two full turns of the key (easeInOutCubic) */
     if (s0 < 0.15 && s1 >= 0.15) lordKeyTurn(an, 4 * Math.PI, 0.60, 2, 0);
     /* 0.30 the shield slam (only a full summon, and not mid-attack) */
-    if (s0 < 0.30 && s1 >= 0.30) {
-      an.sumSlam = an.sumFull && !e.atk;
-      S.shake = Math.max(S.shake, 0.28);
-    }
+    if (s0 < 0.30 && s1 >= 0.30) an.sumSlam = an.sumFull && !e.atk;
     if (s0 < 0.333 && s1 >= 0.333 && an.sumSlam) {
       var sf = e.an.faceTo || 1;
       var shx = e.x - sf * u * (1.16 + an.shield * 0.55) + an.lean * u * 0.60;
@@ -7481,7 +7472,6 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
   function lordRiseEvents(e, an, s0, s1, u, uW, faceV) {
     var py = e.y + 0.30 * uW, i, a, rx;
     if (s0 < 0 && s1 >= 0) floorRing(e.x, py, "#c9a44c", 20, 150, 0.35);
-    if (s1 < 0.25) S.shake = Math.max(S.shake, 0.06 + 0.08 * s1 / 0.25);
     if (s0 < 0.25 && s1 >= 0.25) {
       /* the key breaks the floor */
       floorRing(e.x, py, "#c9a44c", 30, 190, 0.4);
@@ -7524,7 +7514,6 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     }
     if (s0 < 0.85 && s1 >= 0.85) {
       /* the stomp */
-      S.shake = Math.max(S.shake, 0.22);
       lordW(e, e.x - u * 0.26, e.y, LORD_WP);
       dustPuff(LORD_WP.x, e.y, fxN(8), "#8a7a64");
       lordW(e, e.x + u * 0.26, e.y, LORD_WP);
@@ -10654,7 +10643,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     }
     if (spawned) {
       sfx("boss");
-      S.shake = Math.max(S.shake, boss.atk ? 0.28 : 0.10); /* BB-V7.72 — the slam shakes at 0.30 */
+      S.shake = Math.max(S.shake, 0.28);
     }
     return spawned;
   }
@@ -16543,6 +16532,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       g.restore();
       g.save();
       g.translate(L * 0.25, P.yU + P.hemB);
+      g.fillStyle = WH ? PURPLE : LORD_HEM_COL; /* the restore above dropped it */
       var hemFl = ytP + u * 2.30 - (P.yU + P.hemB);
       g.fillRect(x - u * 0.85 + P.hs0, Math.min(yt + u * 2.05 + capeDrop, hemFl - u * 0.16), u * 0.18, u * 0.16);
       g.fillRect(x - u * 0.15 + P.hs1, Math.min(yt + u * 2.12 + capeDrop, hemFl - u * 0.18), u * 0.22, u * 0.18);
@@ -19162,9 +19152,11 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     P.T = T;
     var alive = !!e.alive, spawning = e.spawnT > 0;
     /* BB-V7.72 — SK-20 (integration): an add the lord's fall killed (dieS) keeps
-       its stride frozen at the kill, as drawMob's `moving` did before the rig;
-       mobAnim stops ticking at death, so an.gPh / an.mv are the kill-tick values */
-    var mv = (alive || e.dieS != null) && !spawning ? an.mv : 0;
+       its whole live pose frozen at the kill (stride, flinch, rattle, contact,
+       coil, bank, recoil, skid, wall); mobAnim stops ticking at death and
+       e.recoil stops counting down, so every input is the kill-tick value */
+    var hold = alive || e.dieS != null;
+    var mv = hold && !spawning ? an.mv : 0;
     P.mv = mv;
     x = Math.sin(an.gPh);                 P.s = x * (1.5 - 0.5 * x * x) * mv;   /* dwell at each plant */
     P.sa = P.s < 0 ? -P.s : P.s;
@@ -19174,30 +19166,30 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     P.eye = !alive ? 1 : spawning && e.spawnMax ? mobC01(((1 - e.spawnT / e.spawnMax) - 0.72) / 0.2)
       : bt < 0.05 ? 1 - 17 * bt : bt < 0.11 ? 0.15 + 14.2 * (bt - 0.05) : 1;
     /* hurt flinch away from the ball + skeletal rattle */
-    var ht = an.hurtT, hk = !alive ? 0 : ht < 0.03 ? ht / 0.03 : ht < 0.3 ? 1 - easeInOutQuad((ht - 0.03) / 0.27) : 0;
+    var ht = an.hurtT, hk = !hold ? 0 : ht < 0.03 ? ht / 0.03 : ht < 0.3 ? 1 - easeInOutQuad((ht - 0.03) / 0.27) : 0;
     P.hx = an.hurtD * hk * r * 0.16 * T[1];
-    P.rat = alive && ht < 0.25 ? Math.sin(ht * 62) * (1 - ht / 0.25) : 0;
+    P.rat = hold && ht < 0.25 ? Math.sin(ht * 62) * (1 - ht / 0.25) : 0;
     /* contact: env 0→1 in 0.05 s, hold to 0.08, home by 0.22 (under the 0.27 s bump rhythm) */
-    var st = an.strT, env = !alive || spawning ? 0 : st < 0.05 ? easeOutCubic(st / 0.05) : st < 0.08 ? 1
+    var st = an.strT, env = !hold || spawning ? 0 : st < 0.05 ? easeOutCubic(st / 0.05) : st < 0.08 ? 1
       : st < 0.22 ? 1 - easeInOutQuad((st - 0.08) / 0.14) : 0;
     P.str = env * an.strA;
-    P.coil = alive && !spawning ? an.coil * (1 - env) : 0;
+    P.coil = hold && !spawning ? an.coil * (1 - env) : 0;
     P.dx = env > 0 ? an.sdx : an.dx; P.dy = (env > 0 ? an.sdy : an.dy) * 0.6;    /* 3/4 view foreshortening */
     P.alt = (an.strN & 1) ? 1 : -1;
     var fw = (P.str - 0.35 * P.coil) * r * T[2];
     P.ux = P.dx * fw + P.hx; P.uy = P.dy * fw;
     /* fliers: bank into horizontal travel */
     var sp = (e.spd || 60) * 1.3;
-    P.bank = alive && !spawning ? Math.max(-1, Math.min(1, an.vx / sp)) : 0;
+    P.bank = hold && !spawning ? Math.max(-1, Math.min(1, an.vx / sp)) : 0;
     /* shooters: eased wind, anticipation dip, release, retreat */
     P.ue = mobWindEase(u);
     P.pre = u > 0 && u < 0.22 ? Math.sin(14.28 * u) : 0;          /* π/0.22: a 0.09 s counter-move */
-    P.rel = alive && e.recoil > 0 ? e.recoil / 0.22 : 0;
+    P.rel = hold && e.recoil > 0 ? e.recoil / 0.22 : 0;
     x = -an.vx * (e.facing || 1) / 15;                          /* backing away while facing the hero */
     P.ret = mv * (x < 0 ? 0 : x > 1 ? 1 : x);
     /* charger: skid out of a spent dash, snap back off a wall */
-    P.skid = alive && an.skidT < 0.3 ? (an.skidT < 0.05 ? an.skidT / 0.05 : 1 - (an.skidT - 0.05) / 0.25) : 0;
-    P.wall = alive && an.wallT < 0.34 ? (an.wallT < 0.06 ? 1 : 1 - easeOutCubic((an.wallT - 0.06) / 0.28)) : 0;   /* held a beat so it reads */
+    P.skid = hold && an.skidT < 0.3 ? (an.skidT < 0.05 ? an.skidT / 0.05 : 1 - (an.skidT - 0.05) / 0.25) : 0;
+    P.wall = hold && an.wallT < 0.34 ? (an.wallT < 0.06 ? 1 : 1 - easeOutCubic((an.wallT - 0.06) / 0.28)) : 0;   /* held a beat so it reads */
     return P;
   }
   /* telegraphs live on the floor, under the body */
@@ -19414,7 +19406,6 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     }
     if (alpha <= 0.01) return;
     MOB_FL = flash; var P = mobPc;   /* BB-V7.72 no closure per draw */
-    var moving = !!e.moving && (!dead || e.dieS != null) && !(e.spawnT > 0);
     /* BB-V7.72 — the rig: gait on a body-scaled clock with plant holds, blink,
        contact coil/strike, hurt flinch, flier bank, eased shooter winds. */
     var M = mobPose(e, e.mobAn, r, u);
