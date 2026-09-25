@@ -1127,6 +1127,8 @@
      wind-up key top ("key": wider, kept to record the comparison) down to
      his feet and the hero's, and across both of them, fits the view; the
      view frames that band instead of 62-80 % of the way to his feet.
+     The zoom goes out for the band at once and back in only after the
+     cap has held for LORD_CAM_HOLD, so dodges and lunges do not pump it.
      The hero's feet also stay above the boss bar's strip at the foot of
      the screen. Heights are drawSkullLord's rest pose in art units
      u = artR * 1.48, scaled by LORD_VIS about his feet: head cube
@@ -1134,8 +1136,8 @@
      yt = y - 2.35u. Pads are world px. Camera-only: the sim never reads
      any of it back.
      "key" is a comparison build: on an 844x390 phone it holds a tile near
-     18 CSS px (about 14 at its widest), under TILE_CSS_MIN; "crown" stays
-     near 22 (about 17 at its widest). */
+     18 CSS px (about 12 at its widest, the hero far below him), under
+     TILE_CSS_MIN; "crown" stays near 22 (about 15 at its widest). */
   var LORD_CAM_TOP = "crown";
   var LORD_CAM_CROWN_U = 3.37;  /* feet -> crown peak */
   var LORD_CAM_KEY_U = 4.63;    /* feet -> key top */
@@ -1148,6 +1150,8 @@
   var LORD_CAM_HERO_UP = 80;    /* hero box: hat top above player.y (sc*1.55 + head + cap) */
   var LORD_CAM_HERO_DN = 10;    /* hero box: shadow below player.y */
   var LORD_CAM_HERO_HALF = 22;  /* hero box: half width */
+  var LORD_CAM_HOLD = 0.5;      /* s a looser cap waits before the zoom eases back in */
+  var LORD_CAM_IN_RATE = 6;     /* then the held cap eases to it (1/s), under lordZ's own 3.2 */
   /* BB-V7.15 — draw scale and hurtboxes follow what is painted, not one shared
      boss multiplier. Trash / knights / Skull Lord each get their own vis, and
      contact boxes are authored from the silhouette (torso), not r*N. */
@@ -11493,8 +11497,10 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      hero on screen: the approach zoom is capped so his crown peak, his
      feet and the hero (feet above the boss bar) fit, and the view frames
      that band instead of centring toward his ankles. The wind-up key is
-     best effort (LORD_CAM_TOP "key" guarantees it too, wider). Camera-
-     only; the fight is unchanged tick for tick. */
+     best effort (LORD_CAM_TOP "key" guarantees it too, wider). The zoom
+     widens at once and eases back in after a 0.5 s hold, so dodging and
+     lunges do not pump it. Camera-only; the fight is unchanged tick for
+     tick. */
   var BUILD = "v7.73";
   var FEEL_DEF = { spd: 250, accel: 2600, brake: 3600, throwSpd: 620, aimMode: "drag", aimDead: 2, aimHold: 64 };
   var FEEL = (function () {
@@ -11748,9 +11754,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     if (t < 0) t = 0;
     if (t > 1) t = 1;
     t = t * t * (3 - 2 * t);
-    /* BB-V7.73 — capped so his crowned head and the hero fit (lordCamCap);
-       the lordZ ease in updateCamera smooths the cap like the approach. */
-    return lordCamCap(lord, 1.22 + 0.9 * t);
+    return 1.22 + 0.9 * t;
   }
 
   /* BB-V7.73 — world band the fight camera keeps in view for a living lord
@@ -11785,12 +11789,12 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     return Math.max(26 * dpr, ch * 0.07) + Math.max(8, 11 * dpr) + 20 * dpr;
   }
 
-  /* BB-V7.73 — the approach zoom, capped so the band fits the canvas. The
-     cap is a scale; lordZ multiplies the room's pre-idle frame scale
-     (max(fit, softWant) in cameraTarget), so it is returned as that ratio.
-     Never wider than the whole-room fit. It can drop below 1 on a small
-     screen or with the hero far from him (cameraTarget allows that). */
-  function lordCamCap(lord, goal) {
+  /* BB-V7.73 — the most zoom that fits the band on the canvas. It is a
+     scale; lordZ multiplies the room's pre-idle frame scale (max(fit,
+     softWant) in cameraTarget), so it is returned as that ratio. Never
+     wider than the whole-room fit. It can drop below 1 on a small screen
+     or with the hero far from him (cameraTarget allows that). */
+  function lordCamCap(lord) {
     var cw = canvas.width, ch = canvas.height;
     var t = cameraTarget();
     var frame = Math.max(t.fit, t.softWant);
@@ -11807,8 +11811,30 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       Math.max((ch - lordCamReserve(cw, ch)) / Math.max(1, b.botH - top), ch / Math.max(1, t.hh - top)),
       cw / Math.max(1, Math.min(b.right, t.ww) - Math.max(b.left, 0)));
     if (cap < t.fit) cap = t.fit;
-    cap = cap / Math.max(1e-6, frame);
-    return goal < cap ? goal : cap;
+    return cap / Math.max(1e-6, frame);
+  }
+
+  /* BB-V7.73 — the approach zoom goal, capped by lordCamCap. A tighter cap
+     (zoom out) applies at once; a looser one (zoom in) waits until the cap
+     has not dropped for LORD_CAM_HOLD s, then the held cap eases to it at
+     LORD_CAM_IN_RATE (lordZ eases after it as before). So a hero dodging
+     back and forth under him, or a lunge in and back out, does not pump
+     the zoom; the settled zoom is the cap itself. Camera-local state on
+     camFollow (fresh per room); fixed step. */
+  function lordZoomGoal(follow, dt) {
+    var zg = skullZoomGoal();
+    var lord = skullLordFocus();
+    if (!lord || !player) { follow.lordCap = null; return zg; }
+    var cap = lordCamCap(lord);
+    if (follow.lordCap == null || cap <= follow.lordCap) {
+      follow.lordCap = cap;
+      follow.lordCapT = LORD_CAM_HOLD;
+    } else if (follow.lordCapT > 0) {
+      follow.lordCapT -= dt;
+    } else {
+      follow.lordCap += (cap - follow.lordCap) * (1 - Math.exp(-LORD_CAM_IN_RATE * dt));
+    }
+    return zg < follow.lordCap ? zg : follow.lordCap;
   }
 
   function cameraTarget() {
@@ -11865,7 +11891,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     var px = (player && S.mode === "play") ? player.x : ww * 0.5;
     var py = (player && S.mode === "play") ? player.y : hh * 0.5;
     var lz = (S.camFollow && S.camFollow.lordZ) || 1;
-    /* BB-V7.73 — while he lives lz is the capped zoom (lordCamCap), which
+    /* BB-V7.73 — while he lives lz is the capped zoom (lordZoomGoal), which
        can sit below 1, so it always applies, and the view frames the band
        (lordCamBand), not 62-80 % of the way to his feet: centred across
        it; vertically centred on key..feet when that fits, else held to
@@ -11932,7 +11958,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     if (follow.idle == null) follow.idle = 0;
     if (follow.idleT == null) follow.idleT = 0;
     if (follow.lordZ == null) follow.lordZ = 1;
-    var zg = skullZoomGoal();
+    var zg = lordZoomGoal(follow, dt); /* BB-V7.73 — skullZoomGoal, capped */
     follow.lordZ += (zg - follow.lordZ) * (1 - Math.exp(-3.2 * dt));
     if (Math.abs(follow.lordZ - zg) < 0.002) follow.lordZ = zg;
     if (playerCamMoving()) {
