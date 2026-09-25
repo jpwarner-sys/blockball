@@ -1130,14 +1130,25 @@
      The zoom goes out for the band at once and back in only after the
      cap has held for LORD_CAM_HOLD, so dodges and lunges do not pump it.
      The hero's feet also stay above the boss bar's strip at the foot of
-     the screen. Heights are drawSkullLord's rest pose in art units
+     the screen (BB-V7.74: the strip is now at the top, see below).
+     Heights are drawSkullLord's rest pose in art units
      u = artR * 1.48, scaled by LORD_VIS about his feet: head cube
      yt - 0.06u, crown spike yt - 1.02u, key crossbar yt - 2.28u, with
      yt = y - 2.35u. Pads are world px. Camera-only: the sim never reads
      any of it back.
      "key" is a comparison build: on an 844x390 phone it holds a tile near
      18 CSS px (about 12 at its widest, the hero far below him), under
-     TILE_CSS_MIN; "crown" stays near 22 (about 15 at its widest). */
+     TILE_CSS_MIN; "crown" stays near 22 (about 15 at its widest).
+     BB-V7.74 — the boss bar moved to the top centre (bossBarLayout), and
+     the reserved strip moved with it: the crown (key) peak and the hero's
+     hat each stay below the HUD they would land under on screen, the bar
+     strip with its name or a DOM chip (lordCamClear, which stands in for
+     the top pad where it is deeper), and the hero's feet keep only
+     LORD_CAM_FOOT (+ the safe-area inset) off the foot of the screen. The
+     old bottom strip also soaked up lordZ's easing lag while the hero ran
+     out of the band; the cap now looks LORD_CAM_LEAD s ahead of his run
+     instead. When the band is still short, the hero's feet stay on screen
+     first, then the tops clear the HUD, then the foot margins give. */
   var LORD_CAM_TOP = "crown";
   var LORD_CAM_CROWN_U = 3.37;  /* feet -> crown peak */
   var LORD_CAM_KEY_U = 4.63;    /* feet -> key top */
@@ -1145,13 +1156,17 @@
   var LORD_CAM_PAD_TOP = 24;    /* above the crown peak ("crown") and the hero's hat */
   var LORD_CAM_PAD_KEY = 34;    /* above the key top ("key") */
   var LORD_CAM_PAD_FOOT = 40;   /* below his feet (shadow) */
-  var LORD_CAM_PAD_HERO = 12;   /* between the hero's feet and the boss bar strip */
+  var LORD_CAM_PAD_HERO = 12;   /* below the hero's feet (BB-V7.74: then LORD_CAM_FOOT to the screen's foot) */
   var LORD_CAM_PAD_X = 38;      /* beside the crown and the hero box */
   var LORD_CAM_HERO_UP = 80;    /* hero box: hat top above player.y (sc*1.55 + head + cap) */
   var LORD_CAM_HERO_DN = 10;    /* hero box: shadow below player.y */
   var LORD_CAM_HERO_HALF = 22;  /* hero box: half width */
   var LORD_CAM_HOLD = 0.5;      /* s a looser cap waits before the zoom eases back in */
   var LORD_CAM_IN_RATE = 6;     /* then the held cap eases to it (1/s), under lordZ's own 3.2 */
+  var LORD_CAM_HUD_GAP = 6;     /* BB-V7.74: CSS px between the crown / hat and a HUD box over it */
+  var LORD_CAM_LEAD = 0.3;      /* BB-V7.74: s of the hero's run the cap looks ahead (lordZ's own lag) */
+  var LORD_CAM_LEAD_MAX = 90;   /* BB-V7.74: world px, at most (a knockback is not a run) */
+  var LORD_CAM_FOOT = 12;       /* BB-V7.74: CSS px (+ safe-area inset) below the hero's feet pad */
   /* BB-V7.15 — draw scale and hurtboxes follow what is painted, not one shared
      boss multiplier. Trash / knights / Skull Lord each get their own vis, and
      contact boxes are authored from the silhouette (torso), not r*N. */
@@ -11500,8 +11515,16 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      best effort (LORD_CAM_TOP "key" guarantees it too, wider). The zoom
      widens at once and eases back in after a 0.5 s hold, so dodging and
      lunges do not pump it. Camera-only; the fight is unchanged tick for
-     tick. */
-  var BUILD = "v7.73";
+     tick.
+     BB-V7.74 — the boss bar (and its spaced name) is pinned to the top
+     centre, clear of every HUD chip and under any safe-area inset: the
+     hero no longer runs behind it at the foot of the screen. The Skull
+     Lord camera's reserved strip moved to the top with it (his crown and
+     the hero's hat stay below the bar and any chip over them), the hero's
+     feet keep a small margin off the foot, and the zoom cap looks 0.3 s
+     ahead of the hero's run so the eased zoom keeps up. Draw and camera
+     only; the fight is unchanged tick for tick. */
+  var BUILD = "v7.74";
   var FEEL_DEF = { spd: 250, accel: 2600, brake: 3600, throwSpd: 620, aimMode: "drag", aimDead: 2, aimHold: 64 };
   var FEEL = (function () {
     var f = {};
@@ -11761,9 +11784,11 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
      and a hero standing at (hx, hy). top: the crown peak (the key top when
      LORD_CAM_TOP is "key") plus pad, or the hero's hat if that is higher;
      key: the same with the key top (best effort in "crown"). botL: his
-     feet plus pad; botH: the hero's feet plus pad, which must also clear
-     the boss bar strip (lordCamReserve, added by the callers because it is
-     screen px). left/right: the crown's width and the hero box, plus pad. */
+     feet plus pad; botH: the hero's feet plus pad. left/right: the crown's
+     width and the hero box, plus pad. BB-V7.74 — v7.73 kept botH above the
+     bottom boss bar strip; the callers now add lordCamFoot to botH instead,
+     and take the top and key they frame from lordCamTops (these tops, each
+     lowered by the HUD over it on screen, which is screen px). */
   function lordCamBand(lord, hx, hy) {
     var U = artR(lord) * 1.48 * enemyVis(lord);
     var hTop = hy - LORD_CAM_HERO_UP - LORD_CAM_PAD_TOP;
@@ -11782,34 +11807,103 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     };
   }
 
-  /* BB-V7.73 — canvas px at the foot of the screen taken by the boss bar
-     and its name (drawBossBar's bar offset, bar height, name gap + text). */
-  function lordCamReserve(cw, ch) {
-    var dpr = cw / Math.max(1, window.innerWidth);
-    return Math.max(26 * dpr, ch * 0.07) + Math.max(8, 11 * dpr) + 20 * dpr;
+  /* BB-V7.74 — canvas px kept under the hero's feet pad at the foot of
+     the screen: LORD_CAM_FOOT plus the safe-area inset (home indicator).
+     It replaces v7.73's lordCamReserve, the bottom boss bar strip. */
+  function lordCamFoot(cw) {
+    return hudBoxes().safeB + LORD_CAM_FOOT * cw / Math.max(1, window.innerWidth);
+  }
+
+  /* BB-V7.74 — canvas px from the top of the screen that something
+     spanning canvas x0..x1 has to stay below: the safe-area inset, and
+     the foot of the boss bar strip (bar and name, L = bossBarLayout) and
+     of every HUD chip (M = hudBoxes) over that span, each with
+     LORD_CAM_HUD_GAP to spare. Zero where nothing is over it. */
+  function lordCamClear(x0, x1, L, M) {
+    var gap = LORD_CAM_HUD_GAP * L.dpr, r = M.safeT, i, c;
+    if (x0 < L.r + gap && x1 > L.l - gap && L.bottom + gap > r) r = L.bottom + gap;
+    for (i = 0; i < M.list.length; i++) {
+      c = M.list[i];
+      if (x0 < c.r + gap && x1 > c.l - gap && c.b + gap > r) r = c.b + gap;
+    }
+    return r;
+  }
+
+  /* BB-V7.74 — lordCamBand's top and key for a view at scale s whose left
+     edge is camX: the crown (key) peak lowered by what lordCamClear finds
+     over his crown on that screen, the hero's hat by what is over him. */
+  function lordCamTops(lord, hx, hy, camX, s, L, M) {
+    var U = artR(lord) * 1.48 * enemyVis(lord), half = U * LORD_CAM_HALF_U;
+    var rc = lordCamClear((lord.x - half - camX) * s, (lord.x + half - camX) * s, L, M) / s;
+    var rh = lordCamClear((hx - LORD_CAM_HERO_HALF - camX) * s, (hx + LORD_CAM_HERO_HALF - camX) * s, L, M) / s;
+    var hTop = hy - LORD_CAM_HERO_UP - Math.max(LORD_CAM_PAD_TOP, rh);
+    var crown = lord.y - U * LORD_CAM_CROWN_U - Math.max(LORD_CAM_PAD_TOP, rc);
+    var key = lord.y - U * LORD_CAM_KEY_U - Math.max(LORD_CAM_PAD_KEY, rc);
+    return { top: Math.min(LORD_CAM_TOP === "key" ? key : crown, hTop), key: Math.min(key, hTop) };
+  }
+
+  /* BB-V7.74 — the view's left edge at scale s when it centres the band
+     b across (cameraTarget's camX). */
+  function lordCamX(b, s, ww) {
+    var vw = canvas.width / s;
+    return vw >= ww ? (ww - vw) * 0.5 : Math.max(0, Math.min(ww - vw, (b.left + b.right) * 0.5 - vw * 0.5));
+  }
+
+  /* BB-V7.74 — canvas px of height the band needs at scale s: from the
+     highest lowered top (lordCamTops, for the hero where he is and where
+     his run takes him, ax, ay) down to the lower of his feet pad and the
+     hero's feet pad plus lordCamFoot. Only what the room
+     clamp (clampCamY) can show counts: the tops are cut at the painted
+     north wall top and the feet at the floor's south edge (v7.73). */
+  function lordCamNeed(lord, b, t, s, rb, L, M, hx, hy, ax, ay) {
+    var cx = lordCamX(b, s, t.ww);
+    var tp = lordCamTops(lord, hx, hy, cx, s, L, M), ta = lordCamTops(lord, ax, ay, cx, s, L, M);
+    var top = Math.max(Math.min(tp.top, ta.top), t.worldTop);
+    var bot = Math.max(Math.min(b.botL, t.hh), Math.min(b.botH + rb / s, t.hh));
+    return (bot - top) * s;
   }
 
   /* BB-V7.73 — the most zoom that fits the band on the canvas. It is a
      scale; lordZ multiplies the room's pre-idle frame scale (max(fit,
      softWant) in cameraTarget), so it is returned as that ratio. Never
      wider than the whole-room fit. It can drop below 1 on a small screen
-     or with the hero far from him (cameraTarget allows that). */
+     or with the hero far from him (cameraTarget allows that).
+     BB-V7.74 — what is over the crown depends on the zoom (a closer view
+     carries him further out from the centre, under the side chips), so
+     the cap is the largest scale whose band fits (lordCamNeed) with the
+     HUD found at that scale: bisected between the whole-room fit and the
+     v7.73 bound with nothing reserved (the band's own height and width).
+     The band also takes in where the hero's run carries him in
+     LORD_CAM_LEAD s (at most LORD_CAM_LEAD_MAX): lordZ eases at 3.2/s, so
+     it trails a hero running out of the band by about that long, which
+     v7.73's bottom strip used to absorb. It is read-only (player.vx/vy).
+     This never widens the view past the whole room. */
   function lordCamCap(lord) {
     var cw = canvas.width, ch = canvas.height;
     var t = cameraTarget();
     var frame = Math.max(t.fit, t.softWant);
-    var b = lordCamBand(lord, player.x, player.y);
-    /* BB-V7.73 — only ask for what the room clamp (clampCamY, camX) can
-       show: the band is cut at the painted north wall top, the floor's
-       south edge and the side walls. With the hero at the south wall no
-       zoom keeps the bar strip off him (the view bottom stops at the
-       floor edge and a wider view only makes the strip cover more of
-       the floor), so then his feet ask only for the band down to that
-       edge. This never widens the view. */
-    var top = Math.max(b.top, t.worldTop);
-    var cap = Math.min(ch / Math.max(1, Math.min(b.botL, t.hh) - top),
-      Math.max((ch - lordCamReserve(cw, ch)) / Math.max(1, b.botH - top), ch / Math.max(1, t.hh - top)),
+    var hx = player.x, hy = player.y, vx = player.vx || 0, vy = player.vy || 0;
+    var lead = LORD_CAM_LEAD * Math.min(1, LORD_CAM_LEAD_MAX / Math.max(1e-6, LORD_CAM_LEAD * Math.hypot(vx, vy)));
+    var ax = hx + vx * lead, ay = hy + vy * lead;
+    var b = lordCamBand(lord, hx, hy), ba = lordCamBand(lord, ax, ay);
+    b = { top: Math.min(b.top, ba.top), key: Math.min(b.key, ba.key), botL: b.botL, botH: Math.max(b.botH, ba.botH),
+      left: Math.min(b.left, ba.left), right: Math.max(b.right, ba.right) };
+    var L = bossBarLayout(cw, ch, lord), M = hudBoxes(), rb = lordCamFoot(cw);
+    var lo = t.fit, i, mid;
+    var hi = Math.min(ch / Math.max(1, Math.max(Math.min(b.botL, t.hh), Math.min(b.botH, t.hh)) - Math.max(b.top, t.worldTop)),
       cw / Math.max(1, Math.min(b.right, t.ww) - Math.max(b.left, 0)));
+    var cap;
+    if (hi <= lo) cap = lo;
+    else if (lordCamNeed(lord, b, t, hi, rb, L, M, hx, hy, ax, ay) <= ch) cap = hi;
+    else if (lordCamNeed(lord, b, t, lo, rb, L, M, hx, hy, ax, ay) > ch) cap = lo;
+    else {
+      for (i = 0; i < 16; i++) {
+        mid = (lo + hi) * 0.5;
+        if (lordCamNeed(lord, b, t, mid, rb, L, M, hx, hy, ax, ay) <= ch) lo = mid;
+        else hi = mid;
+      }
+      cap = lo;
+    }
     if (cap < t.fit) cap = t.fit;
     return cap / Math.max(1e-6, frame);
   }
@@ -11898,7 +11992,12 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
        the band's foot so the spare height goes up toward the key, and
        while the eased zoom is still short of the band, held to the crown
        (the foot's pad and the boss bar strip give first). After he dies
-       lz eases back to 1 from either side, as it did from above. */
+       lz eases back to 1 from either side, as it did from above.
+       BB-V7.74 — the top and key come from lordCamTops at this scale and
+       the view's left edge (so the crown and the hat sit below the top
+       boss bar and any chip over them), and the foot is the hero's feet
+       pad plus lordCamFoot. When the band is short the lowered tops still
+       win over that foot, but not over the hero's own feet and pad. */
     var lordF = skullLordFocus();
     if (lordF || lz > 1.001 || lz < 0.999) {
       scale *= lz;
@@ -11906,9 +12005,11 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       if (lordF) {
         var lb = lordCamBand(lordF, px, py);
         var lvH = ch / scale;
-        var lbot = Math.max(lb.botL, lb.botH + lordCamReserve(cw, ch) / scale);
+        var ltp = lordCamTops(lordF, px, py, lordCamX(lb, scale, ww), scale, bossBarLayout(cw, ch, lordF), hudBoxes());
+        var lbot = Math.max(lb.botL, lb.botH + lordCamFoot(cw) / scale);
         px = (lb.left + lb.right) * 0.5;
-        py = Math.min(Math.max((lb.key + lbot) * 0.5, lbot - lvH * 0.5), lb.top + lvH * 0.5);
+        py = Math.min(Math.max((ltp.key + lbot) * 0.5, lbot - lvH * 0.5), ltp.top + lvH * 0.5);
+        py = Math.max(py, lb.botH - lvH * 0.5);
       }
     }
     S.lordZoom = lz;
@@ -20108,7 +20209,8 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
   /* BB-V7.69 — floor bosses and the Skull Lord get a screen boss bar at the
      bottom centre (the one strip no HUD chip or thumb ring owns): spaced
      name, a trailing white chunk for the last hit, ticks at 75/50/25 — the
-     lord's court calls. Knights and guards keep their overhead bars. */
+     lord's court calls. Knights and guards keep their overhead bars.
+     BB-V7.74 — pinned to the top centre instead (bossBarLayout). */
   function bigBoss(e) {
     return !!(e && (e.boss === "bone" || e.boss === "slag" || e.boss === "ash" || e.boss === "thorn" || e.boss === "lord"));
   }
@@ -20123,10 +20225,10 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     S.bossBarA = (S.bossBarA || 0) + (target - (S.bossBarA || 0)) * 0.08;
     var A = S.bossBarA;
     if (A < 0.02) return;
-    var dpr = cw / Math.max(1, window.innerWidth);
-    var w = Math.min(cw * 0.46, 560 * dpr), h = Math.max(8, 11 * dpr);
-    var x = (cw - w) * 0.5, y = ch - Math.max(26 * dpr, ch * 0.07) - h;
-    if (installBar && installBar.className === "show") y -= installBar.offsetHeight * dpr;
+    /* BB-V7.74 — top centre (bossBarLayout); Safari's install banner sits
+       at the foot of the screen, so the bar no longer lifts over it. */
+    var L = bossBarLayout(cw, ch, e);
+    var dpr = L.dpr, w = L.w, h = L.h, x = L.x, y = L.y;
     var ratio = Math.max(0, e.hp / e.maxHp);
     if (e.barShow == null || e.barShow < e.hp) e.barShow = e.hp;
     e.barShow += (e.hp - e.barShow) * 0.05;
@@ -20151,16 +20253,117 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     g.strokeStyle = "#c4a070";
     g.lineWidth = Math.max(1, dpr);
     g.strokeRect(x - 1.5 * dpr, y - 1.5 * dpr, w + 3 * dpr, h + 3 * dpr);
-    g.font = "800 " + Math.round(13 * dpr) + "px -apple-system, 'Segoe UI', sans-serif";
+    g.font = bossBarFont(L.fs);
     g.textAlign = "center";
     g.textBaseline = "bottom";
-    var name = String(e.name || "").split("").join(" ");
+    var name = bossBarName(e);
     g.lineWidth = 3 * dpr;
     g.strokeStyle = "rgba(12,8,6,0.9)";
-    g.strokeText(name, cw * 0.5, y - 6 * dpr);
+    g.strokeText(name, cw * 0.5, L.labelY);
     g.fillStyle = "#f4e2c0";
-    g.fillText(name, cw * 0.5, y - 6 * dpr);
+    g.fillText(name, cw * 0.5, L.labelY);
     g.restore();
+  }
+
+  /* BB-V7.74 — the HUD's DOM chips (HP, floor/score/frag row, pause,
+     place pips, place cube) as canvas px boxes {l, t, r, b}, and the
+     safe-area insets (the #hud padding is env(safe-area-inset-*)) in
+     canvas px. The boss bar and the Skull Lord camera steer clear of
+     them. Read from the DOM at most every HUD_BOX_EVERY s of S.t, or at
+     once when the canvas or window size or the HUD's mode changes; a
+     chip that is not shown (display none) has no box. Read-only. */
+  var HUD_BOX_IDS = ["hpPips", "metaRow", "btnPause", "placePips", "btnBlock"];
+  var HUD_BOX_EVERY = 0.5;
+  var hudBoxMemo = null;
+  function hudBoxes() {
+    var cw = canvas.width, ch = canvas.height, now = S.t || 0;
+    var M = hudBoxMemo;
+    var cls = hud ? hud.className : "";
+    if (M && M.cw === cw && M.ch === ch && M.iw === window.innerWidth && M.ih === window.innerHeight &&
+        M.cls === cls && now >= M.t && now - M.t < HUD_BOX_EVERY) return M;
+    var cr = canvas.getBoundingClientRect();
+    var kx = cw / Math.max(1, cr.width), ky = ch / Math.max(1, cr.height);
+    var list = [], i, el, b, hs = hud ? getComputedStyle(hud) : null;
+    for (i = 0; i < HUD_BOX_IDS.length; i++) {
+      el = document.getElementById(HUD_BOX_IDS[i]);
+      if (!el) continue;
+      b = el.getBoundingClientRect();
+      if (b.width <= 0 || b.height <= 0) continue;
+      list.push({ l: (b.left - cr.left) * kx, t: (b.top - cr.top) * ky, r: (b.right - cr.left) * kx, b: (b.bottom - cr.top) * ky });
+    }
+    hudBoxMemo = M = {
+      cw: cw, ch: ch, iw: window.innerWidth, ih: window.innerHeight, cls: cls, t: now, list: list,
+      safeT: hs ? (parseFloat(hs.paddingTop) || 0) * ky : 0,
+      safeB: hs ? (parseFloat(hs.paddingBottom) || 0) * ky : 0
+    };
+    return M;
+  }
+
+  /* BB-V7.74 — the boss bar is pinned to the top centre of the screen.
+     At the foot (v7.69) the hero ran behind it in about a third of the
+     Skull Lord fight. Placement rule, in CSS px d (canvas px = d * dpr):
+     the name's ink top sits BAR_TOP d under the top edge, or under the
+     safe-area inset when there is one (an iPad status bar; a landscape
+     phone's notch and home bar are on the sides and foot, so the top
+     centre is clear); the bar hangs under the name as before (baseline
+     6 d above it). It is centred and as wide as before (46 % of the
+     screen, at most 560 d) unless a HUD chip level with the strip comes
+     within BAR_CHIP_GAP d of it: then it narrows to clear that chip, and
+     if that would leave the bar under BAR_MIN_W d (or cut the name) the
+     strip drops below the chip instead. The chips are the live DOM boxes
+     (hudBoxes), so a longer score or a buff chip is seen too. At
+     1280x720, 1024x768, 960x540, 844x390 and 667x375 the strip ends
+     above the floor/score row, between the HP pips and the place pips,
+     at full width. Layout only: canvas px { x, y, w, h (the bar), labelY
+     (the name's "bottom" baseline), fs, dpr, and the whole strip (the
+     bar's frame and the name's ink): l, r, top, bottom }. */
+  var BAR_TOP = 6;
+  var BAR_CHIP_GAP = 6;
+  var BAR_MIN_W = 160;
+  function bossBarFont(fs) { return "800 " + fs + "px -apple-system, 'Segoe UI', sans-serif"; }
+  function bossBarName(e) { return String(e.name || "").split("").join(" "); }
+  var barNameMemo = { key: "", w: 0 };
+  function bossBarNameW(name, fs) {
+    var key = fs + "|" + name;
+    if (barNameMemo.key !== key) {
+      ctx.save();
+      ctx.font = bossBarFont(fs);
+      barNameMemo.w = ctx.measureText(name).width;
+      ctx.restore();
+      barNameMemo.key = key;
+    }
+    return barNameMemo.w;
+  }
+  function bossBarLayout(cw, ch, e) {
+    var dpr = cw / Math.max(1, window.innerWidth);
+    var M = hudBoxes();
+    var h = Math.max(8, 11 * dpr), fs = Math.round(13 * dpr), sw = 1.5 * dpr;
+    var gap = BAR_CHIP_GAP * dpr, cx = cw * 0.5;
+    var frame = Math.min(cw * 0.46, 560 * dpr) * 0.5 + 3 * dpr;
+    var nameHalf = bossBarNameW(bossBarName(e), fs) * 0.5 + sw;
+    var minHalf = Math.max(BAR_MIN_W * 0.5 * dpr + 3 * dpr, nameHalf);
+    var top = M.safeT + BAR_TOP * dpr, bottom = 0, half = frame, k, i, c, room, drop;
+    for (k = 0; ; k++) {
+      bottom = top + fs + sw + 6 * dpr + h + 3 * dpr;
+      half = Math.max(frame, nameHalf);
+      drop = -1;
+      for (i = 0; i < M.list.length; i++) {
+        c = M.list[i];
+        if (c.t >= bottom + gap || c.b <= top - gap) continue;
+        room = c.l + c.r < cw ? cx - c.r - gap : c.l - gap - cx;
+        if (room < half) half = room;
+        if (room < minHalf && c.b + gap > drop) drop = c.b + gap;
+      }
+      if (drop < 0 || k === 3) break;
+      top = drop;
+    }
+    var labelY = top + fs + sw, y = labelY + 6 * dpr;
+    var bw = Math.max(2 * (Math.min(half, frame) - 3 * dpr), 0);
+    return {
+      x: cx - bw * 0.5, y: y, w: bw, h: h, labelY: labelY, fs: fs, dpr: dpr,
+      l: cx - Math.max(bw * 0.5 + 3 * dpr, nameHalf), r: cx + Math.max(bw * 0.5 + 3 * dpr, nameHalf),
+      top: top, bottom: y + h + 3 * dpr
+    };
   }
 
   /* BB-V7.69 — loot reads as things: a faceted blue shard (the HUD's own
