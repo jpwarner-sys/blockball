@@ -1132,7 +1132,10 @@
      u = artR * 1.48, scaled by LORD_VIS about his feet: head cube
      yt - 0.06u, crown spike yt - 1.02u, key crossbar yt - 2.28u, with
      yt = y - 2.35u. Pads are world px. Camera-only: the sim never reads
-     any of it back. */
+     any of it back.
+     "key" is a comparison build: on an 844x390 phone it holds a tile near
+     18 CSS px (about 14 at its widest), under TILE_CSS_MIN; "crown" stays
+     near 22 (about 17 at its widest). */
   var LORD_CAM_TOP = "crown";
   var LORD_CAM_CROWN_U = 3.37;  /* feet -> crown peak */
   var LORD_CAM_KEY_U = 4.63;    /* feet -> key top */
@@ -11792,9 +11795,17 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     var t = cameraTarget();
     var frame = Math.max(t.fit, t.softWant);
     var b = lordCamBand(lord, player.x, player.y);
-    var cap = Math.min(ch / Math.max(1, b.botL - b.top),
-      (ch - lordCamReserve(cw, ch)) / Math.max(1, b.botH - b.top),
-      cw / Math.max(1, b.right - b.left));
+    /* BB-V7.73 — only ask for what the room clamp (clampCamY, camX) can
+       show: the band is cut at the painted north wall top, the floor's
+       south edge and the side walls. With the hero at the south wall no
+       zoom keeps the bar strip off him (the view bottom stops at the
+       floor edge and a wider view only makes the strip cover more of
+       the floor), so then his feet ask only for the band down to that
+       edge. This never widens the view. */
+    var top = Math.max(b.top, t.worldTop);
+    var cap = Math.min(ch / Math.max(1, Math.min(b.botL, t.hh) - top),
+      Math.max((ch - lordCamReserve(cw, ch)) / Math.max(1, b.botH - top), ch / Math.max(1, t.hh - top)),
+      cw / Math.max(1, Math.min(b.right, t.ww) - Math.max(b.left, 0)));
     if (cap < t.fit) cap = t.fit;
     cap = cap / Math.max(1e-6, frame);
     return goal < cap ? goal : cap;
