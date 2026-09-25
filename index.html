@@ -712,6 +712,48 @@
     padding: 6px 8px;
     font-size: clamp(13.5px, 2.2cqi, 15px);
   }
+  /* BB-V7.75 — after a floor boss dies, a small popup sits over the live room.
+     The field stays clickable; only the button takes the pointer. The
+     upgrade/descend card (and the Skull Lord end card) wait on that click. */
+  #lootHold {
+    display: none;
+    position: absolute;
+    left: 50%;
+    bottom: calc(18px + env(safe-area-inset-bottom));
+    transform: translateX(-50%);
+    z-index: 34;
+    pointer-events: none;
+  }
+  #lootHold.show { display: block; }
+  #btnLootHold {
+    pointer-events: auto;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    min-width: 196px;
+    min-height: 52px;
+    padding: 8px 18px 10px;
+    border: 2px solid #d06018;
+    border-radius: 4px;
+    background: linear-gradient(180deg, #3a2c22 0%, #241a14 100%);
+    color: #ffe8c0;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    cursor: pointer;
+    box-shadow: 0 3px 0 #1a120c, 0 0 16px rgba(208, 96, 24, 0.28), inset 0 1px 0 rgba(255, 220, 170, 0.16);
+    text-shadow: 0 1px 0 #1a120c;
+  }
+  #btnLootHold .lootHoldKicker {
+    font-size: 11px;
+    color: #f0c030;
+    letter-spacing: 0.16em;
+  }
+  #btnLootHold .lootHoldGo {
+    font-size: 16px;
+    color: #fff6e4;
+    letter-spacing: 0.12em;
+  }
   #toasts {
     position: absolute; left: 50%; transform: translateX(-50%);
     top: calc(88px + env(safe-area-inset-top));
@@ -1077,6 +1119,12 @@
     </div>
     <div id="toasts"></div>
   </div>
+  <div id="lootHold" aria-hidden="true">
+    <button type="button" id="btnLootHold">
+      <span class="lootHoldKicker" id="lootHoldTitle">BOSS DOWN</span>
+      <span class="lootHoldGo">CONTINUE</span>
+    </button>
+  </div>
   <div id="install">
     <svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="true">
       <rect x="4" y="8" width="14" height="12" rx="2" fill="none" stroke="#f0e6d4" stroke-width="2"/>
@@ -1281,6 +1329,8 @@
     pops: [],
     muteFx: 0,
     bossBeat: 0,
+    /* BB-V7.75 — { final } while a dead floor boss's room waits on the loot popup. */
+    lootHold: null,
     hoopReady: false,
     shotCall: null,
     hoopLog: [],
@@ -3453,6 +3503,7 @@
   }
 
   function loadRoom(idx) {
+    dismissBossLootHold();
     var sameRoom = !!(room && S.roomI === idx && S.mode === "play");
     if (player && room && !sameRoom) tickSwishBuffs();
     /* BB-V7.50 — a relic left on the floor comes with you. A downed retry
@@ -3563,6 +3614,7 @@
     S.completeAwarded = false;
     S.runSwish = 0;
     S.bossBeat = 0;
+    S.lootHold = null;
     S.cine = null;
     S.downed = null;
     S.customPlay = !!custom;
@@ -4042,7 +4094,52 @@
         setTimeout(function () { dropLoot(en.x + irnd(-40, 40), en.y + irnd(-30, 30), true); }, 80 * k);
       })(i);
     }
+    /* BB-V7.75 — do not open the floor card yet. The room, the loot and the
+       look-around camera stay until the player taps the popup. */
+    openBossLootHold(en);
   }
+
+  function lootHoldIsFinal(en) {
+    return S.floor === SKULL_LORD_FLOOR && !!(en && en.boss === "lord");
+  }
+
+  function dismissBossLootHold() {
+    S.lootHold = null;
+    var el = document.getElementById("lootHold");
+    if (el) {
+      el.className = "";
+      el.setAttribute("aria-hidden", "true");
+    }
+  }
+
+  function openBossLootHold(en) {
+    if (S.customPlay || !room || room.kind !== "boss" || S.lootHold) return;
+    S.lootHold = { final: lootHoldIsFinal(en) };
+    var el = document.getElementById("lootHold");
+    var title = document.getElementById("lootHoldTitle");
+    if (title) title.textContent = S.lootHold.final ? "SKULL LORD DOWN" : "BOSS DOWN";
+    if (el) {
+      el.className = "show";
+      el.setAttribute("aria-hidden", "false");
+    }
+  }
+
+  function confirmBossLootHold() {
+    if (!S.lootHold || S.mode !== "play") return;
+    dismissBossLootHold();
+    S.bossBeat = 0;
+    S.hoopReady = false;
+    nextRoomOrFloor();
+  }
+  (function bindLootHold() {
+    var btn = document.getElementById("btnLootHold");
+    if (!btn) return;
+    btn.addEventListener("click", function (ev) {
+      ev.preventDefault();
+      ev.stopPropagation();
+      confirmBossLootHold();
+    });
+  })();
 
   /* BB-V7.50 — fragments used to land on every kill and stack into a shop
      spree at the floor door. Shards are now an uncommon roll (~3 a floor on
@@ -11083,7 +11180,9 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       /* BB-V7.22 — settle at the drop point (last enemy / chest location), not
          the bottom of the screen. restY falls back for any legacy loot. */
       var floorY = (it.restY != null) ? it.restY : (playH() - 40);
-      it.life -= dt; it.vy += 80 * dt; it.y += it.vy * dt;
+      /* BB-V7.75 — while the boss-loot popup is up, drops do not expire. */
+      if (!S.lootHold) it.life -= dt;
+      it.vy += 80 * dt; it.y += it.vy * dt;
       if (it.y > floorY) { it.y = floorY; it.vy *= -0.3; }
       var grab = it.kind === "relic" ? 42 : 28;
       /* BB-V7.69 — close loot drifts to you, so a pickup is a swoop, not a pixel hunt */
@@ -11199,7 +11298,9 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
       var holdBeat = (S.cine && S.cine.active) || hoopShotLive ||
         (S.hoopReady && room && room.hoop && !room.hoop.swished && room.kind === "boss");
       if (!holdBeat) S.bossBeat -= dt;
-      if (S.bossBeat <= 0 && room && room.cleared) {
+      /* BB-V7.75 — a floor-boss room stays put until the loot popup is clicked.
+         Knight halls still advance on the beat. */
+      if (S.bossBeat <= 0 && room && room.cleared && !S.lootHold) {
         S.hoopReady = false;
         nextRoomOrFloor();
       }
@@ -20861,6 +20962,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
   }
 
   function showMenu() {
+    dismissBossLootHold();
     S.mode = "menu";
     resize();
     hidePanels();
@@ -21248,6 +21350,7 @@ function endRunToMenu() {
   }
 
   function showFloorCard(boss) {
+    dismissBossLootHold();
     S.shopBoss = !!boss;          /* remembered so UPGRADE -> DONE comes back correctly */
     hidePanels();
     document.getElementById("floorPanel").className = "panel show";
@@ -21916,6 +22019,7 @@ function endRunToMenu() {
         parts: S.particles.length,
         shots: S.shots.filter(function (s) { return !s.inert; }).map(function (s) { return { x: s.x, y: s.y, vx: s.vx, vy: s.vy, r: s.r }; }),
         loot: S.loot.length, downed: !!S.downed,
+        lootHold: !!S.lootHold, lootHoldFinal: !!(S.lootHold && S.lootHold.final),
         floorCard: shown("floorPanel"), splash: shown("splashPanel"), shop: shown("shopPanel")
       };
     },
