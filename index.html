@@ -5333,7 +5333,9 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
   }
   /* BB-V7.69 — trash volleys wear their biome: arrows in the crypt, forge
      spit is an ember, the voider's is a void orb, the thorn spitter's a
-     needle. Same 1-point hit; only the read changes. */
+     needle. Same 1-point hit; only the read changes.
+     The hooded archer is the only bow. Its shot is an arrow (shaft + head).
+     Knife volleys stay on enemies that actually throw knives. */
   function fireTrashShot(e, ux, uy) {
     var t = e.type;
     if (t === "spit") {
@@ -5347,6 +5349,8 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
          hero past ~150px and never landed */
       fireShot(e.x, e.y - 6, Math.cos(a - 0.045), Math.sin(a - 0.045), 185, 1, "needle", { owner: e, r: 4, life: 2.2, col: "#24381f", accent: "#c0e070" });
       fireShot(e.x, e.y - 6, Math.cos(a + 0.045), Math.sin(a + 0.045), 185, 1, "needle", { owner: e, r: 4, life: 2.2, col: "#24381f", accent: "#c0e070" });
+    } else if (t === "archer") {
+      fireShot(e.x, e.y - 8, ux, uy, 165, 1, "arrow", { owner: e, r: 4.5, col: "#7a6a58", accent: "#c8d0d8", body: "#e0d8c0" });
     } else {
       fireShot(e.x, e.y - 8, ux, uy, 165, 1, "knife", { owner: e, col: "#7a6a58", accent: "#c8d0d8", body: "#e0d8c0" });
     }
@@ -11125,7 +11129,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
 
   function killShot(i) {
     var s = S.shots[i];
-    if (s && (s.kind === "weapon" || s.kind === "ember" || s.kind === "bone" || s.kind === "needle" || s.kind === "orb")) {
+    if (s && (s.kind === "weapon" || s.kind === "ember" || s.kind === "bone" || s.kind === "needle" || s.kind === "orb" || s.kind === "arrow")) {
       burst(s.x, s.y, s.col || s.accent || "#c8d0d8", s.kind === "weapon" ? 10 : 6);
     }
     S.shots.splice(i, 1);
@@ -13520,7 +13524,8 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
 
   /* BB-V7.5 — shots used to be one yellow arc. Knives are a small blade along
      velocity; thrown knight weapons are the same silhouette he holds, just flying.
-     BB-V7.18 — ember / bone / needle for themed knight volleys. */
+     BB-V7.18 — ember / bone / needle for themed knight volleys.
+     Archer volleys are arrows: a wood shaft and a steel head along velocity. */
   function drawShot(g, s) {
     if (s.inert) {
       g.save();
@@ -13538,6 +13543,7 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     else if (s.kind === "bone") drawBoneShard(g, s);
     else if (s.kind === "needle") drawNeedle(g, s);
     else if (s.kind === "orb") drawVoidOrb(g, s);
+    else if (s.kind === "arrow") drawArrow(g, s);
     else drawKnife(g, s);
   }
 
@@ -13562,6 +13568,41 @@ var a = Math.atan2(ball.vy, ball.vx) + i * 0.5;
     g.beginPath(); g.arc(s.x, s.y, 4 * pulse, 0, 6.3); g.fill();
     g.fillStyle = "#f0e0ff";
     g.fillRect(s.x - 3, s.y - 4, 2, 2);
+    g.restore();
+  }
+
+  /* Archer shot. Same canvas language as the nocked arrow on the bow
+     (pale shaft, steel head) and the other flying shots: rotated onto
+     velocity, with fletching so it does not read as a knife or a needle. */
+  function drawArrow(g, s) {
+    var ang = Math.atan2(s.vy, s.vx);
+    var wood = s.body || "#e0d8c0";
+    var head = s.accent || "#c8d0d8";
+    var fletch = s.col || "#7a6a58";
+    g.save();
+    g.translate(s.x, s.y);
+    g.rotate(ang);
+    g.globalAlpha = 0.25;
+    g.fillStyle = "#0a0806";
+    g.beginPath(); g.ellipse(-1, 5, 10, 2.2, 0, 0, 6.3); g.fill();
+    g.globalAlpha = 1;
+    g.fillStyle = shade(wood, 0.72);
+    g.fillRect(-13, -0.3, 22, 1.5);
+    g.fillStyle = wood;
+    g.fillRect(-13, -1.4, 22, 1.2);
+    g.fillStyle = head;
+    g.beginPath();
+    g.moveTo(15, 0); g.lineTo(7, 3.5); g.lineTo(7, -3.5); g.closePath(); g.fill();
+    g.fillStyle = shade(head, 1.28);
+    g.beginPath();
+    g.moveTo(15, 0); g.lineTo(7, -3.5); g.lineTo(8.4, 0); g.closePath(); g.fill();
+    g.fillStyle = fletch;
+    g.beginPath();
+    g.moveTo(-13, 0); g.lineTo(-7.5, 4); g.lineTo(-8.6, 0); g.closePath(); g.fill();
+    g.beginPath();
+    g.moveTo(-13, 0); g.lineTo(-7.5, -4); g.lineTo(-8.6, 0); g.closePath(); g.fill();
+    g.fillStyle = shade(fletch, 0.65);
+    g.fillRect(-14.4, -1.3, 2.4, 2.6);
     g.restore();
   }
 
